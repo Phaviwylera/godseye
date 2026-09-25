@@ -17,7 +17,13 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8000))
+def _port():
+    try:
+        return int(sys.argv[1])
+    except (IndexError, ValueError):
+        return int(os.environ.get("PORT", 8000))
+
+PORT = _port()
 
 MIME = {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",

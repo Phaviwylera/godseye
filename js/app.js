@@ -222,10 +222,22 @@ function filtered() {
   );
 }
 
+function animateNum(node, to) {
+  const from = parseInt(String(node.textContent).replace(/[^\d]/g, "")) || 0;
+  if (from === to) { node.textContent = fmtNum(to); return; }
+  const t0 = performance.now(), dur = 700;
+  (function step(t) {
+    const k = Math.min(1, (t - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    node.textContent = fmtNum(Math.round(from + (to - from) * e));
+    if (k < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
 function updateStats() {
-  el.stCams.textContent = fmtNum(cams.length);
-  el.stVideo.textContent = fmtNum(cams.filter(c => c.stype === "m3u8" || c.stype === "mp4" || c.stype === "youtube").length);
-  el.stLive.textContent = cams.some(c => c.live !== undefined) ? fmtNum(cams.filter(c => c.live === 1).length) : "–";
+  animateNum(el.stCams, cams.length);
+  animateNum(el.stVideo, cams.filter(c => c.stype === "m3u8" || c.stype === "mp4" || c.stype === "youtube").length);
+  if (cams.some(c => c.live !== undefined)) animateNum(el.stLive, cams.filter(c => c.live === 1).length);
 }
 
 function renderList() {
@@ -296,7 +308,7 @@ function openCam(id, fly) {
   if (fly) {
     map.flyTo({
       center: [c.lon, c.lat], zoom: Math.max(map.getZoom(), 15.2), pitch: 58,
-      bearing: (Math.random() * 50 - 25), duration: 2200, curve: 1.5, essential: true,
+      bearing: (Math.random() * 50 - 25), duration: 2800, curve: 1.4, easing: (t) => 1 - Math.pow(1 - t, 3), essential: true,
     });
   }
   fxLockOn();
@@ -321,10 +333,10 @@ function openCam(id, fly) {
     onFrame: (count) => {
       el.scrub.max = Math.max(0, count - 1);
       el.scrub.value = Math.max(0, count - 1);
-      el.scrubWrap.style.display = count > 2 ? "flex" : "none";
+      el.scrubWrap.classList.toggle("hidden", count <= 2);
     },
   });
-  el.scrubWrap.style.display = "none";
+  el.scrubWrap.classList.add("hidden");
   Players.startClock(el.mClock);
 }
 
@@ -371,7 +383,7 @@ function openWall(n) {
   if (!picks.length) return;
   el.wallGrid.style.gridTemplateColumns = `repeat(${n === 9 ? 3 : 2}, 1fr)`;
   el.wallCount.textContent = `${picks.length} FEEDS // ${n === 9 ? "3×3" : "2×2"}`;
-  picks.forEach((c) => {
+  picks.forEach((c, i) => {
     const tile = document.createElement("div");
     tile.className = "wall-tile";
     tile.innerHTML = `
@@ -381,6 +393,7 @@ function openWall(n) {
         <button class="wall-open" title="open & fly">⤢</button>
       </div>
       <div class="wall-tile-player"></div>`;
+    tile.style.animationDelay = (i * 80) + "ms";
     el.wallGrid.appendChild(tile);
     const handle = Players.mount(c, tile.querySelector(".wall-tile-player"), { minimal: true, frameW: 480, captureFrames: false });
     tile.querySelector(".wall-open").onclick = () => { fxLockOn(); openCam(c.id, true); };
@@ -537,6 +550,8 @@ function wireUI() {
     if (Intel.state.radarPlaying) { Intel.pauseRadar(); $("#radar-play").textContent = "▶"; }
     else { Intel.playRadar(); $("#radar-play").textContent = "⏸"; }
   };
+  $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
+  $("#air-chip").onclick = () => { $("#btn-air").click(); };
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
