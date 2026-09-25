@@ -231,10 +231,10 @@
     ]
   },
   "qc511": {
-    "cams": 518,
+    "cams": 520,
     "m3u8": 0,
     "image": 0,
-    "embed": 518,
+    "embed": 520,
     "dynamic": 0,
     "regions": [
       "CA/Quebec"
@@ -251,9 +251,9 @@
     ]
   },
   "fi": {
-    "cams": 803,
+    "cams": 802,
     "m3u8": 0,
-    "image": 803,
+    "image": 802,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -261,9 +261,9 @@
     ]
   },
   "ltc": {
-    "cams": 1124,
+    "cams": 1070,
     "m3u8": 0,
-    "image": 1124,
+    "image": 1070,
     "embed": 0,
     "dynamic": 0,
     "regions": [
