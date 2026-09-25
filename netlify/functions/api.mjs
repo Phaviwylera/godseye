@@ -36,6 +36,11 @@ export async function handler(event) {
 
   const params = event.queryStringParameters || {};
   const url = params.url || "";
+  // health/liveness probe (and anything without a url) → report relay status
+  if (!url) {
+    return { statusCode: 200, headers: CORS,
+      body: JSON.stringify({ ok: true, app: "godseye", relay: true }) };
+  }
   if (!valid(url)) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "bad url" }) };
   }

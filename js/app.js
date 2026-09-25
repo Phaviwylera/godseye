@@ -400,11 +400,13 @@ function tickClock() {
   wireUI();
   try {
     const h = await fetch("/api/health", { cache: "no-store" });
-    if (!h.ok) throw 0;
+    // only pure-static hosts (404) disable the relay; the Netlify function
+    // answers /api/health with {"ok":true} so streams are proxied there
+    if (h.status === 404) window.GE_NO_PROXY = true;
   } catch (e) {
     window.GE_NO_PROXY = true;
-    el.syncMsg.textContent = "static mode — live video needs the /api relay";
   }
+  if (window.GE_NO_PROXY) el.syncMsg.textContent = "static mode — live video needs the /api relay";
   await initMap();
   // background live sync — keeps the grid fresh from official APIs
   setTimeout(async () => {
