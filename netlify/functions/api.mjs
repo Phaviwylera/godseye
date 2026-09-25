@@ -10,6 +10,30 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET,OPTIONS",
 };
 
+/* ---- abuse protection: same-site origin check + per-IP rate limit ---- */
+const HITS = new Map();
+function rateOK(ip) {
+  const now = Date.now();
+  const arr = (HITS.get(ip) || []).filter((t) => now - t < 60000);
+  if (arr.length >= 90) return false; // 90 relayed requests / minute / IP
+  arr.push(now);
+  HITS.set(ip, arr);
+  if (HITS.size > 5000) HITS.clear();
+  return true;
+}
+function siteOK(headers) {
+  const host = String(headers.host || "").split(":")[0];
+  const check = (u) => {
+    if (!u) return true;
+    try {
+      const h = new URL(u).hostname;
+      return h === host || h.endsWith(".netlify.app") || h.endsWith(".e2b.app") ||
+             h === "localhost" || h === "127.0.0.1";
+    } catch { return false; }
+  };
+  return check(headers.origin) && check(headers.referer);
+}
+
 function valid(u) {
   try {
     const p = new URL(u);
@@ -34,6 +58,16 @@ function rewriteM3u8(text, base) {
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS, body: "" };
 
+  const headers = event.headers || {};
+  const ip = headers["x-nf-client-connection-ip"] ||
+    String(headers["x-forwarded-for"] || "").split(",")[0] || "anon";
+  if (!siteOK(headers)) {
+    return { statusCode: 403, headers: CORS, body: JSON.stringify({ error: "cross-site use not allowed" }) };
+  }
+  if (!rateOK(ip)) {
+    return { statusCode: 429, headers: CORS, body: JSON.stringify({ error: "rate limit — slow down" }) };
+  }
+
   const params = event.queryStringParameters || {};
   const url = params.url || "";
   // health/liveness probe (and anything without a url) → report relay status
@@ -41,7 +75,7 @@ export async function handler(event) {
     return { statusCode: 200, headers: CORS,
       body: JSON.stringify({ ok: true, app: "godseye", relay: true }) };
   }
-  if (!valid(url)) {
+  if (!valid(url) || url.length > 2000) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "bad url" }) };
   }
   const isFetch = (event.path || "").includes("/fetch");

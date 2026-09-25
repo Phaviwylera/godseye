@@ -11,7 +11,7 @@ GOD'S EYE — tiny zero-dependency server (Python stdlib only).
 
 Run:  python3 server.py [port]      (default 8000, binds 0.0.0.0)
 """
-import os, re, sys, json, urllib.request, urllib.error
+import os, re, sys, time, json, urllib.request, urllib.error
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote
@@ -73,6 +73,32 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "GodsEye/1.0"
 
+    # ---- abuse protection: same-site check + per-IP rate limit ----
+    _hits = {}
+
+    def _client_ok(self):
+        host = (self.headers.get("Host") or "").split(":")[0]
+        def ok(u):
+            if not u:
+                return True
+            try:
+                h = urlparse(u).hostname or ""
+                return h == host or h in ("localhost", "127.0.0.1") or h.endswith((".netlify.app", ".e2b.app"))
+            except Exception:
+                return False
+        if not ok(self.headers.get("Origin")) or not ok(self.headers.get("Referer")):
+            return False
+        ip = self.client_address[0]
+        now = time.time()
+        arr = [t for t in Handler._hits.get(ip, []) if now - t < 60]
+        if len(arr) >= 120:
+            return False
+        arr.append(now)
+        Handler._hits[ip] = arr
+        if len(Handler._hits) > 5000:
+            Handler._hits.clear()
+        return True
+
     def log_message(self, fmt, *args):
         if "/api/proxy" in (args[0] if args else ""):
             return  # stream relay is chatty
@@ -104,7 +130,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/api/health":
-            return self._json({"ok": True, "app": "godseye"})
+            return self._json({"ok": True, "app": "godseye", "relay": True})
+        if path.startswith("/api/") and not self._client_ok():
+            return self._json({"error": "cross-site use not allowed / rate limit"}, 403)
         if path == "/api/proxy":
             return self.do_proxy(parse_qs(parsed.query).get("url", [""])[0])
         if path == "/api/fetch":
@@ -113,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------- proxy ----
     def do_proxy(self, url):
-        if not url or not valid_url(url):
+        if not url or not valid_url(url) or len(url) > 2000:
             return self._json({"error": "bad url"}, 400)
         try:
             req = urllib.request.Request(url, headers={
@@ -163,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------- fetch ----
     def do_fetch(self, url):
-        if not url or not valid_url(url):
+        if not url or not valid_url(url) or len(url) > 2000:
             return self._json({"error": "bad url"}, 400)
         try:
             req = urllib.request.Request(url, headers={

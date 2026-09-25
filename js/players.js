@@ -1,102 +1,31 @@
-/* GOD'S EYE — feed players. One entry point: Players.play(cam, container).
- * Camera stream types:
- *   m3u8    HLS video            -> hls.js (native on Safari)
- *   image   refreshing JPEG      -> <img> + cache-bust polling
- *   dynamic rotating snapshot URL -> <img> + API re-resolve polling
- *   embed   agency player page   -> <iframe>
- * All media goes through /api/proxy (mixed-content + CORS safe).
+/* GOD'S EYE — feed players (multi-instance: modal + video wall run in parallel).
+ * Types: m3u8 (HLS) | image (polling jpg) | dynamic (rotating snapshot URL) | embed (agency portal)
+ * Each mount() is independent: {stop, capture, frames, seekFrame, resume}
+ * Frames of snapshot feeds are kept as data-URLs → 60s rewind + canvas capture
+ * works even where streams are cross-origin.
  */
 const Players = (() => {
-  let hls = null;
-  let timer = null;
-  let clockTimer = null;
 
   const proxied = (u) => window.GE_NO_PROXY ? u : "/api/proxy?url=" + encodeURIComponent(u);
+  const FRAME_MAX = 12;
 
-  function stop() {
-    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
-    if (timer) { clearInterval(timer); timer = null; }
-    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  function stopClock() {
+    if (stopClock.t) { clearInterval(stopClock.t); stopClock.t = null; }
+  }
+  function startClock(el) {
+    stopClock();
+    const tick = () => { el.textContent = new Date().toISOString().slice(11, 19) + " UTC"; };
+    tick();
+    stopClock.t = setInterval(tick, 1000);
   }
 
   function msg(container, html) {
     container.innerHTML = `<div class="player-msg">${html}</div>`;
   }
 
-  function startClock(el) {
-    const tick = () => {
-      const d = new Date();
-      el.textContent = d.toISOString().slice(11, 19) + " UTC";
-    };
-    tick();
-    clockTimer = setInterval(tick, 1000);
-  }
-
-  function playImage(container, cam) {
-    const img = document.createElement("img");
-    img.alt = cam.name;
-    let n = 0;
-    const load = () => { img.src = proxied(cam.stream) + "&_r=" + (++n); };
-    img.onerror = () => {
-      if (n > 4) { stop(); msg(container, `NO SIGNAL<br><span style="font-size:10px">feed unreachable — <a href="${cam.page || "#"}" target="_blank" rel="noopener">open official page</a></span>`); }
-    };
-    load();
-    container.appendChild(img);
-    timer = setInterval(load, cam.stype === "dynamic" ? 8000 : 6000);
-  }
-
-  async function playDynamic(container, cam) {
-    const img = document.createElement("img");
-    img.alt = cam.name;
-    container.appendChild(img);
-    const load = async () => {
-      try {
-        let url = null;
-        if (cam.src === "sg") url = await Sources.singaporeFrame(cam.id);
-        if (url) img.src = proxied(url) + "&_r=" + Date.now();
-        else if (!img.src) img.src = proxied(cam.stream);
-      } catch (e) { /* keep last frame */ }
-    };
-    load();
-    timer = setInterval(load, 10000);
-  }
-
-  function playM3u8(container, cam) {
-    const video = document.createElement("video");
-    video.autoplay = true; video.controls = true; video.muted = true; video.playsInline = true;
-    container.appendChild(video);
-    const src = proxied(cam.stream);
-    const fail = (why) => {
-      stop();
-      msg(container, `SIGNAL LOST<br><span style="font-size:10px">${why} — <a href="${cam.page || "#"}" target="_blank" rel="noopener">open official page</a></span>`);
-    };
-    if (window.Hls && Hls.isSupported()) {
-      hls = new Hls({
-        lowLatencyMode: true, maxBufferLength: 12, manifestLoadingTimeOut: 15000,
-        manifestLoadingMaxRetry: 3, levelLoadingTimeOut: 15000, fragLoadingTimeOut: 20000,
-      });
-      hls.loadSource(src);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-          try { hls.startLoad(); hls.recoverMediaError(); } catch (e) { fail("stream error"); }
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details === "manifestLoadError") fail("manifest unreachable");
-        }
-      });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = src;
-      video.onerror = () => fail("native player error");
-    } else {
-      fail("HLS not supported in this browser");
-      return;
-    }
-    video.play().catch(() => {});
-  }
-
-  function playEmbed(container, cam) {
-    // Agencies like Québec 511 serve their live view only through their own
-    // viewer page (X-Frame-Options: SAMEORIGIN + Cloudflare) — embedding is
-    // blocked by design. Present a launch card instead of a broken iframe.
+  function portalCard(container, cam) {
+    // Agencies like Québec 511 serve video only through their own viewer
+    // (X-Frame-Options + Cloudflare) — launch card, never a broken iframe.
     const wrap = document.createElement("div");
     wrap.style.cssText = "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100%;padding:24px;text-align:center";
     wrap.innerHTML = `
@@ -119,17 +48,151 @@ const Players = (() => {
     container.appendChild(wrap);
   }
 
-  function play(cam, container) {
-    stop();
+  /** Mount one camera feed into a container. Returns a handle. */
+  function mount(cam, container, opts = {}) {
+    const st = {
+      cam, container, hls: null, timer: null, video: null, img: null,
+      frames: [], paused: false, frameW: opts.frameW || 1024,
+    };
     container.innerHTML = "";
+
+    const pushFrame = (src) => {
+      if (!opts.captureFrames) return;
+      try {
+        const c = document.createElement("canvas");
+        const iw = src.naturalWidth || src.videoWidth, ih = src.naturalHeight || src.videoHeight;
+        if (!iw || !ih) return;
+        const scale = Math.min(1, st.frameW / iw);
+        c.width = Math.round(iw * scale); c.height = Math.round(ih * scale);
+        c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+        st.frames.push({ t: Date.now(), url: c.toDataURL("image/jpeg", 0.72) });
+        if (st.frames.length > FRAME_MAX) st.frames.shift();
+        opts.onFrame && opts.onFrame(st.frames.length);
+      } catch (e) { /* tainted canvas in static mode — capture disabled */ }
+    };
+
+    const showFrame = (i) => {
+      if (!st.img || !st.frames[i]) return;
+      st.paused = true;
+      if (st.timer) { clearInterval(st.timer); st.timer = null; }
+      st.img.src = st.frames[i].url;
+    };
+    const resume = () => {
+      st.paused = false;
+      if (cam.stype === "image" || cam.stype === "dynamic") startPolling();
+    };
+
+    // ------------------------------------------------------------ image ----
+    let n = 0;
+    const loadImageOnce = async () => {
+      if (st.paused) return;
+      try {
+        let url = proxied(cam.stream) + (cam.stream.includes("?") ? "&" : "?") + "_r=" + (++n);
+        if (cam.stype === "dynamic" && cam.src === "sg") {
+          const fresh = await Sources.singaporeFrame(cam.id);
+          if (fresh) url = proxied(fresh) + "&_r=" + (++n);
+        }
+        st.img.src = url;
+      } catch (e) { /* keep last frame */ }
+    };
+
+    function startPolling() {
+      if (st.timer) clearInterval(st.timer);
+      st.timer = setInterval(loadImageOnce, cam.stype === "dynamic" ? 10000 : 6000);
+    }
+
+    function playImage() {
+      const img = document.createElement("img");
+      img.alt = cam.name;
+      st.img = img;
+      img.onload = () => pushFrame(img);
+      img.onerror = () => {
+        if (n > 4 && !st.frames.length) {
+          stop();
+          msg(container, `NO SIGNAL<br><span style="font-size:10px">feed unreachable — <a href="${cam.page || cam.stream || "#"}" target="_blank" rel="noopener">open official page</a></span>`);
+        }
+      };
+      container.appendChild(img);
+      loadImageOnce();
+      startPolling();
+    }
+
+    // ------------------------------------------------------------- m3u8 ----
+    function playM3u8() {
+      const video = document.createElement("video");
+      video.autoplay = true; video.controls = !opts.minimal; video.muted = true; video.playsInline = true;
+      st.video = video;
+      container.appendChild(video);
+      const src = proxied(cam.stream);
+      const fail = (why) => {
+        stop();
+        msg(container, `SIGNAL LOST<br><span style="font-size:10px">${why} — <a href="${cam.page || cam.stream || "#"}" target="_blank" rel="noopener">open official page</a></span>`);
+      };
+      if (window.Hls && Hls.isSupported()) {
+        st.hls = new Hls({
+          lowLatencyMode: true, maxBufferLength: 12,
+          manifestLoadingTimeOut: 15000, manifestLoadingMaxRetry: 3,
+          levelLoadingTimeOut: 15000, fragLoadingTimeOut: 20000,
+        });
+        st.hls.loadSource(src);
+        st.hls.attachMedia(video);
+        st.hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            try { st.hls.startLoad(); st.hls.recoverMediaError(); } catch (e) { fail("stream error"); }
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details === "manifestLoadError") fail("manifest unreachable");
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = src;
+        video.onerror = () => fail("native player error");
+      } else {
+        fail("HLS not supported in this browser");
+        return;
+      }
+      video.play().catch(() => {});
+    }
+
+    // ------------------------------------------------------------- misc ----
+    function stop() {
+      if (st.hls) { try { st.hls.destroy(); } catch (e) {} st.hls = null; }
+      if (st.timer) { clearInterval(st.timer); st.timer = null; }
+    }
+
+    function capture() {
+      const src = st.video || st.img;
+      if (!src || !(src.videoWidth || src.naturalWidth)) return null;
+      try {
+        const c = document.createElement("canvas");
+        const iw = src.videoWidth || src.naturalWidth, ih = src.videoHeight || src.naturalHeight;
+        c.width = iw; c.height = ih;
+        c.getContext("2d").drawImage(src, 0, 0);
+        return c.toDataURL("image/png");
+      } catch (e) { return null; }
+    }
+
     switch (cam.stype) {
-      case "m3u8": playM3u8(container, cam); break;
-      case "image": playImage(container, cam); break;
-      case "dynamic": playDynamic(container, cam); break;
-      case "embed": playEmbed(container, cam); break;
+      case "m3u8": playM3u8(); break;
+      case "image": case "dynamic": playImage(); break;
+      case "embed": portalCard(container, cam); break;
       default: msg(container, "unsupported feed type");
     }
+
+    return { cam, stop, capture, showFrame, resume,
+             get frames() { return st.frames; } };
   }
 
-  return { play, stop, startClock, proxied };
+  // ---- modal convenience: one active feed ----
+  let current = null;
+  function play(cam, container, opts) {
+    if (current) current.stop();
+    current = mount(cam, container, opts);
+    return current;
+  }
+  function stop() {
+    if (current) current.stop();
+    current = null;
+    stopClock();
+  }
+
+  return { mount, play, stop, startClock, proxied };
 })();

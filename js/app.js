@@ -1,10 +1,15 @@
-/* GOD'S EYE — global CCTV grid frontend */
+/* GOD'S EYE — global CCTV grid frontend (Control Room build) */
 (() => {
 "use strict";
 
 // ------------------------------------------------------------------ state --
 let map, cams = [], byId = new Map(), activeId = null, idleAt = Date.now();
-let currentStyle = "dark", terrainOn = true, hlsNote = null;
+let currentStyle = "dark", terrainOn = true;
+let wallTiles = [], wallOpen = false, wallN = 4;
+const favs = new Set(JSON.parse(localStorage.getItem("ge_favs") || "[]"));
+let favsOnly = localStorage.getItem("ge_favs_only") === "1";
+let fxOn = localStorage.getItem("ge_fx") !== "0";
+let modalHandle = null;
 
 const $ = (s) => document.querySelector(s);
 const el = {
@@ -15,6 +20,9 @@ const el = {
   modal: $("#modal"), player: $("#player"), mTitle: $("#m-title"), mCoords: $("#m-coords"),
   mRegion: $("#m-region"), mSrc: $("#m-src"), mClock: $("#m-clock"), mStatus: $("#m-status"),
   mAttr: $("#m-attr"), mPage: $("#m-page"), mClose: $("#m-close"),
+  mStar: $("#m-star"), mLink: $("#m-link"), mCap: $("#m-cap"),
+  scrub: $("#m-scrub"), scrubWrap: $("#scrub-wrap"), scrubLive: $("#m-scrub-live"),
+  wall: $("#wall"), wallGrid: $("#wall-grid"), wallCount: $("#wall-count"),
   syncMsg: $("#sync-msg"),
 };
 
@@ -22,22 +30,40 @@ const el = {
 const fmtNum = (n) => n.toLocaleString("en-US");
 const TYPE_LABEL = { m3u8: "VIDEO", image: "SNAP", embed: "PORTAL", dynamic: "LIVE" };
 
+/* ---- sound fx (WebAudio, zero assets) ---- */
+let actx = null;
+function beep(freq, dur, when = 0, gainv = 0.05) {
+  if (!fxOn) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = "square"; o.frequency.value = freq;
+    g.gain.setValueAtTime(gainv, actx.currentTime + when);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + when + dur);
+    o.connect(g).connect(actx.destination);
+    o.start(actx.currentTime + when); o.stop(actx.currentTime + when + dur);
+  } catch (e) {}
+}
+const fxLockOn = () => { beep(660, 0.07, 0); beep(990, 0.09, 0.08); };
+const fxBlip = () => beep(880, 0.04, 0, 0.03);
+
 function bootLines() {
   const lines = [
     '<span class="dim">> uplink handshake</span> … <span class="ok">OK</span>',
     '<span class="dim">> terrain mesh</span> … <span class="ok">MOUNTED</span>',
     '<span class="dim">> satellite basemap</span> … <span class="ok">LOCKED</span>',
     '<span class="dim">> public cctv registries</span> … <span class="ok">LINKED</span>',
+    '<span class="dim">> control room</span> … <span class="ok">ARMED</span>',
     '<span class="dim">> god\'s eye</span> … <span class="ok">ONLINE</span>',
   ];
   let i = 0;
   const t = setInterval(() => {
     el.bootLog.insertAdjacentHTML("beforeend", lines[i] + "<br>");
     if (++i >= lines.length) clearInterval(t);
-  }, 260);
+  }, 240);
   const done = () => { el.boot.classList.add("gone"); clearInterval(t); };
   el.boot.addEventListener("click", done, { once: true });
-  setTimeout(done, 2100);
+  setTimeout(done, 2000);
 }
 
 // ------------------------------------------------------------- map styles --
@@ -46,7 +72,7 @@ const ESRI_LBL = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference
 const STYLE_URLS = {
   dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
   streets: "https://tiles.openfreemap.org/styles/liberty",
-  satellite: null, // built locally
+  satellite: null,
 };
 const GLYPHS = "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf";
 
@@ -111,21 +137,13 @@ function cctvIcon(ledColor) {
   const g = c.getContext("2d");
   g.shadowColor = ledColor; g.shadowBlur = 6;
   g.fillStyle = "#04101a"; g.strokeStyle = "#00f0ff"; g.lineWidth = 2.5;
-  // camera body
   g.beginPath(); g.roundRect(8, 16, 24, 16, 3); g.fill(); g.stroke();
-  // lens
   g.beginPath(); g.moveTo(32, 19); g.lineTo(41, 14); g.lineTo(41, 34); g.lineTo(32, 29); g.closePath(); g.fill(); g.stroke();
-  // LED
   g.shadowBlur = 10; g.fillStyle = ledColor;
   g.beginPath(); g.arc(14, 21, 2.6, 0, 7); g.fill();
-  // mount
   g.shadowBlur = 0; g.strokeStyle = "rgba(0,240,255,.5)"; g.lineWidth = 2;
   g.beginPath(); g.moveTo(20, 32); g.lineTo(20, 40); g.moveTo(14, 42); g.lineTo(26, 42); g.stroke();
   return g.getImageData(0, 0, 48, 48);
-}
-
-function camIconId(stype) {
-  return stype === "m3u8" ? "cctv-live" : stype === "image" || stype === "dynamic" ? "cctv-snap" : "cctv-portal";
 }
 
 function ensureIcons() {
@@ -197,6 +215,7 @@ function filtered() {
   return cams.filter(c =>
     (t === "all" || c.stype === t || (t === "image" && c.stype === "dynamic")) &&
     (co === "all" || c.country === co) &&
+    (!favsOnly || favs.has(c.id)) &&
     (!q || (c.name + " " + (c.place || "") + " " + (c.region || "")).toLowerCase().includes(q))
   );
 }
@@ -208,13 +227,13 @@ function updateStats() {
 
 function renderList() {
   const f = filtered();
-  el.listCount.textContent = fmtNum(f.length);
+  el.listCount.textContent = fmtNum(f.length) + (favsOnly ? " ★" : "");
   const show = f.slice(0, 300);
   el.list.innerHTML = show.map(c => `
     <li data-id="${c.id}" class="${c.id === activeId ? "active" : ""}">
       <span class="dot ${c.stype === "m3u8" ? "m3u8" : c.status === "live" ? "live" : ""}"></span>
       <div>
-        <div class="cam-name">${c.name}</div>
+        <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${c.name}</div>
         <div class="cam-sub">${[c.place, c.region, c.country].filter(Boolean).join(" · ")}</div>
       </div>
       <span class="badge ${c.stype}">${TYPE_LABEL[c.stype] || c.stype}</span>
@@ -226,13 +245,15 @@ async function loadBundled() {
   const g = await fetch("data/cameras.geojson").then(r => r.json());
   cams = g.features.map(f => ({ ...f.properties, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
   cams.forEach(c => byId.set(c.id, c));
-  // country select
   const countries = [...new Set(cams.map(c => c.country))].sort();
   el.fCountry.innerHTML = '<option value="all">world</option>' +
     countries.map(c => `<option value="${c}">${c}</option>`).join("");
   updateStats();
   renderList();
   refreshSource();
+  // deep link ?cam=ID
+  const want = new URLSearchParams(location.search).get("cam");
+  if (want && byId.has(want)) setTimeout(() => openCam(want, true), 700);
 }
 
 async function mergeNew(newOnes) {
@@ -246,7 +267,19 @@ async function mergeNew(newOnes) {
   return added;
 }
 
-// --------------------------------------------------------------- controls --
+// ----------------------------------------------------------- favorites -----
+function saveFavs() { localStorage.setItem("ge_favs", JSON.stringify([...favs])); }
+function toggleFav(id) {
+  if (favs.has(id)) favs.delete(id); else { favs.add(id); fxBlip(); }
+  saveFavs(); renderList(); updateStarBtn();
+}
+function updateStarBtn() {
+  if (!activeId) return;
+  el.mStar.textContent = favs.has(activeId) ? "★" : "☆";
+  el.mStar.classList.toggle("on", favs.has(activeId));
+}
+
+// ---------------------------------------------------------- modal player --
 function openCam(id, fly) {
   const c = byId.get(id);
   if (!c) return;
@@ -258,26 +291,126 @@ function openCam(id, fly) {
       bearing: (Math.random() * 50 - 25), duration: 2200, curve: 1.5, essential: true,
     });
   }
+  fxLockOn();
+  const box = document.querySelector(".modal-box");
+  box.classList.remove("sweep"); void box.offsetWidth; box.classList.add("sweep");
+
   el.mTitle.textContent = c.name;
   el.mCoords.textContent = `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
   el.mRegion.textContent = [c.place, c.region, c.country].filter(Boolean).join(" · ");
   el.mSrc.textContent = "SRC " + c.src.toUpperCase();
   el.mStatus.textContent = c.stype === "m3u8" ? "LIVE VIDEO" : c.stype === "embed" ? "PORTAL" : "LIVE FEED";
   el.mAttr.textContent = c.attr || "public feed";
-  el.mPage.href = c.page || "#";
-  el.mPage.style.display = c.page ? "" : "none";
+  el.mPage.href = c.page || c.stream || "#";
+  el.mPage.style.display = (c.page || c.stream) ? "" : "none";
+  updateStarBtn();
   el.modal.classList.remove("hidden");
-  Players.play(c, el.player);
+  Players.stop();
+  modalHandle = Players.play(c, el.player, {
+    captureFrames: c.stype === "image" || c.stype === "dynamic" || c.stype === "m3u8",
+    frameW: 1024,
+    onFrame: (count) => {
+      el.scrub.max = Math.max(0, count - 1);
+      el.scrub.value = Math.max(0, count - 1);
+      el.scrubWrap.style.display = count > 2 ? "flex" : "none";
+    },
+  });
+  el.scrubWrap.style.display = "none";
   Players.startClock(el.mClock);
 }
 
 function closeModal() {
   el.modal.classList.add("hidden");
   Players.stop();
+  modalHandle = null;
   activeId = null;
   renderList();
 }
 
+// ------------------------------------------------------------ video wall --
+function pickWallCams(n) {
+  const pool = filtered();
+  if (!pool.length) return [];
+  let inView = pool, center = map.getCenter();
+  try {
+    const b = map.getBounds();
+    const vis = pool.filter(c => b.contains([c.lon, c.lat]));
+    if (vis.length >= 3) inView = vis;
+  } catch (e) {}
+  // live video first, then spread geographically
+  inView = [...inView].sort((a, b2) =>
+    (b2.stype === "m3u8") - (a.stype === "m3u8") ||
+    Math.hypot(a.lat - center.lat, a.lon - center.lng) - Math.hypot(b2.lat - center.lat, b2.lon - center.lng));
+  const out = [], step = Math.max(1, Math.floor(inView.length / n));
+  for (let i = 0; i < inView.length && out.length < n; i += step) out.push(inView[i]);
+  for (const c of inView) { if (out.length >= n) break; if (!out.includes(c)) out.push(c); }
+  return out;
+}
+
+function closeWall() {
+  wallTiles.forEach(t => t.handle && t.handle.stop());
+  wallTiles = [];
+  el.wallGrid.innerHTML = "";
+  el.wall.classList.add("hidden");
+  wallOpen = false;
+}
+
+function openWall(n) {
+  closeWall();
+  wallN = n;
+  const picks = pickWallCams(n);
+  if (!picks.length) return;
+  el.wallGrid.style.gridTemplateColumns = `repeat(${n === 9 ? 3 : 2}, 1fr)`;
+  el.wallCount.textContent = `${picks.length} FEEDS // ${n === 9 ? "3×3" : "2×2"}`;
+  picks.forEach((c) => {
+    const tile = document.createElement("div");
+    tile.className = "wall-tile";
+    tile.innerHTML = `
+      <div class="wall-tile-head">
+        <span class="wall-dot ${c.stype === "m3u8" ? "m3u8" : ""}"></span>
+        <span class="wall-tile-name">${c.name}</span>
+        <button class="wall-open" title="open & fly">⤢</button>
+      </div>
+      <div class="wall-tile-player"></div>`;
+    el.wallGrid.appendChild(tile);
+    const handle = Players.mount(c, tile.querySelector(".wall-tile-player"), { minimal: true, frameW: 480, captureFrames: false });
+    tile.querySelector(".wall-open").onclick = () => { fxLockOn(); openCam(c.id, true); };
+    wallTiles.push({ cam: c, handle });
+  });
+  el.wall.classList.remove("hidden");
+  wallOpen = true;
+  fxLockOn();
+}
+
+// ----------------------------------------------------------- frame tools --
+function captureFrame() {
+  if (!modalHandle) return;
+  const data = modalHandle.capture();
+  if (!data) {
+    el.syncMsg.textContent = "⚠ capture blocked for this feed (cross-origin)";
+    setTimeout(() => (el.syncMsg.textContent = ""), 3000);
+    return;
+  }
+  const a = document.createElement("a");
+  const c = byId.get(activeId) || {};
+  a.download = `godseye_${(c.id || "frame")}_${Date.now()}.png`;
+  a.href = data;
+  a.click();
+  fxBlip();
+}
+
+function wireScrub() {
+  el.scrub.addEventListener("input", () => {
+    if (modalHandle) modalHandle.showFrame(+el.scrub.value);
+    el.scrubLive.classList.remove("hidden");
+  });
+  el.scrubLive.onclick = () => {
+    if (modalHandle) modalHandle.resume();
+    el.scrubLive.classList.add("hidden");
+  };
+}
+
+// --------------------------------------------------------------- geosearch --
 async function geoSearch(q) {
   if (q.length < 3) { el.geoResults.style.display = "none"; return; }
   try {
@@ -294,6 +427,7 @@ async function geoSearch(q) {
   } catch (e) { /* offline is fine */ }
 }
 
+// --------------------------------------------------------------- controls --
 function wireUI() {
   let debounce;
   el.q.addEventListener("input", () => {
@@ -306,11 +440,40 @@ function wireUI() {
   el.panelToggle.onclick = () => el.panel.classList.toggle("collapsed");
   el.mClose.onclick = closeModal;
   el.modal.addEventListener("click", (e) => { if (e.target === el.modal) closeModal(); });
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { if (wallOpen) closeWall(); else closeModal(); }
+  });
   el.list.addEventListener("click", (e) => {
     const li = e.target.closest("li[data-id]");
     if (li) openCam(li.dataset.id, true);
   });
+
+  el.mStar.onclick = () => activeId && toggleFav(activeId);
+  el.mLink.onclick = () => {
+    if (!activeId) return;
+    const url = `${location.origin}${location.pathname}?cam=${encodeURIComponent(activeId)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+      .then(() => { el.syncMsg.textContent = "🔗 camera link copied"; setTimeout(() => (el.syncMsg.textContent = ""), 2500); })
+      .catch(() => { prompt("Copy camera link:", url); });
+  };
+  el.mCap.onclick = captureFrame;
+  wireScrub();
+
+  $("#btn-wall4").onclick = () => openWall(4);
+  $("#btn-wall9").onclick = () => openWall(9);
+  $("#wall-close").onclick = closeWall;
+  $("#wall-fill").onclick = () => openWall(wallN);
+  $("#btn-fx").onclick = (e) => {
+    fxOn = !fxOn; localStorage.setItem("ge_fx", fxOn ? "1" : "0");
+    e.target.classList.toggle("active", fxOn);
+    if (fxOn) fxBlip();
+  };
+  $("#btn-fav").onclick = (e) => {
+    favsOnly = !favsOnly; localStorage.setItem("ge_favs_only", favsOnly ? "1" : "0");
+    e.target.classList.toggle("active", favsOnly);
+    e.target.textContent = favsOnly ? "★ FAVS ON" : "★ FAVS";
+    renderList(); refreshSource();
+  };
 
   document.querySelectorAll("#styles button").forEach(b => b.onclick = async () => {
     document.querySelectorAll("#styles button").forEach(x => x.classList.remove("active"));
@@ -337,6 +500,10 @@ function wireUI() {
     el.syncMsg.textContent = `⟳ sync done — ${fmtNum(added)} new feeds merged`;
     setTimeout(() => (el.syncMsg.textContent = ""), 6000);
   };
+
+  $("#btn-fx").classList.toggle("active", fxOn);
+  $("#btn-fav").classList.toggle("active", favsOnly);
+  $("#btn-fav").textContent = favsOnly ? "★ FAVS ON" : "★ FAVS";
 }
 
 function ensureTerrain() {
@@ -380,9 +547,8 @@ async function initMap() {
   });
   ["mousedown", "touchstart", "wheel"].forEach(ev => map.on(ev, () => { idleAt = Date.now(); }));
 
-  // slow cinematic drift when idle & zoomed out
   setInterval(() => {
-    if (Date.now() - idleAt > 25000 && map.getZoom() < 3 && el.modal.classList.contains("hidden")) {
+    if (Date.now() - idleAt > 25000 && map.getZoom() < 3 && el.modal.classList.contains("hidden") && !wallOpen) {
       map.easeTo({ bearing: map.getBearing() + 2.5, duration: 320, easing: (x) => x });
     }
   }, 320);
@@ -400,15 +566,12 @@ function tickClock() {
   wireUI();
   try {
     const h = await fetch("/api/health", { cache: "no-store" });
-    // only pure-static hosts (404) disable the relay; the Netlify function
-    // answers /api/health with {"ok":true} so streams are proxied there
     if (h.status === 404) window.GE_NO_PROXY = true;
   } catch (e) {
     window.GE_NO_PROXY = true;
   }
   if (window.GE_NO_PROXY) el.syncMsg.textContent = "static mode — live video needs the /api relay";
   await initMap();
-  // background live sync — keeps the grid fresh from official APIs
   setTimeout(async () => {
     try {
       el.syncMsg.textContent = "⟳ background sync…";
