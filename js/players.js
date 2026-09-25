@@ -11,7 +11,7 @@ const Players = (() => {
   let timer = null;
   let clockTimer = null;
 
-  const proxied = (u) => "/api/proxy?url=" + encodeURIComponent(u);
+  const proxied = (u) => window.GE_NO_PROXY ? u : "/api/proxy?url=" + encodeURIComponent(u);
 
   function stop() {
     if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }

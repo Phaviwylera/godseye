@@ -5,9 +5,13 @@
 const Sources = (() => {
 
   const fetchJSON = async (url) => {
-    const r = await fetch("/api/fetch?url=" + encodeURIComponent(url));
-    if (!r.ok) throw new Error("fetch " + r.status);
-    return r.json();
+    try {
+      const r = await fetch("/api/fetch?url=" + encodeURIComponent(url));
+      if (r.ok) return await r.json();
+    } catch (e) { /* static hosting: fall back to direct (works when the source sends CORS) */ }
+    const r2 = await fetch(url);
+    if (!r2.ok) throw new Error("fetch " + r2.status);
+    return r2.json();
   };
 
   /* --- each adapter returns an array of normalised cams (same shape as the

@@ -398,6 +398,13 @@ function tickClock() {
   bootLines();
   tickClock();
   wireUI();
+  try {
+    const h = await fetch("/api/health", { cache: "no-store" });
+    if (!h.ok) throw 0;
+  } catch (e) {
+    window.GE_NO_PROXY = true;
+    el.syncMsg.textContent = "static mode — live video needs the /api relay";
+  }
   await initMap();
   // background live sync — keeps the grid fresh from official APIs
   setTimeout(async () => {
