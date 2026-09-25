@@ -597,6 +597,91 @@ async function initMap() {
     loadBundled();
   });
 
+  // ---- compass: needle shows live bearing; click = smooth north+level reset
+  const needle = document.getElementById("compass-needle");
+  const compassBtn = document.getElementById("compass");
+  const syncCompass = () => {
+    const b = ((map.getBearing() % 360) + 360) % 360;
+    const flat = (b < 0.5 || b > 359.5) && Math.abs(map.getPitch()) < 0.5;
+    needle.style.transform = `rotate(${-map.getBearing()}deg)`;
+    compassBtn.classList.toggle("level", flat);
+  };
+  map.on("rotate", syncCompass);
+  map.on("pitch", syncCompass);
+  syncCompass();
+  compassBtn.addEventListener("click", () => {
+    idleAt = Date.now();
+    fxBlip();
+    map.easeTo({ bearing: 0, pitch: 0, duration: 1100, easing: (t) => 1 - Math.pow(1 - t, 4) });
+  });
+
+  // ---- Apple-momentum wheel smoothing for list panels (notch-quantized
+  //      mouse wheels only; trackpads keep native momentum)
+  const smoothWheel = (node) => {
+    if (!node) return;
+    let target = node.scrollTop, raf = null;
+    node.addEventListener("wheel", (e) => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const notchy = e.deltaMode === 1 || (e.deltaMode === 0 && Math.abs(e.deltaY) >= 100 && Math.abs(e.deltaY) % 3 === 0);
+      if (!notchy) return;
+      e.preventDefault();
+      target = Math.max(0, Math.min(node.scrollHeight - node.clientHeight, target + e.deltaY * 1.2));
+      if (!raf) raf = requestAnimationFrame(function step() {
+        node.scrollTop += (target - node.scrollTop) * 0.16;
+        if (Math.abs(target - node.scrollTop) > 0.6) raf = requestAnimationFrame(step);
+        else { node.scrollTop = target; raf = null; }
+      });
+    }, { passive: false });
+    node.style.scrollBehavior = "smooth";
+  };
+  smoothWheel(el.list);
+  smoothWheel(document.getElementById("route-list"));
+
+  // ---- mobile FAB quick-actions
+  $("#fab").addEventListener("click", () => { $("#fab-sheet").classList.toggle("hidden"); fxBlip(); });
+  $("#fab-sheet").addEventListener("click", (e2) => {
+    const b = e2.target.closest("button[data-do]");
+    if (b) {
+      const t = document.querySelector(b.dataset.do);
+      if (t) t.click();
+      $("#fab-sheet").classList.add("hidden");
+    }
+  });
+
+  // ---- mobile: swipe-down to close the camera modal (Apple sheet gesture)
+  const box = document.querySelector(".modal-box");
+  let dragY0 = null, dragDy = 0;
+  el.modal.addEventListener("touchstart", (e2) => {
+    if (e2.target.closest("button, a, input")) return;
+    if (!e2.target.closest(".modal-head, .modal-grab, .modal-meta")) return;
+    dragY0 = e2.touches[0].clientY; dragDy = 0;
+    box.style.transition = "none";
+  }, { passive: true });
+  el.modal.addEventListener("touchmove", (e2) => {
+    if (dragY0 == null) return;
+    dragDy = Math.max(0, e2.touches[0].clientY - dragY0);
+    box.style.transform = `translateY(${dragDy}px)`;
+  }, { passive: true });
+  el.modal.addEventListener("touchend", () => {
+    if (dragY0 == null) return;
+    box.style.transition = "";
+    box.style.transform = "";
+    if (dragDy > 90) closeModal();
+    dragY0 = null;
+  });
+
+  // ---- any interaction resets idle timer (compass/fab included)
+  document.addEventListener("pointerdown", () => { idleAt = Date.now(); }, true);
+
+  // ---- click glow pulse on interactive chrome
+  document.addEventListener("click", (e2) => {
+    const b = e2.target.closest("button");
+    if (!b) return;
+    b.classList.remove("clicked");
+    void b.offsetWidth;
+    b.classList.add("clicked");
+  });
+
   map.on("zoom", () => { el.stZoom.textContent = map.getZoom().toFixed(1); });
   map.on("mousemove", (e) => {
     idleAt = Date.now();
@@ -604,11 +689,18 @@ async function initMap() {
   });
   ["mousedown", "touchstart", "wheel"].forEach(ev => map.on(ev, () => { idleAt = Date.now(); }));
 
-  setInterval(() => {
-    if (Date.now() - idleAt > 25000 && map.getZoom() < 3 && el.modal.classList.contains("hidden") && !wallOpen) {
-      map.easeTo({ bearing: map.getBearing() + 2.5, duration: 320, easing: (x) => x });
+  // silky idle globe spin: continuous rAF rotation with gentle speed ramp
+  let spinLast = performance.now();
+  (function spin(now) {
+    const dt = Math.min(0.05, (now - spinLast) / 1000);
+    spinLast = now;
+    const idleFor = (Date.now() - idleAt) / 1000;
+    if (idleFor > 25 && map.getZoom() < 3 && el.modal.classList.contains("hidden") && !wallOpen) {
+      const ramp = Math.min(1, (idleFor - 25) / 3); // ease up to full drift
+      map.jumpTo({ bearing: map.getBearing() + 1.2 * ramp * dt });
     }
-  }, 320);
+    requestAnimationFrame(spin);
+  })(performance.now());
 }
 
 // ------------------------------------------------------------------- boot --

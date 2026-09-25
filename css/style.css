@@ -492,3 +492,142 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   .wall-head button:hover, #cam-list li:hover, .wall-tile:hover, .route-hit:hover,
   #m-close:hover, #m-star:hover, #m-link:hover, #m-cap:hover { transform: none; }
 }
+
+/* ======================================================================
+   COMPASS — live bearing rose + smooth north/level reset
+   ====================================================================== */
+#compass {
+  position: fixed; right: 16px; top: 164px; z-index: 26;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: var(--panel); border: 1px solid var(--cyan-dim);
+  cursor: pointer; padding: 0; backdrop-filter: blur(8px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .45), 0 0 14px rgba(0, 240, 255, .10);
+  transition: box-shadow .35s var(--ease-apple), transform .35s var(--ease-spring),
+              border-color .3s var(--ease-apple), opacity .3s;
+}
+#compass svg { width: 100%; height: 100%; display: block; }
+#compass-needle {
+  transform-origin: 20px 20px;
+  transition: transform .12s linear;
+}
+#compass.level { opacity: .62; border-color: rgba(0, 240, 255, .15); }
+#compass.level #compass-needle path:first-child { fill: #5c8a97; }
+@media (hover: hover) {
+  #compass:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, .5), 0 0 22px rgba(0, 240, 255, .22);
+    border-color: var(--cyan-dim);
+  }
+}
+#compass:active { transform: scale(.9); transition-duration: .07s; }
+
+/* ======================================================================
+   TACTILE PRESS — every tap/click gets a smooth Apple "push & release"
+   ====================================================================== */
+#controls button:active, #panel button:active, .wall-head button:active,
+.route-actions button:active, .wall-open:active, .retry-btn:active,
+#m-close:active, #m-star:active, #m-link:active, #m-cap:active, #m-scrub-live:active,
+#panel-toggle:active, .route-head button:active, #radar-ctl button:active,
+#compass:active, #fab:active, #fab-sheet button:active, .btn-group button:active {
+  transform: scale(.92) !important;
+  transition-duration: .06s !important;
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, .22), 0 0 18px rgba(0, 240, 255, .3) !important;
+}
+button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+#hud, #controls, #panel, #wall, .modal-head, .wall-head, #fab-sheet { user-select: none; -webkit-user-select: none; }
+
+/* click glow pulse (JS adds .clicked briefly) */
+.clicked {
+  animation: clickGlow .45s var(--ease-apple);
+}
+@keyframes clickGlow {
+  0% { box-shadow: 0 0 0 0 rgba(0, 240, 255, .5); }
+  100% { box-shadow: 0 0 0 14px rgba(0, 240, 255, 0); }
+}
+
+/* ======================================================================
+   SMOOTH SCROLLING — Apple momentum panels
+   ====================================================================== */
+#cam-list, #route-list {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+#wall-grid { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+#geo-results { transform-origin: top; animation: ddIn .3s var(--ease-spring); }
+@keyframes ddIn { from { opacity: 0; transform: scaleY(.92) translateY(-4px); } }
+#geo-results div { transition: background .2s var(--ease-apple), color .2s, padding-left .25s var(--ease-apple); }
+@media (hover: hover) { #geo-results div:hover { padding-left: 14px; } }
+
+/* modal grab handle */
+.modal-grab {
+  width: 44px; height: 4px; border-radius: 4px; margin: 8px auto 2px;
+  background: rgba(0, 240, 255, .3);
+  transition: background .25s, width .3s var(--ease-spring);
+}
+.modal-box:active .modal-grab { background: rgba(0, 240, 255, .6); width: 60px; }
+
+/* ======================================================================
+   MOBILE PRO — FAB quick-actions, decluttered chrome, safe-areas
+   ====================================================================== */
+#fab {
+  display: none;
+  position: fixed; right: 16px; z-index: 45;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(145deg, rgba(0, 240, 255, .22), rgba(0, 240, 255, .08));
+  color: var(--cyan); border: 1px solid var(--cyan-dim);
+  font-size: 22px; cursor: pointer; backdrop-filter: blur(10px);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .5), 0 0 22px rgba(0, 240, 255, .18);
+  transition: transform .4s var(--ease-spring), box-shadow .35s var(--ease-apple);
+}
+#fab-sheet {
+  position: fixed; left: 8px; right: 8px; z-index: 46;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  background: rgba(6, 12, 22, .96); border: 1px solid var(--line);
+  border-radius: 18px; padding: 10px 12px 16px; backdrop-filter: blur(14px);
+  box-shadow: 0 -10px 50px rgba(0, 0, 0, .55);
+}
+.fab-grab { width: 44px; height: 4px; border-radius: 4px; margin: 2px auto 10px; background: rgba(0, 240, 255, .3); }
+.fab-title { font-size: 9px; letter-spacing: .3em; color: #51707c; text-align: center; margin-bottom: 10px; }
+.fab-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.fab-grid button {
+  min-height: 52px; background: rgba(0, 240, 255, .07); color: var(--cyan);
+  border: 1px solid rgba(0, 240, 255, .18); border-radius: 12px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; cursor: pointer;
+  transition: background .25s var(--ease-apple), transform .3s var(--ease-spring);
+}
+
+@media (max-width: 760px) {
+  #fab { display: block; }
+  /* one-handed mode: all controls live behind the FAB */
+  #controls { display: none; }
+  #compass { top: 150px; right: 10px; width: 42px; height: 42px; }
+  #hud {
+    height: 46px;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  #disclaimer {
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  #panel {
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  #wall {
+    top: calc(env(safe-area-inset-top, 0px) + 6px); bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    left: 6px; right: 6px;
+  }
+  .modal-box { max-height: 94vh; display: flex; flex-direction: column; }
+  #player { flex: 1; min-height: 0; }
+  .modal-grab { margin-top: 10px; }
+}
+/* landscape phones: side sheet instead of bottom sheet */
+@media (max-width: 900px) and (max-height: 480px) and (orientation: landscape) {
+  #panel {
+    top: 8px; bottom: 8px; left: 8px; right: auto;
+    width: 320px; height: auto;
+  }
+  #panel.collapsed { transform: translateX(calc(-100% - 20px)); }
+  #fab { bottom: 14px; }
+  #hud { height: 40px; }
+}
