@@ -94,20 +94,29 @@ const Players = (() => {
   }
 
   function playEmbed(container, cam) {
-    const f = document.createElement("iframe");
-    f.src = cam.stream;
-    f.allow = "autoplay; fullscreen; encrypted-media";
-    f.referrerPolicy = "no-referrer";
-    container.appendChild(f);
-    msg2note(container, cam);
-  }
-
-  function msg2note(container, cam) {
-    const n = document.createElement("div");
-    n.className = "player-msg";
-    n.style.cssText = "position:absolute;bottom:6px;left:0;right:0;font-size:9px;pointer-events:none";
-    n.textContent = "agency player — if it stays blank, use the official page link below";
-    container.appendChild(n);
+    // Agencies like Québec 511 serve their live view only through their own
+    // viewer page (X-Frame-Options: SAMEORIGIN + Cloudflare) — embedding is
+    // blocked by design. Present a launch card instead of a broken iframe.
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100%;padding:24px;text-align:center";
+    wrap.innerHTML = `
+      <svg viewBox="0 0 120 60" style="width:72px;opacity:.8">
+        <path d="M4 30 Q60 -18 116 30 Q60 78 4 30 Z" fill="none" stroke="#00f0ff" stroke-width="3"/>
+        <circle cx="60" cy="30" r="12" fill="none" stroke="#00f0ff" stroke-width="3"/>
+        <circle cx="60" cy="30" r="5" fill="#00f0ff"/>
+      </svg>
+      <div style="letter-spacing:.28em;color:#00f0ff;font-size:13px">AGENCY PORTAL FEED</div>
+      <div style="font-size:11px;max-width:460px;line-height:1.7;color:#51707c">
+        ${cam.name || ""}<br>
+        This agency publishes its live view only through its own secure portal and
+        blocks outside embedding. One click through — the feed is live there.
+      </div>
+      <a href="${cam.stream || cam.page || "#"}" target="_blank" rel="noopener"
+         style="font-family:inherit;font-size:13px;letter-spacing:.2em;color:#04101a;background:#00f0ff;
+                padding:12px 26px;text-decoration:none;box-shadow:0 0 24px rgba(0,240,255,.45)">
+        ▶ OPEN LIVE FEED ↗
+      </a>`;
+    container.appendChild(wrap);
   }
 
   function play(cam, container) {
