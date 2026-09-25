@@ -5,7 +5,7 @@ A **3D globe web app** (think Google Earth × Fast & Furious "God's Eye") that m
 coordinates. Zoom out, hunt the camera icons, click one — and the **live feed of
 that exact location** plays instantly.
 
-![status](https://img.shields.io/badge/cameras-17%2C000%2B-blue) ![feeds](https://img.shields.io/badge/live%20video-4%2C600%2B-green)
+![status](https://img.shields.io/badge/cameras-18%2C600%2B-blue) ![feeds](https://img.shields.io/badge/live%20video-4%2C600%2B-green)
 
 ## ✨ Features
 
