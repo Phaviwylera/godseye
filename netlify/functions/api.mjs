@@ -81,10 +81,17 @@ export async function handler(event) {
   const isFetch = (event.path || "").includes("/fetch");
 
   try {
-    const r = await fetch(url, {
-      redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
-    });
+    let r;
+    try {
+      r = await fetch(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(8000), // stay inside the function time budget
+        headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
+      });
+    } catch (te) {
+      return { statusCode: 504, headers: CORS,
+        body: JSON.stringify({ error: "source-timeout-or-unreachable", detail: String(te) }) };
+    }
     const ctype = r.headers.get("content-type") || "application/octet-stream";
     const isHls = url.split("?")[0].toLowerCase().endsWith(".m3u8") || ctype.includes("mpegurl");
 

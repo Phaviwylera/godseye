@@ -4,8 +4,7 @@
   functions = "netlify/functions"
 
 [functions]
-  node_bundler = "esbuild"
-  timeout = 26
+  node_bundler = "esbuild" 
 
 # route the camera-feed relay through the serverless function
 [[redirects]]
