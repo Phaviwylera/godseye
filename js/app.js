@@ -248,6 +248,7 @@ async function loadBundled() {
   const g = await fetch("data/cameras.geojson").then(r => r.json());
   cams = g.features.map(f => ({ ...f.properties, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
   cams.forEach(c => byId.set(c.id, c));
+  window.GE_CAMS = Object.fromEntries(byId);
   try {
     const lv = await fetch("data/liveness.json").then(r => r.ok ? r.json() : null);
     if (lv && lv.s) cams.forEach(c => { if (c.id in lv.s) c.live = lv.s[c.id]; });
@@ -510,6 +511,38 @@ function wireUI() {
     setTimeout(() => (el.syncMsg.textContent = ""), 6000);
   };
 
+  // ---- intel layers ----
+  $("#btn-night").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleNight()); fxBlip(); };
+  $("#btn-iss").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleISS(false)); fxBlip(); };
+  $("#btn-radar").onclick = async (e) => {
+    const on = await Intel.toggleRadar();
+    e.target.classList.toggle("active", !!on);
+  };
+  $("#btn-route").onclick = () => { $("#route").classList.toggle("hidden"); fxBlip(); };
+  $("#route-close").onclick = () => $("#route").classList.add("hidden");
+  $("#route-go").onclick = async () => {
+    const list = $("#route-list");
+    list.innerHTML = '<div class="route-empty">scanning corridor…</div>';
+    try { await Intel.sweepRoute($("#route-a").value, $("#route-b").value, list); fxLockOn(); }
+    catch (err) { list.innerHTML = `<div class="route-empty">${String(err.message || err)}</div>`; }
+  };
+  $("#route-clear").onclick = () => { Intel.clearRoute(); $("#route-list").innerHTML = ""; };
+  $("#radar-slider").addEventListener("input", (e) => {
+    Intel.pauseRadar();
+    $("#radar-play").textContent = "▶";
+    Intel.state.radarIdx = +e.target.value;
+    Intel.applyRadarFrame();
+  });
+  $("#radar-play").onclick = () => {
+    if (Intel.state.radarPlaying) { Intel.pauseRadar(); $("#radar-play").textContent = "▶"; }
+    else { Intel.playRadar(); $("#radar-play").textContent = "⏸"; }
+  };
+  $("#iss-chip").onclick = () => {
+    Intel.state.issFollow = !Intel.state.issFollow;
+    $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
+  };
+  window.addEventListener("ge-open-cam", (e2) => openCam(e2.detail, true));
+
   $("#btn-fx").classList.toggle("active", fxOn);
   $("#btn-fav").classList.toggle("active", favsOnly);
   $("#btn-fav").textContent = favsOnly ? "★ FAVS ON" : "★ FAVS";
@@ -581,6 +614,7 @@ function tickClock() {
   }
   if (window.GE_NO_PROXY) el.syncMsg.textContent = "static mode — live video needs the /api relay";
   await initMap();
+  Intel.init(map);
   setTimeout(async () => {
     try {
       el.syncMsg.textContent = "⟳ background sync…";

@@ -1,0 +1,12 @@
+{
+  "name": "God's Eye — Global CCTV Grid",
+  "short_name": "GodsEye",
+  "description": "3D globe mapping 24,800+ public CCTV / traffic cameras at their exact coordinates. Click a camera icon, watch the live feed.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#05070d",
+  "theme_color": "#05070d",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

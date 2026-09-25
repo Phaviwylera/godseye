@@ -276,3 +276,59 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   padding: 6px 12px; cursor: pointer;
 }
 .retry-btn:hover { background: rgba(0, 240, 255, .15); }
+
+
+/* ---- intel layers ---- */
+#intel-row { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+#iss-chip {
+  font-size: 10px; letter-spacing: .15em; color: var(--cyan);
+  border: 1px solid var(--cyan-dim); padding: 5px 10px; cursor: pointer;
+  background: var(--panel);
+}
+#radar-ctl {
+  display: flex; align-items: center; gap: 8px; background: var(--panel);
+  border: 1px solid var(--line); padding: 5px 10px;
+}
+#radar-ctl button {
+  background: transparent; border: 1px solid var(--line); color: var(--cyan);
+  font-family: var(--mono); cursor: pointer; width: 26px; height: 22px;
+}
+#radar-slider { width: 130px; accent-color: var(--cyan); }
+#radar-time { font-size: 10px; color: var(--amber); min-width: 40px; }
+
+#route {
+  position: fixed; top: 66px; right: 118px; width: 320px; z-index: 40;
+  background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(8px);
+}
+.route-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid var(--line);
+  font-size: 11px; letter-spacing: .22em; color: var(--cyan);
+}
+.route-head button {
+  background: transparent; border: 1px solid var(--line); color: var(--cyan);
+  width: 24px; height: 24px; cursor: pointer; font-family: var(--mono);
+}
+.route-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.route-body input {
+  background: rgba(0, 240, 255, .06); color: var(--cyan); border: 1px solid var(--line);
+  padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; outline: none;
+}
+.route-actions { display: flex; gap: 8px; }
+.route-actions button {
+  flex: 1; background: rgba(0, 240, 255, .1); color: var(--cyan); border: 1px solid var(--cyan-dim);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .15em; padding: 8px; cursor: pointer;
+}
+.route-actions button:hover { background: rgba(0, 240, 255, .2); }
+#route-list { list-style: none; max-height: 44vh; overflow-y: auto; }
+.route-summary {
+  font-size: 10px; color: var(--amber); letter-spacing: .12em;
+  padding: 4px 2px 8px; border-bottom: 1px solid rgba(0, 240, 255, .12);
+}
+.route-hit {
+  display: grid; grid-template-columns: 48px 1fr auto; gap: 8px; align-items: center;
+  padding: 8px 2px; border-bottom: 1px solid rgba(0, 240, 255, .08); cursor: pointer;
+}
+.route-hit:hover { background: rgba(255, 179, 0, .08); }
+.route-km { font-size: 10px; color: var(--amber); }
+.route-empty { font-size: 10.5px; color: #51707c; padding: 10px 2px; line-height: 1.6; }

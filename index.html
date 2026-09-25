@@ -6,6 +6,8 @@
 <title>GOD'S EYE — Global CCTV Grid</title>
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
 <link rel="stylesheet" href="css/style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#05070d" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%2300f0ff' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='16' fill='%2300f0ff'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -87,6 +89,20 @@
     <button id="btn-fx" class="active">🔊 FX</button>
   </div>
   <div class="btn-group">
+    <button id="btn-night">☾ NIGHT</button>
+    <button id="btn-iss">🛰 ISS</button>
+    <button id="btn-radar">🌧 RADAR</button>
+    <button id="btn-route">🛣 ROUTE</button>
+  </div>
+  <div id="intel-row">
+    <span id="iss-chip" class="hidden">ISS</span>
+    <span id="radar-ctl" class="hidden">
+      <button id="radar-play">⏸</button>
+      <input id="radar-slider" type="range" min="0" max="0" value="0" />
+      <span id="radar-time">--:--</span>
+    </span>
+  </div>
+  <div class="btn-group">
     <button id="btn-terrain" class="active">3D TERRAIN</button>
     <button id="btn-sync">⟳ SYNC FEEDS</button>
     <button id="btn-home">◎ WORLD</button>
@@ -132,6 +148,23 @@
   </div>
 </div>
 
+<!-- ROUTE corridor sweep -->
+<div id="route" class="hidden">
+  <div class="route-head">
+    <span>🛣 CORRIDOR SWEEP</span>
+    <button id="route-close">✕</button>
+  </div>
+  <div class="route-body">
+    <input id="route-a" type="text" placeholder="From… (city, address, landmark)" />
+    <input id="route-b" type="text" placeholder="To…" />
+    <div class="route-actions">
+      <button id="route-go">SWEEP CAMERAS</button>
+      <button id="route-clear">CLEAR</button>
+    </div>
+    <ul id="route-list"></ul>
+  </div>
+</div>
+
 <div id="disclaimer">
   Public feeds only — cameras published openly by transport &amp; government agencies.
   Respect each source's terms. <b id="sync-msg"></b>
@@ -151,6 +184,7 @@
 <script src="vendor/maplibre-gl.js"></script>
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/intel.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
 </body>
