@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GOD'S EYE — Global CCTV Grid</title>
+<link rel="stylesheet" href="vendor/maplibre-gl.css" />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%2300f0ff' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='16' fill='%2300f0ff'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+<!-- boot sequence overlay -->
+<div id="boot">
+  <div class="boot-inner">
+    <svg class="boot-eye" viewBox="0 0 120 60" aria-hidden="true">
+      <path d="M4 30 Q60 -18 116 30 Q60 78 4 30 Z" fill="none" stroke="#00f0ff" stroke-width="2"/>
+      <circle cx="60" cy="30" r="14" fill="none" stroke="#00f0ff" stroke-width="2"/>
+      <circle cx="60" cy="30" r="6" fill="#00f0ff"/>
+    </svg>
+    <h1>GOD'S EYE</h1>
+    <div id="boot-log"></div>
+  </div>
+</div>
+
+<!-- top HUD -->
+<header id="hud">
+  <div class="hud-left">
+    <svg class="hud-eye" viewBox="0 0 120 60" aria-hidden="true">
+      <path d="M4 30 Q60 -18 116 30 Q60 78 4 30 Z" fill="none" stroke="#00f0ff" stroke-width="4"/>
+      <circle cx="60" cy="30" r="14" fill="none" stroke="#00f0ff" stroke-width="4"/>
+      <circle cx="60" cy="30" r="6" fill="#00f0ff"/>
+    </svg>
+    <div class="hud-title">GOD'S EYE <span>// GLOBAL CCTV GRID</span></div>
+  </div>
+  <div class="hud-stats">
+    <div class="stat"><label>CAMS</label><b id="st-cams">0</b></div>
+    <div class="stat"><label>VIDEO</label><b id="st-video">0</b></div>
+    <div class="stat"><label>ZOOM</label><b id="st-zoom">0.0</b></div>
+    <div class="stat wide"><label>CURSOR</label><b id="st-cursor">--, --</b></div>
+    <div class="stat wide"><label>UTC</label><b id="st-clock">--:--:--</b></div>
+  </div>
+</header>
+
+<!-- left panel: search + camera list -->
+<aside id="panel">
+  <div class="panel-head">
+    <div class="searchbox">
+      <input id="q" type="text" placeholder="Search cameras, roads, places…" autocomplete="off" />
+      <div id="geo-results"></div>
+    </div>
+    <div class="filters">
+      <select id="f-type">
+        <option value="all">all feeds</option>
+        <option value="m3u8">live video</option>
+        <option value="image">snapshots</option>
+        <option value="embed">portals</option>
+      </select>
+      <select id="f-country"><option value="all">world</option></select>
+    </div>
+  </div>
+  <div class="panel-count"><span id="list-count">0</span> cameras matched</div>
+  <ul id="cam-list"></ul>
+  <button id="panel-toggle" title="collapse panel">◀</button>
+</aside>
+
+<!-- map -->
+<div id="map"></div>
+
+<!-- bottom-right controls -->
+<div id="controls">
+  <div class="btn-group" id="styles">
+    <button data-style="dark" class="active">DARK</button>
+    <button data-style="streets">STREETS</button>
+    <button data-style="satellite">SAT</button>
+  </div>
+  <div class="btn-group">
+    <button id="btn-terrain" class="active">3D TERRAIN</button>
+    <button id="btn-sync">⟳ SYNC FEEDS</button>
+    <button id="btn-home">◎ WORLD</button>
+  </div>
+</div>
+
+<!-- radar decoration -->
+<div id="radar" title="scanning">
+  <div class="radar-sweep"></div>
+  <div class="radar-blip" style="left:62%; top:38%"></div>
+  <div class="radar-blip" style="left:34%; top:56%"></div>
+  <div class="radar-blip" style="left:71%; top:70%"></div>
+</div>
+
+<!-- camera player modal -->
+<div id="modal" class="hidden">
+  <div class="modal-box">
+    <div class="scanlines"></div>
+    <div class="modal-head">
+      <div class="rec"><span class="rec-dot"></span><span id="m-status">LIVE</span></div>
+      <div class="modal-title" id="m-title">—</div>
+      <button id="m-close">✕</button>
+    </div>
+    <div class="modal-meta">
+      <span id="m-coords">--, --</span>
+      <span id="m-region"></span>
+      <span id="m-src"></span>
+      <span id="m-clock"></span>
+    </div>
+    <div id="player"></div>
+    <div class="modal-foot">
+      <span id="m-attr"></span>
+      <a id="m-page" href="#" target="_blank" rel="noopener">official page ↗</a>
+    </div>
+  </div>
+</div>
+
+<div id="disclaimer">
+  Public feeds only — cameras published openly by transport &amp; government agencies.
+  Respect each source's terms. <b id="sync-msg"></b>
+</div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="vendor/hls.min.js"></script>
+<script src="js/sources.js"></script>
+<script src="js/players.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

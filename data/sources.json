@@ -1,0 +1,75 @@
+{
+  "note": "Registry of public camera feeds. Every source listed here publishes its cameras publicly (government open data or open-source crowdsourced registries). Attribution lines are shown in the app UI and must be kept.",
+  "sources": [
+    {
+      "id": "otc",
+      "name": "OpenTrafficCamMap",
+      "kind": "registry",
+      "url": "https://raw.githubusercontent.com/AidanWelch/OpenTrafficCamMap/master/cameras/USA.json",
+      "page": "https://github.com/AidanWelch/OpenTrafficCamMap",
+      "country": "US",
+      "attribution": "State DOTs via OpenTrafficCamMap",
+      "format": "M3U8 / IMAGE_STREAM"
+    },
+    {
+      "id": "otc-v1",
+      "name": "OpenTrafficCamMap v1 archive",
+      "kind": "registry",
+      "url": "https://raw.githubusercontent.com/AidanWelch/OpenTrafficCamMap/v1/cameras/USA.json",
+      "page": "https://github.com/AidanWelch/OpenTrafficCamMap",
+      "country": "US",
+      "attribution": "State DOTs via OpenTrafficCamMap v1",
+      "format": "M3U8 / IMAGE_STREAM"
+    },
+    {
+      "id": "511ny",
+      "name": "511 New York (NYSDOT)",
+      "kind": "official",
+      "url": "https://511ny.org/api/getcameras?key=SIGNUP&format=json",
+      "page": "https://511ny.org",
+      "country": "US",
+      "attribution": "NYSDOT / 511NY",
+      "format": "HLS (m3u8) + pages"
+    },
+    {
+      "id": "qc511",
+      "name": "Quebec 511 (MTQ)",
+      "kind": "official",
+      "url": "https://ws.mapserver.transports.gouv.qc.ca/swtq?service=wfs&version=2.0.0&request=getfeature&typename=ms:infos_cameras&srsname=EPSG:4326&outputformat=geojson",
+      "page": "https://www.quebec511.info/",
+      "country": "CA",
+      "attribution": "Ministère des Transports et de la Mobilité durable du Québec",
+      "format": "embed page"
+    },
+    {
+      "id": "sg",
+      "name": "Singapore LTA traffic images (data.gov.sg)",
+      "kind": "official",
+      "url": "https://api.data.gov.sg/v1/transport/traffic-images",
+      "page": "https://data.gov.sg",
+      "country": "SG",
+      "attribution": "LTA / data.gov.sg",
+      "format": "dynamic snapshot (refreshes every ~20s)"
+    },
+    {
+      "id": "fi",
+      "name": "Finland Digitraffic weathercams",
+      "kind": "official",
+      "url": "https://tie.digitraffic.fi/api/weathercam/v1/cameras",
+      "page": "https://tie.digitraffic.fi/",
+      "country": "FI",
+      "attribution": "Liikennevirasto / Digitraffic FI",
+      "format": "IMAGE_STREAM"
+    },
+    {
+      "id": "ltc",
+      "name": "LiveTrafficCam (US DOT / 511 / FAA WeatherCams)",
+      "kind": "registry",
+      "url": "https://livetrafficcam.com/api/cams.json?state={state}",
+      "page": "https://livetrafficcam.com",
+      "country": "US",
+      "attribution": "State DOTs, 511 & FAA via LiveTrafficCam",
+      "format": "verified snapshots"
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "otc": {
+    "cams": 5869,
+    "m3u8": 2790,
+    "image": 3079,
+    "embed": 0,
+    "dynamic": 0,
+    "regions": [
+      "US/AK",
+      "US/AL",
+      "US/AZ",
+      "US/CA",
+      "US/CO",
+      "US/DE",
+      "US/GA",
+      "US/IN",
+      "US/KY",
+      "US/OH"
+    ]
+  },
+  "otc-v1": {
+    "cams": 8647,
+    "m3u8": 5212,
+    "image": 3435,
+    "embed": 0,
+    "dynamic": 0,
+    "regions": [
+      "US/AK",
+      "US/AL",
+      "US/AZ",
+      "US/CA",
+      "US/CO",
+      "US/DE",
+      "US/FL",
+      "US/GA",
+      "US/HI",
+      "US/IA",
+      "US/ID",
+      "US/IL",
+      "US/IN",
+      "US/KS",
+      "US/KY",
+      "US/LA",
+      "US/MD",
+      "US/MI",
+      "US/MN",
+      "US/MO",
+      "US/MS",
+      "US/ND",
+      "US/NE",
+      "US/NJ",
+      "US/NM",
+      "US/NV",
+      "US/OH",
+      "US/OK",
+      "US/OR",
+      "US/SC",
+      "US/SD",
+      "US/TN",
+      "US/UT",
+      "US/VA",
+      "US/WA",
+      "US/WI",
+      "US/WV",
+      "US/WY"
+    ]
+  },
+  "511ny": {
+    "cams": 1717,
+    "m3u8": 1426,
+    "image": 0,
+    "embed": 291,
+    "dynamic": 0,
+    "regions": [
+      "US/NY"
+    ]
+  },
+  "qc511": {
+    "cams": 520,
+    "m3u8": 0,
+    "image": 0,
+    "embed": 520,
+    "dynamic": 0,
+    "regions": [
+      "CA/Quebec"
+    ]
+  },
+  "sg": {
+    "cams": 7,
+    "m3u8": 0,
+    "image": 0,
+    "embed": 0,
+    "dynamic": 7,
+    "regions": [
+      "SG/Singapore"
+    ]
+  },
+  "fi": {
+    "cams": 803,
+    "m3u8": 0,
+    "image": 803,
+    "embed": 0,
+    "dynamic": 0,
+    "regions": [
+      "FI/None"
+    ]
+  },
+  "ltc": {
+    "cams": 1127,
+    "m3u8": 0,
+    "image": 1127,
+    "embed": 0,
+    "dynamic": 0,
+    "regions": [
+      "US/AK",
+      "US/AL",
+      "US/AR",
+      "US/AZ",
+      "US/CA",
+      "US/FL",
+      "US/GA",
+      "US/HI",
+      "US/IA",
+      "US/ID",
+      "US/IL",
+      "US/KS",
+      "US/MS",
+      "US/MT",
+      "US/NC",
+      "US/NJ",
+      "US/NM",
+      "US/NV",
+      "US/NY",
+      "US/OR",
+      "US/PA",
+      "US/TX",
+      "US/UT",
+      "US/VT",
+      "US/WA",
+      "US/WI",
+      "US/WY"
+    ]
+  }
+}
