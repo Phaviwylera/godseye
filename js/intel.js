@@ -367,14 +367,16 @@ const Intel = (() => {
     const radius = Math.min(250, Math.max(30, 30 * Math.pow(1.45, zoom)));
     const q = `${c.lat.toFixed(2)}/${c.lon.toFixed(2)}/${Math.round(radius)}`;
     let ac = [];
-    try {
-      const d = await Sources.fetchJSON("https://api.airplanes.live/v2/point/" + q);
-      ac = (d.ac || []).filter(a => a.lat != null && a.lon != null);
-    } catch (e) {
-      try {
-        const d = await Sources.fetchJSON("https://api.adsb.lol/v2/point/" + q);
-        ac = (d.ac || []).filter(a => a.lat != null && a.lon != null);
-      } catch (e2) { return; }
+    const pull = async (base) => {
+      const d = await Sources.fetchJSON(base + q);
+      if (!Array.isArray(d.ac)) throw new Error("no ac array");
+      return d.ac.filter(a => a.lat != null && a.lon != null);
+    };
+    // adsb.lol is the open/free source; airplanes.live needs an approval key
+    try { ac = await pull("https://api.adsb.lol/v2/point/"); }
+    catch (e) {
+      try { ac = await pull("https://api.airplanes.live/v2/point/"); }
+      catch (e2) { return; }
     }
     ac = ac.slice(0, 350);
     const src = map.getSource("air");
