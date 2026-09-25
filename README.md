@@ -5,7 +5,7 @@ A **3D globe web app** (think Google Earth × Fast & Furious "God's Eye") that m
 coordinates. Zoom out, hunt the camera icons, click one — and the **live feed of
 that exact location** plays instantly.
 
-![status](https://img.shields.io/badge/cameras-18%2C600%2B-blue) ![feeds](https://img.shields.io/badge/live%20video-4%2C600%2B-green)
+![status](https://img.shields.io/badge/cameras-24%2C800%2B-blue) ![countries](https://img.shields.io/badge/countries-120%2B-orange) ![feeds](https://img.shields.io/badge/live%20video-13%2C000%2B-green)
 
 ## ✨ Features
 
@@ -31,6 +31,8 @@ that exact location** plays instantly.
 | `sg` | [data.gov.sg LTA traffic images](https://data.gov.sg) | Singapore | live snapshots (exact coords) |
 | `fi` | [Digitraffic weathercams](https://tie.digitraffic.fi) | Finland | snapshots |
 | `ltc` | [LiveTrafficCam](https://livetrafficcam.com) (DOT/511/FAA) | US (all states) | verified live snapshots |
+| `les` | [Live-Environment-Streams](https://github.com/willytop8/Live-Environment-Streams) | 98 countries | HLS / YouTube Live / portals |
+| `argus` | [Argus](https://github.com/GoSlowPoke168/Argus) (MIT) | 174 countries | m3u8 / mp4 / mjpeg / images |
 
 Each camera carries its attribution line from the publishing agency — keep it.
 
@@ -45,6 +47,11 @@ The server also provides:
 
 * `/api/proxy?url=…` — streaming relay (fixes CORS + HTTPS mixed-content for feeds)
 * `/api/fetch?url=…` — JSON passthrough for source APIs
+
+## 🤖 Automation (GitHub Actions)
+
+* `refresh-dataset` — rebuilds `data/cameras.geojson` from every source **nightly** and pushes (Netlify auto-redeploys)
+* `check-liveness` — probes every direct-media feed **weekly**, writes `data/liveness.json` → LIVE / DOWN badges in the UI
 
 ## 🧱 Rebuild the dataset
 

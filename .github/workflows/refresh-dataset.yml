@@ -1,0 +1,31 @@
+name: refresh-dataset
+on:
+  schedule:
+    - cron: "17 3 * * *"   # nightly 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: rebuild camera dataset from all public sources
+        run: python tools/build_dataset.py
+      - name: commit + push if changed
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/cameras.geojson data/stats.json
+          if git diff --cached --quiet; then
+            echo "no dataset changes"
+          else
+            git commit -m "chore: nightly dataset refresh"
+            git push
+          fi

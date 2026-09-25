@@ -98,7 +98,30 @@ const Players = (() => {
 
     function startPolling() {
       if (st.timer) clearInterval(st.timer);
-      st.timer = setInterval(loadImageOnce, cam.stype === "dynamic" ? 10000 : 6000);
+      st.timer = setInterval(loadImageOnce, cam.stype === "dynamic" ? 10000 : cam.stype === "mjpeg" ? 1500 : 6000);
+    }
+
+    function playVideo() {
+      const v = document.createElement("video");
+      v.src = proxied(cam.stream); v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true;
+      v.controls = !opts.minimal;
+      st.video = v;
+      container.appendChild(v);
+      v.play().catch(() => {});
+    }
+
+    function playYouTube() {
+      let id = "";
+      try {
+        const u = new URL(cam.stream);
+        if (u.hostname.includes("youtu")) id = u.searchParams.get("v") || u.pathname.split("/").filter(Boolean).pop();
+      } catch (e) {}
+      if (!id) return portalCard(container, cam);
+      const f = document.createElement("iframe");
+      f.src = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&mute=1&rel=0";
+      f.allow = "autoplay; encrypted-media; picture-in-picture";
+      f.allowFullscreen = true;
+      container.appendChild(f);
     }
 
     function playImage() {
@@ -172,7 +195,9 @@ const Players = (() => {
 
     switch (cam.stype) {
       case "m3u8": playM3u8(); break;
-      case "image": case "dynamic": playImage(); break;
+      case "mp4": playVideo(); break;
+      case "youtube": playYouTube(); break;
+      case "image": case "dynamic": case "mjpeg": playImage(); break;
       case "embed": portalCard(container, cam); break;
       default: msg(container, "unsupported feed type");
     }

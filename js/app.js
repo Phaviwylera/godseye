@@ -15,7 +15,8 @@ const $ = (s) => document.querySelector(s);
 const el = {
   boot: $("#boot"), bootLog: $("#boot-log"), stCams: $("#st-cams"), stVideo: $("#st-video"),
   stZoom: $("#st-zoom"), stCursor: $("#st-cursor"), stClock: $("#st-clock"),
-  q: $("#q"), geoResults: $("#geo-results"), fType: $("#f-type"), fCountry: $("#f-country"),
+  q: $("#q"), geoResults: $("#geo-results"), fType: $("#f-type"), fCountry: $("#f-country"), fLive: $("#f-live"),
+  stLive: $("#st-live"),
   list: $("#cam-list"), listCount: $("#list-count"), panel: $("#panel"), panelToggle: $("#panel-toggle"),
   modal: $("#modal"), player: $("#player"), mTitle: $("#m-title"), mCoords: $("#m-coords"),
   mRegion: $("#m-region"), mSrc: $("#m-src"), mClock: $("#m-clock"), mStatus: $("#m-status"),
@@ -28,7 +29,7 @@ const el = {
 
 // ------------------------------------------------------------------ utils --
 const fmtNum = (n) => n.toLocaleString("en-US");
-const TYPE_LABEL = { m3u8: "VIDEO", image: "SNAP", embed: "PORTAL", dynamic: "LIVE" };
+const TYPE_LABEL = { m3u8: "VIDEO", mp4: "MP4", mjpeg: "MJPEG", youtube: "YT-LIVE", image: "SNAP", embed: "PORTAL", dynamic: "LIVE" };
 
 /* ---- sound fx (WebAudio, zero assets) ---- */
 let actx = null;
@@ -160,7 +161,7 @@ function addCamLayers() {
   map.addLayer({
     id: "cam-single", type: "symbol", source: "cams", filter: ["!", ["has", "point_count"]],
     layout: {
-      "icon-image": ["match", ["get", "stype"], "m3u8", "cctv-live", ["image", "dynamic"], "cctv-snap", "cctv-portal"],
+      "icon-image": ["match", ["get", "stype"], ["m3u8", "mp4", "youtube"], "cctv-live", ["image", "dynamic", "mjpeg"], "cctv-snap", "cctv-portal"],
       "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.55, 8, 0.8, 14, 1.1],
       "icon-allow-overlap": true, "icon-optional": false,
     },
@@ -216,13 +217,15 @@ function filtered() {
     (t === "all" || c.stype === t || (t === "image" && c.stype === "dynamic")) &&
     (co === "all" || c.country === co) &&
     (!favsOnly || favs.has(c.id)) &&
+    (el.fLive.value === "all" || (el.fLive.value === "live" && c.live === 1) || (el.fLive.value === "down" && c.live === 0)) &&
     (!q || (c.name + " " + (c.place || "") + " " + (c.region || "")).toLowerCase().includes(q))
   );
 }
 
 function updateStats() {
   el.stCams.textContent = fmtNum(cams.length);
-  el.stVideo.textContent = fmtNum(cams.filter(c => c.stype === "m3u8").length);
+  el.stVideo.textContent = fmtNum(cams.filter(c => c.stype === "m3u8" || c.stype === "mp4" || c.stype === "youtube").length);
+  el.stLive.textContent = cams.some(c => c.live !== undefined) ? fmtNum(cams.filter(c => c.live === 1).length) : "–";
 }
 
 function renderList() {
@@ -231,7 +234,7 @@ function renderList() {
   const show = f.slice(0, 300);
   el.list.innerHTML = show.map(c => `
     <li data-id="${c.id}" class="${c.id === activeId ? "active" : ""}">
-      <span class="dot ${c.stype === "m3u8" ? "m3u8" : c.status === "live" ? "live" : ""}"></span>
+      <span class="dot ${c.live === 1 ? "m3u8" : c.live === 0 ? "dead" : c.stype === "m3u8" ? "m3u8" : c.status === "live" ? "live" : ""}"></span>
       <div>
         <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${c.name}</div>
         <div class="cam-sub">${[c.place, c.region, c.country].filter(Boolean).join(" · ")}</div>
@@ -245,6 +248,10 @@ async function loadBundled() {
   const g = await fetch("data/cameras.geojson").then(r => r.json());
   cams = g.features.map(f => ({ ...f.properties, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
   cams.forEach(c => byId.set(c.id, c));
+  try {
+    const lv = await fetch("data/liveness.json").then(r => r.ok ? r.json() : null);
+    if (lv && lv.s) cams.forEach(c => { if (c.id in lv.s) c.live = lv.s[c.id]; });
+  } catch (e) {}
   const countries = [...new Set(cams.map(c => c.country))].sort();
   el.fCountry.innerHTML = '<option value="all">world</option>' +
     countries.map(c => `<option value="${c}">${c}</option>`).join("");
@@ -299,7 +306,7 @@ function openCam(id, fly) {
   el.mCoords.textContent = `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
   el.mRegion.textContent = [c.place, c.region, c.country].filter(Boolean).join(" · ");
   el.mSrc.textContent = "SRC " + c.src.toUpperCase();
-  el.mStatus.textContent = c.stype === "m3u8" ? "LIVE VIDEO" : c.stype === "embed" ? "PORTAL" : "LIVE FEED";
+  el.mStatus.textContent = ({ m3u8: "LIVE VIDEO", mp4: "VIDEO", youtube: "YT LIVE", mjpeg: "MJPEG LIVE", embed: "PORTAL" })[c.stype] || "LIVE FEED";
   el.mAttr.textContent = c.attr || "public feed";
   el.mPage.href = c.page || c.stream || "#";
   el.mPage.style.display = (c.page || c.stream) ? "" : "none";
@@ -436,6 +443,7 @@ function wireUI() {
     debounce = setTimeout(() => geoSearch(el.q.value.trim()), 450);
   });
   el.fType.addEventListener("change", () => { renderList(); refreshSource(); });
+  el.fLive.addEventListener("change", () => { renderList(); refreshSource(); });
   el.fCountry.addEventListener("change", () => { renderList(); refreshSource(); });
   el.panelToggle.onclick = () => el.panel.classList.toggle("collapsed");
   el.mClose.onclick = closeModal;

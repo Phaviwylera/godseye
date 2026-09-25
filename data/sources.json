@@ -70,6 +70,26 @@
       "country": "US",
       "attribution": "State DOTs, 511 & FAA via LiveTrafficCam",
       "format": "verified snapshots"
+    },
+    {
+      "id": "les",
+      "name": "Live-Environment-Streams",
+      "kind": "registry",
+      "url": "https://raw.githubusercontent.com/willytop8/Live-Environment-Streams/main/streams.geojson",
+      "page": "https://github.com/willytop8/Live-Environment-Streams",
+      "country": "GLOBAL (98)",
+      "attribution": "Live-Environment-Streams contributors (per-source credits in their sources.json)",
+      "format": "HLS / YouTube Live / portal pages"
+    },
+    {
+      "id": "argus",
+      "name": "Argus global camera index",
+      "kind": "registry",
+      "url": "https://raw.githubusercontent.com/GoSlowPoke168/Argus/master/public/cameras.core.json",
+      "page": "https://github.com/GoSlowPoke168/Argus",
+      "country": "GLOBAL (174)",
+      "attribution": "Per-source credits via Argus (MIT)",
+      "format": "m3u8 / mp4 / mjpeg / image / iframe"
     }
   ]
 }

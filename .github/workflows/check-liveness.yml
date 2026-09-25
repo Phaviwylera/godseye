@@ -1,0 +1,31 @@
+name: check-liveness
+on:
+  schedule:
+    - cron: "41 4 * * 0"  # weekly, Sunday 04:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: probe every direct-media feed
+        run: python tools/check_liveness.py
+      - name: commit + push if changed
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/liveness.json
+          if git diff --cached --quiet; then
+            echo "no liveness changes"
+          else
+            git commit -m "chore: weekly liveness probe"
+            git push
+          fi

@@ -31,6 +31,7 @@ os.makedirs(CACHE, exist_ok=True)
 
 FULL = "--full" in sys.argv
 IMAGE_CAP_PER_STATE = 10000 if FULL else 250
+ARGUS_CAP_PER_COUNTRY = 50000 if FULL else 300
 
 UA = {"User-Agent": "GodsEyeCCTV/1.0 (open public-camera map; +github.com)"}
 TIMEOUT = 60
@@ -231,6 +232,94 @@ def src_fi():
     print(f"[fi] {n} cameras")
 
 
+def src_les():
+    """Live-Environment-Streams — ~6k curated global outdoor cams, 98 countries."""
+    print("[les] Live-Environment-Streams…")
+    d = fetch_json(
+        "https://raw.githubusercontent.com/willytop8/Live-Environment-Streams/main/streams.geojson",
+        "les_streams.geojson")
+    n = 0
+    for f in d.get("features", []):
+        p, g = f.get("properties", {}), f.get("geometry", {})
+        if p.get("status") != "active":
+            continue
+        coords = g.get("coordinates") or [None, None]
+        ut = p.get("url_type") or ""
+        stype = "m3u8" if ut == "hls" else "youtube" if ut == "youtube" else "embed"
+        place = " ".join(filter(None, [p.get("scene_type"), p.get("environment")])).strip()
+        add(p.get("name") or p.get("display_name") or "Webcam", coords[0], coords[1],
+            stype, p.get("url"), "les", p.get("country_code") or "", "", place, "",
+            "Live-Environment-Streams (%s)" % (p.get("source_family") or "community"),
+            status="live", page=p.get("url") or "")
+        n += 1
+    print(f"[les] {n} cameras")
+
+
+def src_argus():
+    """Argus (MIT) — 229k global index; sample per country (cap ARGUS_CAP_PER_COUNTRY)."""
+    print("[argus] Argus global index (sampling)…")
+    B = "https://raw.githubusercontent.com/GoSlowPoke168/Argus/master/public/"
+    core = fetch_json(B + "cameras.core.json", "argus_core.json")
+    lab = fetch_json(B + "cameras.labels.json", "argus_labels.json")
+    names, cities, cdict = lab.get("name", []), lab.get("city", []), lab.get("cityDict", [])
+    lon, lat, ftA, ccA, srcA = core["lon"], core["lat"], core["ft"], core["cc"], core["src"]
+    ftN, ccN, srcN = core.get("ftDict", []), core.get("ccDict", []), core.get("srcDict", [])
+    TYPEMAP = {"m3u8": "m3u8", "mp4": "mp4", "mjpeg": "mjpeg", "image": "image",
+               "image/jpeg": "image", "iframe": "embed", "txdot-json": "image"}
+    PLAYABLE = {"m3u8", "mp4", "mjpeg", "image", "image/jpeg"}
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for i in range(core["count"]):
+        ft = ftN[ftA[i]] if ftA[i] < len(ftN) else ""
+        if ft not in PLAYABLE:
+            continue
+        cc = ccN[ccA[i]] if ccA[i] < len(ccN) else "?"
+        buckets[cc].append(i)
+    selected = []
+    for cc, idxs in buckets.items():
+        live_first = [i for i in idxs if core["live"][i]] or idxs
+        step = max(1, len(live_first) // ARGUS_CAP_PER_COUNTRY)
+        selected.extend(live_first[::step][:ARGUS_CAP_PER_COUNTRY])
+    print(f"[argus] selected {len(selected)} of {core['count']}")
+    chunks = sorted({i // 1000 for i in selected})
+    cdat = {}
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        futs = {ex.submit(fetch_json, B + f"cameras.detail/{c}.json", f"argus_det_{c}.json"): c for c in chunks}
+        for fut in as_completed(futs):
+            try:
+                cdat[futs[fut]] = fut.result()
+            except Exception as e:
+                print("[argus] chunk fail:", e)
+    n = 0
+    for i in selected:
+        c = cdat.get(i // 1000)
+        if not c:
+            continue
+        j = i - int(c.get("from", 0))
+        ids = c.get("id") or []
+        if j < 0 or j >= len(ids):
+            continue
+        stream = (c.get("stream") or [""] * len(ids))[j] or ""
+        feed = (c.get("feed") or [""] * len(ids))[j] or ""
+        route = (c.get("route") or [""] * len(ids))[j] or ""
+        ft = ftN[ftA[i]] if ftA[i] < len(ftN) else "image"
+        if stream:
+            stype, url = "m3u8", stream
+        else:
+            stype, url = TYPEMAP.get(ft, "image"), feed or route
+        if not url:
+            continue
+        name = names[i] if i < len(names) else ids[j]
+        city = cdict[cities[i]] if i < len(cities) and isinstance(cities[i], int) and cities[i] < len(cdict) else ""
+        sname = srcN[srcA[i]].replace("opencctv_", "").replace("opencam_", "") if srcA[i] < len(srcN) else "index"
+        add(name, lon[i], lat[i], stype, url, "argus",
+            ccN[ccA[i]] if ccA[i] < len(ccN) else "", "", city, "",
+            "%s via Argus (MIT)" % sname,
+            status="live" if core["live"][i] else "unknown", page=route or url)
+        n += 1
+    print(f"[argus] {n} cameras")
+
+
 US_STATES_2 = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID",
                "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO",
                "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
@@ -282,7 +371,7 @@ def src_ltc_all():
 
 
 # ------------------------------------------------------------------ dedup ---
-TYPE_RANK = {"m3u8": 3, "image": 2, "dynamic": 2, "embed": 1}
+TYPE_RANK = {"m3u8": 4, "mp4": 3, "mjpeg": 3, "youtube": 3, "image": 2, "dynamic": 2, "embed": 1}
 
 
 def dedup(feats):
@@ -298,7 +387,7 @@ def dedup(feats):
 
 
 def main():
-    jobs = [src_otc_master, src_otc_v1, src_511ny, src_qc, src_sg, src_fi, src_ltc_all]
+    jobs = [src_otc_master, src_otc_v1, src_511ny, src_qc, src_sg, src_fi, src_ltc_all, src_les, src_argus]
     for job in jobs:
         try:
             job()
