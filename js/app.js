@@ -314,6 +314,7 @@ function openCam(id, fly) {
   el.modal.classList.remove("hidden");
   Players.stop();
   modalHandle = Players.play(c, el.player, {
+    onRetry: () => openCam(id, false),
     captureFrames: c.stype === "image" || c.stype === "dynamic" || c.stype === "m3u8",
     frameW: 1024,
     onFrame: (count) => {

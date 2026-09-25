@@ -15,7 +15,7 @@ const HITS = new Map();
 function rateOK(ip) {
   const now = Date.now();
   const arr = (HITS.get(ip) || []).filter((t) => now - t < 60000);
-  if (arr.length >= 90) return false; // 90 relayed requests / minute / IP
+  if (arr.length >= 300) return false; // 300 relayed requests / minute / IP (HLS playback needs it)
   arr.push(now);
   HITS.set(ip, arr);
   if (HITS.size > 5000) HITS.clear();
@@ -90,6 +90,15 @@ export async function handler(event) {
 
     if (isHls) {
       const text = await r.text();
+      // agencies return "Not Found"/empty bodies for offline cams — say so honestly
+      // instead of rewriting garbage into a fake playlist
+      if (!text.trimStart().startsWith("#EXTM3U")) {
+        return {
+          statusCode: 404,
+          headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" },
+          body: JSON.stringify({ error: "source-not-streaming", detail: text.trim().slice(0, 80) }),
+        };
+      }
       return {
         statusCode: 200,
         headers: { ...CORS, "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store" },

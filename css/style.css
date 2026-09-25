@@ -269,3 +269,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .dot.dead { background: var(--red); box-shadow: 0 0 5px var(--red); opacity: .8; }
 .badge.mp4, .badge.mjpeg { color: var(--green); border-color: rgba(42, 255, 139, .4); }
 .badge.youtube { color: #ff5555; border-color: rgba(255, 85, 85, .4); }
+
+.retry-btn {
+  background: transparent; color: var(--cyan); border: 1px solid var(--cyan-dim);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .15em;
+  padding: 6px 12px; cursor: pointer;
+}
+.retry-btn:hover { background: rgba(0, 240, 255, .15); }

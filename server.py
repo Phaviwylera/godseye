@@ -91,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_address[0]
         now = time.time()
         arr = [t for t in Handler._hits.get(ip, []) if now - t < 60]
-        if len(arr) >= 120:
+        if len(arr) >= 300:
             return False
         arr.append(now)
         Handler._hits[ip] = arr
@@ -167,7 +167,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Upstream-Status", str(upstream.status))
 
         if is_hls:
-            body = rewrite_m3u8(upstream.read().decode("utf-8", "replace"), url)
+            raw_text = upstream.read().decode("utf-8", "replace")
+            if not raw_text.lstrip().startswith("#EXTM3U"):
+                return self._json({"error": "source-not-streaming",
+                                   "detail": raw_text.strip()[:80]}, 404)
+            body = rewrite_m3u8(raw_text, url)
             data = body.encode()
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()

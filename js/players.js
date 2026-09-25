@@ -130,10 +130,7 @@ const Players = (() => {
       st.img = img;
       img.onload = () => pushFrame(img);
       img.onerror = () => {
-        if (n > 4 && !st.frames.length) {
-          stop();
-          msg(container, `NO SIGNAL<br><span style="font-size:10px">feed unreachable — <a href="${cam.page || cam.stream || "#"}" target="_blank" rel="noopener">open official page</a></span>`);
-        }
+        if (n > 4 && !st.frames.length) failPanel("The agency's snapshot feed is unreachable right now.");
       };
       container.appendChild(img);
       loadImageOnce();
@@ -141,29 +138,64 @@ const Players = (() => {
     }
 
     // ------------------------------------------------------------- m3u8 ----
+    function failPanel(why) {
+      stop();
+      const hint = cam.live === 0 ? "Last probe marked this camera DOWN."
+        : cam.live === 1 ? "It was verified live recently — this may be temporary."
+        : "Public DOT cams go offline sometimes (maintenance, network, weather).";
+      container.innerHTML = `
+        <div class="player-msg" style="max-width:460px;line-height:1.8">
+          <div style="color:#ff2a4d;letter-spacing:.25em;font-size:14px">SIGNAL LOST</div>
+          <div style="font-size:11px;margin-top:8px">${why}</div>
+          <div style="font-size:10px;color:#51707c;margin-top:6px">${hint}</div>
+          <div style="margin-top:14px;display:flex;gap:10px;justify-content:center">
+            <button class="retry-btn">↻ RETRY</button>
+            <a href="${cam.page || cam.stream || "#"}" target="_blank" rel="noopener"
+               style="font-size:10px;letter-spacing:.15em;color:#00f0ff;border:1px solid rgba(0,240,255,.3);padding:6px 12px;text-decoration:none">OFFICIAL PAGE ↗</a>
+          </div>
+        </div>`;
+      const btn = container.querySelector(".retry-btn");
+      if (btn) btn.onclick = () => {
+        if (opts.onRetry) { opts.onRetry(); return; }
+        // wall tiles: restart in-place with the same state object (no leaks)
+        container.innerHTML = "";
+        if (st.hls) { try { st.hls.destroy(); } catch (e) {} st.hls = null; }
+        if (st.timer) { clearInterval(st.timer); st.timer = null; }
+        if (cam.stype === "m3u8") playM3u8();
+        else if (cam.stype === "mp4") playVideo();
+        else if (cam.stype === "youtube") playYouTube();
+        else if (cam.stype === "embed") portalCard(container, cam);
+        else { n = 0; playImage(); }
+      };
+    }
+
     function playM3u8() {
       const video = document.createElement("video");
       video.autoplay = true; video.controls = !opts.minimal; video.muted = true; video.playsInline = true;
       st.video = video;
       container.appendChild(video);
       const src = proxied(cam.stream);
-      const fail = (why) => {
-        stop();
-        msg(container, `SIGNAL LOST<br><span style="font-size:10px">${why} — <a href="${cam.page || cam.stream || "#"}" target="_blank" rel="noopener">open official page</a></span>`);
-      };
+      const fail = (why) => failPanel(why);
       if (window.Hls && Hls.isSupported()) {
         st.hls = new Hls({
           lowLatencyMode: true, maxBufferLength: 12,
-          manifestLoadingTimeOut: 15000, manifestLoadingMaxRetry: 3,
-          levelLoadingTimeOut: 15000, fragLoadingTimeOut: 20000,
+          manifestLoadingTimeOut: 25000, manifestLoadingMaxRetry: 4, manifestLoadingMaxRetryTimeout: 12000,
+          levelLoadingTimeOut: 25000, fragLoadingTimeOut: 30000,
         });
         st.hls.loadSource(src);
         st.hls.attachMedia(video);
         st.hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) {
-            try { st.hls.startLoad(); st.hls.recoverMediaError(); } catch (e) { fail("stream error"); }
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details === "manifestLoadError") fail("manifest unreachable");
+          if (!data.fatal) return;
+          const isManifest = data.details === "manifestLoadError" || data.details === "manifestParsingError";
+          if (isManifest) {
+            const up = (data.response && data.response.code) || 0;
+            fail(up === 404 || up === 410
+              ? "The agency's stream is offline or removed right now."
+              : "Stream manifest unreachable at the agency's server.");
+            return;
           }
+          // media/buffer trouble → try to recover before giving up
+          try { st.hls.startLoad(); st.hls.recoverMediaError(); } catch (e) { fail("stream error"); }
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = src;

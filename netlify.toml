@@ -5,6 +5,7 @@
 
 [functions]
   node_bundler = "esbuild"
+  timeout = 26
 
 # route the camera-feed relay through the serverless function
 [[redirects]]
