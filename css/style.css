@@ -631,3 +631,10 @@ button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   #fab { bottom: 14px; }
   #hud { height: 40px; }
 }
+
+/* failover + heal affordances */
+.alt-btn {
+  border-color: rgba(255, 179, 0, .45) !important;
+  color: var(--amber) !important;
+}
+.alt-btn:hover { background: rgba(255, 179, 0, .12) !important; }

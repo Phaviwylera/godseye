@@ -83,6 +83,14 @@ class TestContract(unittest.TestCase):
         for wf in ("refresh-dataset.yml", "check-liveness.yml", "ci.yml"):
             self.assertTrue(os.path.exists(os.path.join(ROOT, ".github", "workflows", wf)), wf)
 
+    def test_player_resilience_features(self):
+        pl = open(os.path.join(ROOT, "js", "players.js")).read()
+        self.assertIn("extractYt", pl)
+        self.assertIn("YT_ERRORS", pl)
+        self.assertIn("153", pl)              # youtube embed restriction handled
+        self.assertIn("nearestAlternative", pl)  # dead-cam failover
+        self.assertIn("armHeal", pl)          # background auto-heal
+
     def test_player_types_supported(self):
         pl = open(os.path.join(ROOT, "js", "players.js")).read()
         for t in ("m3u8", "mp4", "youtube", "mjpeg", "dynamic", "embed"):
