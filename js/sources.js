@@ -49,7 +49,9 @@ const Sources = (() => {
   async function singaporeFrame(camId) {
     const d = await fetchJSON("https://api.data.gov.sg/v1/transport/traffic-images");
     const cams = ((d.items || [{}])[0].cameras) || [];
-    const hit = cams.find(c => "sg-" + c.camera_id === camId || c.camera_id === camId);
+    // The bundled dataset uses long normalized IDs; live sync uses short sg-IDs.
+    const id = String(camId).match(/(?:traffic-camera-|^sg-)(\d+)(?:-|$)/i)?.[1] || String(camId);
+    const hit = cams.find(c => String(c.camera_id) === id);
     return hit ? hit.image : null;
   }
 
