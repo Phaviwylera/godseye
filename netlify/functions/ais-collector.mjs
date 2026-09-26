@@ -4,13 +4,13 @@ import { getStore } from '@netlify/blobs';
 
 export const config = { schedule: '*/2 * * * *' };
 const URL = 'wss://stream.aisstream.io/v0/stream';
-// AISStream corners are [latitude, longitude]. Focus on busy shipping corridors.
+// AISStream corners are [latitude, longitude], northwest then southeast.
 const BOXES = [
-  [[12.5, 79.0], [15.2, 82.0]],       // Chennai
-  [[0.8, 102.8], [2.4, 105.0]],       // Singapore Strait
-  [[51.3, 3.3], [52.2, 4.9]],         // Rotterdam
-  [[40.3, -74.7], [41.1, -73.2]],     // New York
-  [[33.3, -119.0], [34.3, -117.6]],   // Los Angeles
+  [[15.2, 79.0], [12.5, 82.0]],       // Chennai
+  [[2.4, 102.8], [0.8, 105.0]],       // Singapore Strait
+  [[52.2, 3.3], [51.3, 4.9]],         // Rotterdam
+  [[41.1, -74.7], [40.3, -73.2]],     // New York
+  [[34.3, -119.0], [33.3, -117.6]],   // Los Angeles
 ];
 const TYPES = ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'];
 const accepted = new Set(TYPES);

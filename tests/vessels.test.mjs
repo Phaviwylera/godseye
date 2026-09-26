@@ -21,6 +21,9 @@ test('collector subscribes once with server key, deduplicates vessels, and close
   const vessels = await promise;
   assert.equal(socket.subscription.APIKey, 'test-key');
   assert.equal(socket.subscription.BoundingBoxes.length, 5);
+  for (const [[north, west], [south, east]] of socket.subscription.BoundingBoxes) {
+    assert.ok(north > south && west < east, 'AIS boxes run northwest to southeast');
+  }
   assert.equal(vessels.length, 1);
   assert.equal(socket.closed, true);
 });
