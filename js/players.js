@@ -35,6 +35,9 @@ const Players = (() => {
         const text = await r.text();
         return text.trimStart().startsWith("#EXTM3U");
       }
+      const mime = (r.headers.get("content-type") || "").toLowerCase();
+      if (stype === "image" && mime && !mime.startsWith("image/")) return false;
+      if (stype === "mp4" && mime && !mime.startsWith("video/")) return false;
       // image / mp4 / mjpeg — any non-empty body or 2xx is enough
       const buf = await r.arrayBuffer();
       return buf.byteLength > 32;
@@ -247,13 +250,16 @@ const Players = (() => {
     const loadImageOnce = async () => {
       if (st.paused) return;
       try {
-        let url = proxied(cam.stream) + (cam.stream.includes("?") ? "&" : "?") + "_r=" + (++n);
+        let source = cam.stream;
         if (cam.stype === "dynamic" && cam.src === "sg") {
-          const fresh = await Sources.singaporeFrame(cam.id);
-          if (fresh) url = proxied(fresh) + "&_r=" + (++n);
+          source = cam._resolvedStream || await Sources.singaporeFrame(cam.id);
+          cam._resolvedStream = null;
+          if (!source) throw new Error("No current image URL returned by the source");
         }
-        st.img.src = url;
-      } catch (e) { /* keep last frame */ }
+        st.img.src = proxied(source) + "&_r=" + (++n);
+      } catch (e) {
+        if (!st.frames.length) failPanel("The agency did not return a current camera image.");
+      }
     };
 
     function startPolling() {
