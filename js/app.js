@@ -376,6 +376,34 @@ function shareScene() {
     .catch(() => { prompt("Copy map scene link:", link); });
 }
 
+let savedContextView = null;
+function toggleContextView() {
+  const button = $("#btn-context-view");
+  if (savedContextView) {
+    const view = savedContextView;
+    savedContextView = null;
+    button.textContent = "◎ GLOBAL VIEW";
+    button.title = "Save this view and open global context (G)";
+    button.setAttribute("aria-pressed", "false");
+    button.classList.remove("active");
+    map.flyTo({ ...view, duration: 1600, essential: true });
+    return false;
+  }
+
+  savedContextView = {
+    center: map.getCenter().toArray(),
+    zoom: map.getZoom(),
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+  };
+  button.textContent = "↩ RETURN VIEW";
+  button.title = "Return to the saved map view (G)";
+  button.setAttribute("aria-pressed", "true");
+  button.classList.add("active");
+  map.flyTo({ center: [10, 20], zoom: 1.55, bearing: 0, pitch: 0, duration: 1800, essential: true });
+  return true;
+}
+
 function dotClass(c) {
   const st = statusOf(c);
   if (st === "live") return "m3u8";
@@ -1094,6 +1122,7 @@ function wireUI() {
         (e.target && e.target.closest && e.target.closest("input, select, textarea, [contenteditable='true']"))) return;
     const shortcut = { "0": "natural", "1": "crt", "2": "nvg", "3": "flir", "4": "noir", "5": "snow" }[e.key];
     if (shortcut) applySensorMode(shortcut);
+    if (e.key.toLowerCase() === "g") $("#btn-context-view").click();
   });
   el.list.addEventListener("click", (e) => {
     const li = e.target.closest("li[data-id]");
@@ -1180,6 +1209,7 @@ function wireUI() {
     ensureTerrain();
   };
   $("#btn-home").onclick = () => map.flyTo({ center: [10, 20], zoom: 1.55, pitch: 0, bearing: 0, duration: 2500, essential: true });
+  $("#btn-context-view").onclick = toggleContextView;
   $("#btn-sensor-mode").onclick = () => {
     const next = (SENSOR_MODES.indexOf(currentSensorMode) + 1) % SENSOR_MODES.length;
     applySensorMode(SENSOR_MODES[next]);

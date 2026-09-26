@@ -149,6 +149,18 @@ class TestContract(unittest.TestCase):
             self.assertIn(f'data-sensor-mode="{mode}"', css)
         self.assertIn('"5": "snow"', app)
 
+    def test_global_context_view(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+        self.assertIn('id="btn-context-view"', idx)
+        self.assertIn('data-do="#btn-context-view"', idx)
+        self.assertIn("function toggleContextView()", app)
+        self.assertIn("savedContextView = {", app)
+        self.assertIn("map.flyTo({ ...view, duration: 1600, essential: true })", app)
+        self.assertIn('e.key.toLowerCase() === "g"', app)
+        self.assertIn("restore the saved center, zoom, bearing", readme)
+
     def test_aircraft_tracking_trails(self):
         intel = open(os.path.join(ROOT, "js", "intel.js"), encoding="utf-8").read()
         app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()

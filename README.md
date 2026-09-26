@@ -37,6 +37,7 @@ No build step is required; the visual system is contained in the existing HTML/C
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
  ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, follow mode and an oblique cockpit view |
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
+ 🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
 
 ## 🗺️ Camera sources (all publicly published by agencies)
@@ -64,6 +65,10 @@ Cycle the visual sensor looks with the **SENSOR** control or select them with
 `1`–`5` (`0` restores natural color). FLIR is a stylized color filter, not a
 thermal sensor or temperature measurement. Share-view links preserve the
 selected look.
+
+Use **GLOBAL VIEW** (or press `G`) to save the current camera and zoom out to a
+global view; activate **RETURN VIEW** to restore the saved center, zoom, bearing
+and pitch.
 
 ## 🚀 Quick start
 
