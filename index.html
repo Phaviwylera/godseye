@@ -157,6 +157,7 @@
   <div class="btn-group">
     <button id="btn-night">◐ NIGHT</button>
     <button id="btn-iss">◇ ISS</button>
+    <button id="btn-satellites" title="Predicted positions of stations and GPS satellites">◇ SATELLITES</button>
     <button id="btn-radar">⌁ RADAR</button>
     <button id="btn-route">⌇ ROUTE</button>
     <button id="btn-air">△ AIR</button>
@@ -165,6 +166,7 @@
   <div id="intel-row">
     <span id="air-chip" class="hidden">AIR</span>
     <span id="iss-chip" class="hidden">ISS</span>
+    <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
     <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
     <span id="radar-ctl" class="hidden">
       <button id="radar-play">⏸</button>
@@ -271,6 +273,7 @@
     <button data-do="#btn-fx">◌ FX</button>
     <button data-do="#btn-night">◐ NIGHT</button>
     <button data-do="#btn-iss">◇ ISS</button>
+    <button data-do="#btn-satellites">◇ SATELLITES</button>
     <button data-do="#btn-air">△ AIR</button>
     <button data-do="#btn-quakes">◇ QUAKES</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
@@ -317,8 +320,10 @@
 </div>
 
 <script src="vendor/maplibre-gl.js"></script>
+<script src="vendor/satellite.min.js"></script>
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/satellites.js"></script>
 <script src="js/intel.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
