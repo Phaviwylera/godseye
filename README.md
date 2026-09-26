@@ -40,8 +40,14 @@ Positions are SGP4 predictions from [CelesTrak GP JSON orbital elements](https:/
 not live satellite telemetry. `refresh-satellites` updates the small static
 snapshot once daily, and the layer refuses a snapshot older than 72 hours.
 `satellite.js` 6.0.2 is vendored under its MIT license in `vendor/`.
-Live ship AIS needs a server-held provider key and a persistent WebSocket
-backend; no vessel positions are displayed until that service is configured.
+The **SHIPS** layer displays recent AIS observations from selected corridors near Chennai,
+Singapore, Rotterdam, New York and Los Angeles. A scheduled Netlify Function connects
+to AISStream for 18 seconds every two minutes and stores a shared snapshot in Netlify
+Blobs; the public reader rejects snapshots older than five minutes. This is sampled
+coverage, not continuous global vessel tracking. Set `AISSTREAM_API_KEY` in the
+Netlify project environment variables with **Functions** scope (Production context),
+then redeploy; never place the key in `netlify.toml` or client code. Until configured,
+the layer displays “AIS UNAVAILABLE” rather than fabricated vessel positions.
 
 ## ✨ Features
 
