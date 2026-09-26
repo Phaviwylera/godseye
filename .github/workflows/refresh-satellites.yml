@@ -1,0 +1,31 @@
+name: refresh-satellites
+on:
+  schedule:
+    - cron: "13 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refresh orbital elements
+        run: python tools/build_satellites.py
+      - name: Commit snapshot
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/satellites.json
+          if git diff --cached --quiet; then
+            echo "no satellite data changes"
+          else
+            git commit -m "chore: refresh satellite elements"
+            git push
+          fi

@@ -1270,6 +1270,7 @@ function wireUI() {
       addCamLayers(); refreshSource();
       Intel.restoreAirLayer();
       Intel.restoreQuakeLayer();
+      Satellites.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1300,6 +1301,11 @@ function wireUI() {
   // ---- intel layers ----
   $("#btn-night").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleNight()); fxBlip(); };
   $("#btn-iss").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleISS(false)); fxBlip(); };
+  $("#btn-satellites").onclick = async (e) => {
+    const on = await Satellites.toggle();
+    e.target.classList.toggle("active", on);
+    fxBlip();
+  };
   $("#btn-radar").onclick = async (e) => {
     const on = await Intel.toggleRadar();
     e.target.classList.toggle("active", !!on);
@@ -1527,6 +1533,7 @@ function tickClock() {
   try {
     await initMap();
     Intel.init(map);
+    Satellites.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

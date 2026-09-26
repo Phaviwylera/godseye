@@ -35,6 +35,14 @@ only after the browser actually starts playback. Scheduled liveness probes now
 record a timestamp per camera, and checks older than 48 hours are marked
 unverified until refreshed.
 
+The **SATELLITES** layer displays stations and operational GPS satellites.
+Positions are SGP4 predictions from [CelesTrak GP JSON orbital elements](https://celestrak.org/NORAD/documentation/gp-data-formats.php),
+not live satellite telemetry. `refresh-satellites` updates the small static
+snapshot once daily, and the layer refuses a snapshot older than 72 hours.
+`satellite.js` 6.0.2 is vendored under its MIT license in `vendor/`.
+Live ship AIS needs a server-held provider key and a persistent WebSocket
+backend; no vessel positions are displayed until that service is configured.
+
 ## ✨ Features
 
 | | |
