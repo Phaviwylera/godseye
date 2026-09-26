@@ -133,7 +133,21 @@ class TestContract(unittest.TestCase):
         self.assertIn('params.get("scene") !== "1"', app)
         self.assertIn("center: sharedScene ? sharedScene.center", app)
         self.assertIn("bearing: sharedScene ? sharedScene.bearing", app)
+        self.assertIn("sensor: currentSensorMode", app)
+        self.assertIn('params.get("sensor") || "natural"', app)
         self.assertIn("function shareScene()", app)
+
+    def test_visual_sensor_modes(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        css = open(os.path.join(ROOT, "css", "style.css"), encoding="utf-8").read()
+        self.assertIn('id="btn-sensor-mode"', idx)
+        self.assertIn('data-do="#btn-sensor-mode"', idx)
+        self.assertIn('const SENSOR_MODES = ["natural", "crt", "nvg", "flir", "noir", "snow"]', app)
+        self.assertIn('document.body.dataset.sensorMode = mode', app)
+        for mode in ("crt", "nvg", "flir", "noir", "snow"):
+            self.assertIn(f'data-sensor-mode="{mode}"', css)
+        self.assertIn('"5": "snow"', app)
 
     def test_aircraft_tracking_trails(self):
         intel = open(os.path.join(ROOT, "js", "intel.js"), encoding="utf-8").read()
