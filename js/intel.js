@@ -10,7 +10,7 @@ const Intel = (() => {
     issTimer: null, nightTimer: null, radarTimer: null,
     issTrail: [], issFollow: false, radarFrames: [], radarIdx: 0, radarPlaying: false,
     air: false, airTimer: null, airMoveTimer: null, airLoading: false,
-    airTrack: null, airFollow: false, airFeatures: [],
+    airTrack: null, airFollow: false, airCockpit: false, airSavedCamera: null, airFeatures: [],
     quakes: false, quakesTimer: null, quakesLoading: false,
   };
 
@@ -388,21 +388,66 @@ const Intel = (() => {
     }
     const ago = Math.max(0, Math.round((Date.now() - state.airTrack.lastSeen) / 1000));
     const freshness = ago < 30 ? "LIVE" : `SEEN ${Math.floor(ago / 60)}m AGO`;
-    chip.textContent = `✈ ${state.airTrack.callsign} · ${freshness} · ${state.airFollow ? "FOLLOW ON" : "FOLLOW OFF"}`;
-    chip.title = state.airFollow
-      ? "Click to stop following this aircraft; its trail remains visible."
-      : "Click to follow this aircraft. Its trail remains visible either way.";
+    chip.textContent = `✈ ${state.airTrack.callsign} · ${freshness} · ${state.airCockpit ? "COCKPIT" : state.airFollow ? "FOLLOW ON" : "FOLLOW OFF"}`;
+    chip.title = state.airCockpit
+      ? "Click to leave cockpit view and restore the previous map view."
+      : state.airFollow
+        ? "Click to stop following this aircraft; its trail remains visible."
+        : "Click to follow this aircraft. Its trail remains visible either way.";
+  }
+
+  function positionAirCockpit(coordinates, heading, duration) {
+    const bearing = Number.isFinite(Number(heading)) ? Number(heading) : map.getBearing();
+    const lat = coordinates[1] * rad;
+    const behind = (bearing + 180) * rad;
+    const distanceKm = 38;
+    const center = [
+      coordinates[0] + Math.sin(behind) * distanceKm / (111.32 * Math.max(0.05, Math.cos(lat))),
+      Math.max(-85, Math.min(85, coordinates[1] + Math.cos(behind) * distanceKm / 111.32)),
+    ];
+    map.easeTo({ center, zoom: 8, bearing, pitch: 55, duration });
+  }
+
+  function leaveAirCockpit() {
+    const camera = state.airSavedCamera;
+    state.airCockpit = false;
+    state.airSavedCamera = null;
+    if (camera) map.easeTo({ ...camera, duration: 1200 });
+  }
+
+  function toggleAirCockpit() {
+    if (!state.airTrack) return false;
+    if (state.airCockpit) {
+      leaveAirCockpit();
+      state.airFollow = false;
+    } else {
+      state.airSavedCamera = {
+        center: map.getCenter().toArray(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
+      state.airCockpit = true;
+      state.airFollow = true;
+      const last = state.airTrack.points[state.airTrack.points.length - 1];
+      if (last) positionAirCockpit(last.coordinates, state.airTrack.track, 1500);
+    }
+    updateAirChip(state.airFeatures.length);
+    return state.airCockpit;
   }
 
   function selectAirTrack(record) {
     const existing = state.airTrack;
     if (existing && existing.hex === record.hex) {
+      if (state.airCockpit) leaveAirCockpit();
       state.airTrack = null;
       state.airFollow = false;
     } else {
+      if (state.airCockpit) leaveAirCockpit();
       state.airTrack = {
         hex: record.hex,
         callsign: record.callsign,
+        track: record.track,
         points: [{ coordinates: record.coordinates, time: Date.now() }],
         lastSeen: Date.now(),
       };
@@ -421,6 +466,12 @@ const Intel = (() => {
 
   function toggleAirFollow() {
     if (!state.airTrack) return false;
+    if (state.airCockpit) {
+      leaveAirCockpit();
+      state.airFollow = false;
+      updateAirChip(state.airFeatures.length);
+      return false;
+    }
     state.airFollow = !state.airFollow;
     updateAirChip(state.airFeatures.length);
     if (state.airFollow && state.airTrack.points.length) {
@@ -471,6 +522,7 @@ const Intel = (() => {
           hex: String(properties.hex || ""),
           callsign: String(properties.callsign || properties.hex || "Unknown aircraft"),
           coordinates: feature.geometry.coordinates,
+          track: Number(properties.track),
         };
         if (!record.hex) return;
         const tracking = selectAirTrack(record);
@@ -495,6 +547,15 @@ const Intel = (() => {
           action.textContent = isTracking ? "STOP TRACKING" : "TRACK AIRCRAFT";
         };
         content.appendChild(action);
+        const cockpit = document.createElement("button");
+        cockpit.type = "button";
+        cockpit.textContent = state.airCockpit ? "EXIT COCKPIT" : "COCKPIT VIEW";
+        cockpit.disabled = !tracking;
+        cockpit.onclick = () => {
+          const active = toggleAirCockpit();
+          cockpit.textContent = active ? "EXIT COCKPIT" : "COCKPIT VIEW";
+        };
+        content.appendChild(cockpit);
         new maplibregl.Popup({ closeButton: true, maxWidth: "320px" })
           .setLngLat(record.coordinates)
           .setDOMContent(content)
@@ -567,9 +628,11 @@ const Intel = (() => {
             .slice(-360);
         }
         state.airTrack.callsign = tracked.properties.callsign;
+        state.airTrack.track = Number(tracked.properties.track);
         state.airTrack.lastSeen = now;
         setAirTrackData();
-        if (state.airFollow) map.easeTo({ center: coordinates, duration: 900 });
+        if (state.airCockpit) positionAirCockpit(coordinates, state.airTrack.track, 900);
+        else if (state.airFollow) map.easeTo({ center: coordinates, duration: 900 });
       }
     }
     updateAirChip(ac.length);
@@ -615,6 +678,7 @@ const Intel = (() => {
     } else {
       clearInterval(state.airTimer);
       clearTimeout(state.airMoveTimer);
+      if (state.airCockpit) leaveAirCockpit();
       state.airFollow = false;
       if (chip) chip.classList.add("hidden");
       if (map.getLayer("air-dots")) map.setLayoutProperty("air-dots", "visibility", "none");
@@ -756,6 +820,6 @@ const Intel = (() => {
     window.GE_CAMS = window.GE_CAMS || {};
   }
 
-  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
+  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
            get state() { return state; } };
 })();

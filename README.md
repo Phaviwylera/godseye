@@ -35,7 +35,9 @@ No build step is required; the visual system is contained in the existing HTML/C
  📺 **One-click playback** | HLS live video (hls.js), auto-refreshing snapshots, agency portals |
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
- ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails and optional camera follow |
+ ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, follow mode and an oblique cockpit view |
+ 🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
+ 🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
 
 ## 🗺️ Camera sources (all publicly published by agencies)
@@ -54,8 +56,19 @@ No build step is required; the visual system is contained in the existing HTML/C
 Each camera carries its attribution line from the publishing agency — keep it.
 
 Enable **AIR** to view nearby aircraft. Select an aircraft to draw its recent
-track (up to one hour of sightings); use the popup action to clear it. The
-aircraft status chip toggles camera follow while a track is selected.
+track (up to one hour of sightings); use the popup actions to clear it or enter
+cockpit view. Cockpit view follows the aircraft from an oblique camera angle and
+restores the previous map view when exited. The aircraft status chip toggles
+camera follow while a track is selected.
+
+Cycle the visual sensor looks with the **SENSOR** control or select them with
+`1`–`5` (`0` restores natural color). FLIR is a stylized color filter, not a
+thermal sensor or temperature measurement. Share-view links preserve the
+selected look.
+
+Use **GLOBAL VIEW** (or press `G`) to save the current camera and zoom out to a
+global view; activate **RETURN VIEW** to restore the saved center, zoom, bearing
+and pitch.
 
 ## 🚀 Quick start
 

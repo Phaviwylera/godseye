@@ -939,6 +939,15 @@ body[data-map-style="satellite"] .map-vignette { box-shadow: inset 0 0 185px 35p
 .maplibregl-canvas { filter: saturate(.80) contrast(1.07) brightness(.87); transition: filter .5s ease; }
 body[data-map-style="satellite"] .maplibregl-canvas { filter: saturate(.67) contrast(1.13) brightness(.78) hue-rotate(3deg); }
 body[data-map-style="streets"] .maplibregl-canvas { filter: saturate(.75) contrast(1.04) brightness(.91); }
+#map-atmosphere::after { content:""; position:absolute; inset:0; opacity:0; pointer-events:none; }
+body[data-sensor-mode="crt"] .maplibregl-canvas { filter: grayscale(.28) sepia(.82) hue-rotate(82deg) saturate(1.8) contrast(1.35) brightness(.86); }
+body[data-sensor-mode="crt"] #map-atmosphere::after {
+  opacity:.14; background:repeating-linear-gradient(0deg, transparent 0 3px, rgba(115,255,187,.22) 4px);
+}
+body[data-sensor-mode="nvg"] .maplibregl-canvas { filter: grayscale(.72) sepia(1) hue-rotate(70deg) saturate(4.2) contrast(1.15) brightness(1.05); }
+body[data-sensor-mode="flir"] .maplibregl-canvas { filter: grayscale(1) contrast(1.65) sepia(1) hue-rotate(300deg) saturate(7) brightness(1.05); }
+body[data-sensor-mode="noir"] .maplibregl-canvas { filter: grayscale(1) contrast(1.3) brightness(.9); }
+body[data-sensor-mode="snow"] .maplibregl-canvas { filter: grayscale(.9) invert(.86) contrast(1.25) brightness(1.15); }
 
 /* -------------------------------------------- acquisition animation ---- */
 #acquire {

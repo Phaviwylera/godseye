@@ -133,7 +133,33 @@ class TestContract(unittest.TestCase):
         self.assertIn('params.get("scene") !== "1"', app)
         self.assertIn("center: sharedScene ? sharedScene.center", app)
         self.assertIn("bearing: sharedScene ? sharedScene.bearing", app)
+        self.assertIn("sensor: currentSensorMode", app)
+        self.assertIn('params.get("sensor") || "natural"', app)
         self.assertIn("function shareScene()", app)
+
+    def test_visual_sensor_modes(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        css = open(os.path.join(ROOT, "css", "style.css"), encoding="utf-8").read()
+        self.assertIn('id="btn-sensor-mode"', idx)
+        self.assertIn('data-do="#btn-sensor-mode"', idx)
+        self.assertIn('const SENSOR_MODES = ["natural", "crt", "nvg", "flir", "noir", "snow"]', app)
+        self.assertIn('document.body.dataset.sensorMode = mode', app)
+        for mode in ("crt", "nvg", "flir", "noir", "snow"):
+            self.assertIn(f'data-sensor-mode="{mode}"', css)
+        self.assertIn('"5": "snow"', app)
+
+    def test_global_context_view(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+        self.assertIn('id="btn-context-view"', idx)
+        self.assertIn('data-do="#btn-context-view"', idx)
+        self.assertIn("function toggleContextView()", app)
+        self.assertIn("savedContextView = {", app)
+        self.assertIn("map.flyTo({ ...view, duration: 1600, essential: true })", app)
+        self.assertIn('e.key.toLowerCase() === "g"', app)
+        self.assertIn("restore the saved center, zoom, bearing", readme)
 
     def test_aircraft_tracking_trails(self):
         intel = open(os.path.join(ROOT, "js", "intel.js"), encoding="utf-8").read()
@@ -143,6 +169,10 @@ class TestContract(unittest.TestCase):
         self.assertIn("60 * 60 * 1000", intel)
         self.assertIn("state.airFollow", intel)
         self.assertIn("function toggleAirFollow()", intel)
+        self.assertIn("function toggleAirCockpit()", intel)
+        self.assertIn('cockpit.textContent = state.airCockpit ? "EXIT COCKPIT" : "COCKPIT VIEW"', intel)
+        self.assertIn("positionAirCockpit(coordinates, state.airTrack.track, 900)", intel)
+        self.assertIn("state.airSavedCamera = {", intel)
         self.assertIn('"STOP TRACKING"', intel)
         self.assertIn("c.lng.toFixed(2)", intel)
         self.assertIn("restoreAirLayer()", intel)
@@ -150,6 +180,7 @@ class TestContract(unittest.TestCase):
         self.assertIn("if (!Intel.state.airTrack)", app)
         readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
         self.assertIn("recent flight trails", readme)
+        self.assertIn("cockpit view", readme)
 
     def test_player_types_supported(self):
         pl = open(os.path.join(ROOT, "js", "players.js")).read()
