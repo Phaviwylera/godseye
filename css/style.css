@@ -638,3 +638,30 @@ button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   color: var(--amber) !important;
 }
 .alt-btn:hover { background: rgba(255, 179, 0, .12) !important; }
+
+/* === E-TIER · LIVE EDGE + LIVE VIEW + SEARCH + TOUR ========================= */
+#place-q.hud-place{width:120px;height:24px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:3px;color:#e8edf5;font:10px/1 ui-monospace,SFMono-Regular,monospace;letter-spacing:.12em;padding:0 8px;outline:none;transition:width .4s cubic-bezier(.22,1,.36,1),border-color .3s ease}
+#place-q.hud-place:focus{width:180px;border-color:#22d3ee}
+#place-q.hud-place::placeholder{color:rgba(232,237,245,.35)}
+#place-res{position:absolute;top:46px;left:8px;width:min(300px,calc(100vw - 16px));background:rgba(8,12,20,.96);border:1px solid rgba(34,211,238,.35);border-radius:4px;z-index:300;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.place-row{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 10px;border:none;background:transparent;color:#e8edf5;font:10px/1.35 ui-monospace,SFMono-Regular,monospace;letter-spacing:.08em;text-align:left;cursor:pointer;transition:background .2s ease}
+.place-row:hover{background:rgba(34,211,238,.12)}
+.place-ic{flex:none}
+
+.hud-live{color:#ff5a63!important;border-color:rgba(255,90,99,.5)!important}
+.hud-live.live-on{animation:livePulse 1.6s ease-in-out infinite}
+@keyframes livePulse{0%,100%{box-shadow:0 0 0 0 rgba(255,90,99,.45)}50%{box-shadow:0 0 0 7px rgba(255,90,99,0)}}
+
+#tour-pill{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:320;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid rgba(34,211,238,.35);border-radius:999px;background:rgba(8,12,20,.92);color:#e8edf5;font:600 10px/1 ui-monospace,SFMono-Regular,monospace;letter-spacing:.12em;box-shadow:0 10px 30px rgba(0,0,0,.5);animation:camPulse 2.6s ease-in-out infinite}
+#tour-pill button{border:1px solid rgba(255,255,255,.15);background:transparent;color:#e8edf5;border-radius:999px;padding:5px 10px;font:600 9px/1 ui-monospace,SFMono-Regular,monospace;letter-spacing:.12em;cursor:pointer;transition:all .25s ease}
+#tour-pill button:hover{border-color:#22d3ee;color:#22d3ee}
+.tour-dot{width:8px;height:8px;border-radius:50%;background:#f59e0b;animation:camBlink 1.6s infinite}
+
+@media (max-width:760px){
+  #place-q.hud-place{width:88px}
+  #place-q.hud-place:focus{width:140px}
+  #tour-pill{bottom:78px}
+}
+@media (prefers-reduced-motion: reduce){
+  #tour-pill, .hud-live.live-on{animation:none}
+}

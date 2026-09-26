@@ -97,5 +97,25 @@ class TestContract(unittest.TestCase):
             self.assertIn(f'"{t}"', pl, t)
 
 
+    def test_upgrade_e_tier(self):
+        idx = open("index.html", encoding="utf-8").read()
+        appjs = open("js/app.js", encoding="utf-8").read()
+        self.assertIn("place-q", idx)          # place search input
+        self.assertIn("tour-btn", idx)         # autopilot control
+        self.assertIn("live-btn", idx)         # live view control
+        self.assertIn("sw.js", idx)            # service worker registered
+        self.assertIn("img/godseye-icon.png", idx)
+        self.assertIn("_buildLiveEdge", appjs)  # live fractal mesh
+        self.assertIn("toggleLiveView", appjs)  # freshest-feeds view
+        self.assertIn("startTour", appjs)       # autopilot
+        self.assertIn("beforeinstallprompt", appjs)
+        self.assertIn("nominatim", appjs)       # real geocoder
+        self.assertTrue(os.path.exists("sw.js"))
+        self.assertTrue(os.path.exists("img/godseye-icon.png"))
+        import json
+        mf = json.load(open("manifest.json", encoding="utf-8"))
+        self.assertTrue(mf.get("icons"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

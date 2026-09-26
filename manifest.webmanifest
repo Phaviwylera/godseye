@@ -1,0 +1,19 @@
+{
+  "name": "God's Eye — Planetary Live Camera Intelligence",
+  "short_name": "God's Eye",
+  "description": "Live public CCTV at exact coordinates on a 3D planet. 24,874 feeds · 158 countries.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    {
+      "src": "img/godseye-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
