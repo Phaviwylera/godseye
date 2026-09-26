@@ -23,6 +23,13 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--mono); }
 #map { position: absolute; inset: 0; }
+#map-fallback { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:28px 28px 28px min(35vw,400px); text-align:center;
+  background:radial-gradient(circle at center,#102a31,#020508 65%); color:#8be9fa; }
+#map-fallback.hidden { display:none; }
+#map-fallback strong { font-family:Michroma,sans-serif; letter-spacing:.2em; font-size:16px; }
+#map-fallback p { max-width:460px; color:#acc5cb; line-height:1.7; font-size:13px; }
+body.map-unavailable #controls { display:none; }
 .maplibregl-ctrl-attrib { font-size: 9px !important; background: rgba(0,0,0,.4) !important; }
 
 /* ============================ BOOT ============================ */

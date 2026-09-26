@@ -284,6 +284,7 @@ const Players = (() => {
       const video = document.createElement("video");
       video.autoplay = true; video.controls = !opts.minimal; video.muted = true; video.playsInline = true;
       st.video = video;
+      video.addEventListener("playing", () => opts.onStatus && opts.onStatus(true), { once: true });
       container.appendChild(video);
       const src = proxied(cam.stream);
 
@@ -310,9 +311,7 @@ const Players = (() => {
         });
         st.hls.loadSource(src);
         st.hls.attachMedia(video);
-        st.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          opts.onStatus && opts.onStatus(true);
-        });
+        st.hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
         st.hls.on(Hls.Events.ERROR, (_, data) => {
           if (!data.fatal) return;
           const isManifest = data.details === "manifestLoadError" || data.details === "manifestParsingError";
@@ -327,7 +326,6 @@ const Players = (() => {
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = src;
-        video.addEventListener("loadedmetadata", () => opts.onStatus && opts.onStatus(true), { once: true });
         video.onerror = () => fail("native player error", false);
       } else {
         fail("HLS not supported in this browser", true);
@@ -342,6 +340,7 @@ const Players = (() => {
       v.src = proxied(cam.stream); v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true;
       v.controls = !opts.minimal;
       st.video = v;
+      v.addEventListener("playing", () => opts.onStatus && opts.onStatus(true), { once: true });
       v.onerror = () => failPanel("The agency's video file is unreachable right now.");
       container.appendChild(v);
       v.play().catch(() => {});

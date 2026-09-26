@@ -29,6 +29,12 @@ excluded from the public deployment. Search accepts `latitude, longitude` as
 well as place names. The offline shell caches app assets; camera data and live
 feeds always use the network.
 
+If WebGL cannot start, the camera list still loads and opens feeds without the
+map. A feed's status shows when its endpoint was checked; `PLAYING NOW` appears
+only after the browser actually starts playback. Scheduled liveness probes now
+record a timestamp per camera, and checks older than 48 hours are marked
+unverified until refreshed.
+
 ## ✨ Features
 
 | | |
