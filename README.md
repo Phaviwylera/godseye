@@ -35,6 +35,7 @@ No build step is required; the visual system is contained in the existing HTML/C
  📺 **One-click playback** | HLS live video (hls.js), auto-refreshing snapshots, agency portals |
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
+ ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails and optional camera follow |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
 
 ## 🗺️ Camera sources (all publicly published by agencies)
@@ -51,6 +52,10 @@ No build step is required; the visual system is contained in the existing HTML/C
 | `argus` | [Argus](https://github.com/GoSlowPoke168/Argus) (MIT) | 174 countries | m3u8 / mp4 / mjpeg / images |
 
 Each camera carries its attribution line from the publishing agency — keep it.
+
+Enable **AIR** to view nearby aircraft. Select an aircraft to draw its recent
+track (up to one hour of sightings); use the popup action to clear it. The
+aircraft status chip toggles camera follow while a track is selected.
 
 ## 🚀 Quick start
 

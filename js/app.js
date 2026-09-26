@@ -1138,6 +1138,7 @@ function wireUI() {
       ensureTerrain();
       map.setProjection && map.setProjection({ type: "globe" });
       addCamLayers(); refreshSource();
+      Intel.restoreAirLayer();
       Intel.restoreQuakeLayer();
     });
   });
@@ -1187,7 +1188,13 @@ function wireUI() {
     else { Intel.playRadar(); $("#radar-play").textContent = "⏸"; }
   };
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
-  $("#air-chip").onclick = () => { $("#btn-air").click(); };
+  $("#air-chip").onclick = () => {
+    if (!Intel.state.airTrack) {
+      $("#btn-air").click();
+      return;
+    }
+    Intel.toggleAirFollow();
+  };
   $("#btn-quakes").onclick = async (e) => {
     try {
       e.target.classList.toggle("active", await Intel.toggleQuakes());

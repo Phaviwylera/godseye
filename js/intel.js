@@ -9,7 +9,8 @@ const Intel = (() => {
     night: false, iss: false, radar: false,
     issTimer: null, nightTimer: null, radarTimer: null,
     issTrail: [], issFollow: false, radarFrames: [], radarIdx: 0, radarPlaying: false,
-    air: false, airTimer: null, airMoveTimer: null,
+    air: false, airTimer: null, airMoveTimer: null, airLoading: false,
+    airTrack: null, airFollow: false, airFeatures: [],
     quakes: false, quakesTimer: null, quakesLoading: false,
   };
 
@@ -362,11 +363,162 @@ const Intel = (() => {
     return g.getImageData(0, 0, 48, 48);
   }
 
-  async function airTick() {
+  function setAirTrackData() {
+    const src = map.getSource("air-track");
+    const points = state.airTrack ? state.airTrack.points : [];
+    if (src) {
+      src.setData({
+        type: "FeatureCollection",
+        features: points.length > 1 ? [{
+          type: "Feature",
+          properties: { callsign: state.airTrack.callsign },
+          geometry: { type: "LineString", coordinates: points.map(point => point.coordinates) },
+        }] : [],
+      });
+    }
+  }
+
+  function updateAirChip(count) {
+    const chip = document.getElementById("air-chip");
+    if (!chip) return;
+    if (!state.airTrack) {
+      chip.textContent = `✈ ${count} aircraft`;
+      chip.title = "Click an aircraft on the map to track its recent flight path.";
+      return;
+    }
+    const ago = Math.max(0, Math.round((Date.now() - state.airTrack.lastSeen) / 1000));
+    const freshness = ago < 30 ? "LIVE" : `SEEN ${Math.floor(ago / 60)}m AGO`;
+    chip.textContent = `✈ ${state.airTrack.callsign} · ${freshness} · ${state.airFollow ? "FOLLOW ON" : "FOLLOW OFF"}`;
+    chip.title = state.airFollow
+      ? "Click to stop following this aircraft; its trail remains visible."
+      : "Click to follow this aircraft. Its trail remains visible either way.";
+  }
+
+  function selectAirTrack(record) {
+    const existing = state.airTrack;
+    if (existing && existing.hex === record.hex) {
+      state.airTrack = null;
+      state.airFollow = false;
+    } else {
+      state.airTrack = {
+        hex: record.hex,
+        callsign: record.callsign,
+        points: [{ coordinates: record.coordinates, time: Date.now() }],
+        lastSeen: Date.now(),
+      };
+      state.airFollow = false;
+      map.easeTo({ center: record.coordinates, duration: 900 });
+    }
+    setAirTrackData();
+    updateAirChip(state.airFeatures.length);
+    state.airFeatures.forEach(feature => {
+      feature.properties.tracked = !!state.airTrack && feature.properties.hex === state.airTrack.hex;
+    });
+    const source = map.getSource("air");
+    if (source) source.setData({ type: "FeatureCollection", features: state.airFeatures });
+    return !!state.airTrack;
+  }
+
+  function toggleAirFollow() {
+    if (!state.airTrack) return false;
+    state.airFollow = !state.airFollow;
+    updateAirChip(state.airFeatures.length);
+    if (state.airFollow && state.airTrack.points.length) {
+      map.easeTo({
+        center: state.airTrack.points[state.airTrack.points.length - 1].coordinates,
+        duration: 900,
+      });
+    }
+    return state.airFollow;
+  }
+
+  function addAirLayers() {
+    if (!map.getSource("air")) {
+      state.airFeatures = [];
+      map.addSource("air", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
+    if (!map.getSource("air-track")) {
+      map.addSource("air-track", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
+    if (!map.hasImage("plane")) map.addImage("plane", planeIcon(), { pixelRatio: 2 });
+    if (!map.getLayer("air-track-line")) {
+      map.addLayer({
+        id: "air-track-line", type: "line", source: "air-track",
+        paint: {
+          "line-color": "#41efc2",
+          "line-width": 2.5,
+          "line-opacity": 0.9,
+          "line-dasharray": [2, 1],
+        },
+      });
+    }
+    if (!map.getLayer("air-dots")) {
+      map.addLayer({
+        id: "air-dots", type: "symbol", source: "air",
+        layout: {
+          "icon-image": "plane",
+          "icon-size": ["case", ["get", "tracked"], 1.25,
+            ["interpolate", ["linear"], ["zoom"], 3, 0.5, 8, 0.8, 12, 1]],
+          "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true, "icon-padding": 1,
+        },
+      });
+      map.on("click", "air-dots", (event) => {
+        const feature = event.features && event.features[0];
+        if (!feature) return;
+        const properties = feature.properties || {};
+        const record = {
+          hex: String(properties.hex || ""),
+          callsign: String(properties.callsign || properties.hex || "Unknown aircraft"),
+          coordinates: feature.geometry.coordinates,
+        };
+        if (!record.hex) return;
+        const tracking = selectAirTrack(record);
+        const content = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = record.callsign;
+        title.style.color = "#41efc2";
+        content.appendChild(title);
+        const details = document.createElement("div");
+        details.textContent = [
+          properties.type && `Aircraft ${properties.type}`,
+          properties.alt != null && `Altitude ${properties.alt} ft`,
+          properties.gs != null && `Speed ${properties.gs} kt`,
+          properties.track != null && `Heading ${Math.round(Number(properties.track))}°`,
+        ].filter(Boolean).join(" · ");
+        content.appendChild(details);
+        const action = document.createElement("button");
+        action.type = "button";
+        action.textContent = tracking ? "STOP TRACKING" : "TRACK AIRCRAFT";
+        action.onclick = () => {
+          const isTracking = selectAirTrack(record);
+          action.textContent = isTracking ? "STOP TRACKING" : "TRACK AIRCRAFT";
+        };
+        content.appendChild(action);
+        new maplibregl.Popup({ closeButton: true, maxWidth: "320px" })
+          .setLngLat(record.coordinates)
+          .setDOMContent(content)
+          .addTo(map);
+      });
+      map.on("mouseenter", "air-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "air-dots", () => { map.getCanvas().style.cursor = ""; });
+    }
+    setAirTrackData();
+  }
+
+  function showAirError(error) {
+    const chip = document.getElementById("air-chip");
+    if (chip) {
+      chip.textContent = "✈ AIR FEED UNAVAILABLE";
+      chip.title = String(error && error.message || error);
+    }
+  }
+
+  async function fetchAirData() {
     const c = map.getCenter();
     const zoom = map.getZoom();
     const radius = Math.min(250, Math.max(30, 30 * Math.pow(1.45, zoom)));
-    const q = `${c.lat.toFixed(2)}/${c.lon.toFixed(2)}/${Math.round(radius)}`;
+    const q = `${c.lat.toFixed(2)}/${c.lng.toFixed(2)}/${Math.round(radius)}`;
     let ac = [];
     const pull = async (base) => {
       const d = await Sources.fetchJSON(base + q);
@@ -377,56 +529,80 @@ const Intel = (() => {
     try { ac = await pull("https://api.adsb.lol/v2/point/"); }
     catch (e) {
       try { ac = await pull("https://api.airplanes.live/v2/point/"); }
-      catch (e2) { return; }
+      catch (e2) {
+        showAirError(e2);
+        return;
+      }
     }
+    if (!state.air) return;
     ac = ac.slice(0, 350);
     const src = map.getSource("air");
     if (!src) return;
-    src.setData({ type: "FeatureCollection", features: ac.map(a => ({
+    const features = ac.map(a => ({
       type: "Feature",
       properties: {
+        hex: String(a.hex || "").trim().toLowerCase(),
         callsign: (a.flight || a.r || a.hex || "?").trim(),
         track: a.track != null ? a.track : (a.true_heading != null ? a.true_heading : 0),
         alt: a.altt || a.alt_baro || a.alt || "?",
         gs: Math.round(a.gs || 0),
         type: a.t || "",
+        tracked: !!state.airTrack && String(a.hex || "").trim().toLowerCase() === state.airTrack.hex,
       },
       geometry: { type: "Point", coordinates: [a.lon, a.lat] },
-    })) });
-    const chip = document.getElementById("air-chip");
-    if (chip) chip.textContent = `✈ ${ac.length} aircraft`;
+    }));
+    state.airFeatures = features;
+    src.setData({ type: "FeatureCollection", features });
+    if (state.airTrack) {
+      const tracked = features.find(feature => feature.properties.hex === state.airTrack.hex);
+      if (tracked) {
+        const coordinates = tracked.geometry.coordinates;
+        const now = Date.now();
+        const last = state.airTrack.points[state.airTrack.points.length - 1];
+        if (!last || last.coordinates[0] !== coordinates[0] || last.coordinates[1] !== coordinates[1]) {
+          state.airTrack.points.push({ coordinates, time: now });
+          const cutoff = now - 60 * 60 * 1000;
+          state.airTrack.points = state.airTrack.points
+            .filter(point => point.time >= cutoff)
+            .slice(-360);
+        }
+        state.airTrack.callsign = tracked.properties.callsign;
+        state.airTrack.lastSeen = now;
+        setAirTrackData();
+        if (state.airFollow) map.easeTo({ center: coordinates, duration: 900 });
+      }
+    }
+    updateAirChip(ac.length);
+  }
+
+  async function airTick() {
+    if (!state.air || state.airLoading) return;
+    state.airLoading = true;
+    try {
+      await fetchAirData();
+    } catch (error) {
+      showAirError(error);
+    } finally {
+      state.airLoading = false;
+    }
+  }
+
+  function restoreAirLayer() {
+    if (!state.air) return;
+    addAirLayers();
+    airTick().catch(error => {
+      const chip = document.getElementById("air-chip");
+      if (chip) chip.title = `Aircraft feed update failed: ${String(error && error.message || error)}`;
+    });
   }
 
   function toggleAir() {
     state.air = !state.air;
     const chip = document.getElementById("air-chip");
     if (state.air) {
-      if (!map.getSource("air")) {
-        map.addSource("air", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-        if (!map.hasImage("plane")) map.addImage("plane", planeIcon(), { pixelRatio: 2 });
-        map.addLayer({
-          id: "air-dots", type: "symbol", source: "air",
-          layout: {
-            "icon-image": "plane", "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.5, 8, 0.8, 12, 1],
-            "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
-            "icon-allow-overlap": true, "icon-padding": 1,
-          },
-        });
-        map.on("click", "air-dots", (e2) => {
-          const f = e2.features && e2.features[0];
-          if (!f) return;
-          const p = f.properties;
-          new maplibregl.Popup({ closeButton: false, maxWidth: "260px" })
-            .setLngLat(f.geometry.coordinates)
-            .setHTML(`<b style="color:#41efc2">${p.callsign}</b><br>
-              ${p.alt} ft · ${p.gs} kt${p.type ? " · " + p.type : ""}`)
-            .addTo(map);
-        });
-        map.on("mouseenter", "air-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "air-dots", () => { map.getCanvas().style.cursor = ""; });
-      } else {
-        map.setLayoutProperty("air-dots", "visibility", "visible");
-      }
+      addAirLayers();
+      map.setLayoutProperty("air-dots", "visibility", "visible");
+      map.setLayoutProperty("air-track-line", "visibility", "visible");
       if (chip) chip.classList.remove("hidden");
       airTick();
       state.airTimer = setInterval(airTick, 10000);
@@ -439,8 +615,10 @@ const Intel = (() => {
     } else {
       clearInterval(state.airTimer);
       clearTimeout(state.airMoveTimer);
+      state.airFollow = false;
       if (chip) chip.classList.add("hidden");
       if (map.getLayer("air-dots")) map.setLayoutProperty("air-dots", "visibility", "none");
+      if (map.getLayer("air-track-line")) map.setLayoutProperty("air-track-line", "visibility", "none");
     }
     return state.air;
   }
@@ -578,6 +756,6 @@ const Intel = (() => {
     window.GE_CAMS = window.GE_CAMS || {};
   }
 
-  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
+  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
            get state() { return state; } };
 })();
