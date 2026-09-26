@@ -66,8 +66,8 @@
     ]
   },
   "argus": {
-    "cams": 4050,
-    "m3u8": 1905,
+    "cams": 4074,
+    "m3u8": 1929,
     "image": 2145,
     "embed": 0,
     "dynamic": 0,
@@ -220,16 +220,6 @@
       "ZW/None"
     ]
   },
-  "511ny": {
-    "cams": 1717,
-    "m3u8": 1426,
-    "image": 0,
-    "embed": 291,
-    "dynamic": 0,
-    "regions": [
-      "US/NY"
-    ]
-  },
   "qc511": {
     "cams": 520,
     "m3u8": 0,
@@ -261,9 +251,9 @@
     ]
   },
   "ltc": {
-    "cams": 1070,
+    "cams": 1116,
     "m3u8": 0,
-    "image": 1070,
+    "image": 1116,
     "embed": 0,
     "dynamic": 0,
     "regions": [
