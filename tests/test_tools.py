@@ -112,6 +112,29 @@ class TestContract(unittest.TestCase):
         self.assertIn("openCustomWall", app)
         self.assertIn("ge_wall_cols", app)
 
+    def test_live_earthquake_layer(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        intel = open(os.path.join(ROOT, "js", "intel.js"), encoding="utf-8").read()
+        self.assertIn('id="btn-quakes"', idx)
+        self.assertIn('id="quake-chip"', idx)
+        self.assertIn('data-do="#btn-quakes"', idx)
+        self.assertIn("toggleQuakes", app)
+        self.assertIn("earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson", intel)
+        self.assertIn("5 * 60 * 1000", intel)
+        self.assertIn('setDOMContent(content)', intel)
+
+    def test_shareable_map_scene(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        self.assertIn('id="btn-share-scene"', idx)
+        self.assertIn('data-do="#btn-share-scene"', idx)
+        self.assertIn("function readSharedScene()", app)
+        self.assertIn('params.get("scene") !== "1"', app)
+        self.assertIn("center: sharedScene ? sharedScene.center", app)
+        self.assertIn("bearing: sharedScene ? sharedScene.bearing", app)
+        self.assertIn("function shareScene()", app)
+
     def test_player_types_supported(self):
         pl = open(os.path.join(ROOT, "js", "players.js")).read()
         for t in ("m3u8", "mp4", "youtube", "mjpeg", "dynamic", "embed"):

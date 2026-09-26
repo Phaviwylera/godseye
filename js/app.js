@@ -4,7 +4,24 @@
 
 // ------------------------------------------------------------------ state --
 let map, cams = [], byId = new Map(), activeId = null, idleAt = Date.now();
-let currentStyle = "dark", terrainOn = true;
+const MAP_STYLES = new Set(["dark", "streets", "satellite"]);
+
+function readSharedScene() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("scene") !== "1") return null;
+  const keys = ["lng", "lat", "zoom", "bearing", "pitch"];
+  if (keys.some((key) => params.get(key) === null)) return null;
+  const [lng, lat, zoom, bearing, pitch] = keys.map((key) => Number(params.get(key)));
+  const style = params.get("style");
+  if (![lng, lat, zoom, bearing, pitch].every(Number.isFinite) ||
+      lng < -180 || lng > 180 || lat < -85.051129 || lat > 85.051129 ||
+      zoom < 1 || zoom > 18.8 || bearing < -360 || bearing > 360 ||
+      pitch < 0 || pitch > 70 || !MAP_STYLES.has(style)) return null;
+  return { center: [lng, lat], zoom, bearing, pitch, style };
+}
+
+const sharedScene = readSharedScene();
+let currentStyle = sharedScene ? sharedScene.style : "dark", terrainOn = true;
 let wallTiles = [], wallOpen = false, wallN = 4;
 let wallCols = Math.max(1, Math.min(6, +localStorage.getItem("ge_wall_cols") || 2));
 let wallRows = Math.max(1, Math.min(6, +localStorage.getItem("ge_wall_rows") || 2));
@@ -312,6 +329,28 @@ function updateStats() {
 
 function setLoadStatus(msg) {
   if (el.loadStatus) el.loadStatus.textContent = msg || "";
+}
+
+function shareScene() {
+  const center = map.getCenter();
+  const url = new URL(location.href);
+  const params = new URLSearchParams({
+    scene: "1",
+    lng: center.lng.toFixed(5),
+    lat: center.lat.toFixed(5),
+    zoom: map.getZoom().toFixed(2),
+    bearing: map.getBearing().toFixed(1),
+    pitch: map.getPitch().toFixed(1),
+    style: currentStyle,
+  });
+  url.search = params.toString();
+  const link = url.toString();
+  (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+    .then(() => {
+      el.syncMsg.textContent = "↗ map scene link copied";
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 2500);
+    })
+    .catch(() => { prompt("Copy map scene link:", link); });
 }
 
 function dotClass(c) {
@@ -1099,8 +1138,13 @@ function wireUI() {
       ensureTerrain();
       map.setProjection && map.setProjection({ type: "globe" });
       addCamLayers(); refreshSource();
+      Intel.restoreQuakeLayer();
     });
   });
+  document.querySelectorAll("#styles button").forEach(b => {
+    b.classList.toggle("active", b.dataset.style === currentStyle);
+  });
+  document.body.dataset.mapStyle = currentStyle;
 
   $("#btn-terrain").onclick = (e) => {
     terrainOn = !terrainOn;
@@ -1108,6 +1152,7 @@ function wireUI() {
     ensureTerrain();
   };
   $("#btn-home").onclick = () => map.flyTo({ center: [10, 20], zoom: 1.55, pitch: 0, bearing: 0, duration: 2500, essential: true });
+  $("#btn-share-scene").onclick = shareScene;
   $("#btn-sync").onclick = async () => {
     el.syncMsg.textContent = "⟳ live sync running…";
     const added = await mergeNew(await Sources.liveSync((s) => { el.syncMsg.textContent = "⟳ " + s; }));
@@ -1143,6 +1188,17 @@ function wireUI() {
   };
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
   $("#air-chip").onclick = () => { $("#btn-air").click(); };
+  $("#btn-quakes").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Intel.toggleQuakes());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("earthquake feed unavailable", error);
+      el.syncMsg.textContent = "◇ earthquake feed unavailable — try again shortly";
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 6000);
+    }
+  };
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
@@ -1164,8 +1220,12 @@ function ensureTerrain() {
 async function initMap() {
   const style = await loadStyle(currentStyle);
   map = new maplibregl.Map({
-    container: "map", style, center: [10, 20], zoom: 1.55, minZoom: 1, maxZoom: 18.8,
-    maxPitch: 70, attributionControl: { compact: true },
+    container: "map", style,
+    center: sharedScene ? sharedScene.center : [10, 20],
+    zoom: sharedScene ? sharedScene.zoom : 1.55,
+    bearing: sharedScene ? sharedScene.bearing : 0,
+    pitch: sharedScene ? sharedScene.pitch : 0,
+    minZoom: 1, maxZoom: 18.8, maxPitch: 70, attributionControl: { compact: true },
   });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");

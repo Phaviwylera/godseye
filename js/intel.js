@@ -10,6 +10,7 @@ const Intel = (() => {
     issTimer: null, nightTimer: null, radarTimer: null,
     issTrail: [], issFollow: false, radarFrames: [], radarIdx: 0, radarPlaying: false,
     air: false, airTimer: null, airMoveTimer: null,
+    quakes: false, quakesTimer: null, quakesLoading: false,
   };
 
   // ================================================================ SUN ====
@@ -444,11 +445,139 @@ const Intel = (() => {
     return state.air;
   }
 
+  // ============================================================ QUAKES ===
+  const QUAKES_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson";
+
+  async function quakeTick() {
+    if (!state.quakes || state.quakesLoading) return;
+    state.quakesLoading = true;
+    const chip = document.getElementById("quake-chip");
+    try {
+      const response = await fetch(QUAKES_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`USGS feed returned HTTP ${response.status}`);
+      const data = await response.json();
+      if (!data || !Array.isArray(data.features)) throw new Error("USGS feed returned invalid GeoJSON");
+      const source = map.getSource("quakes");
+      if (!source) throw new Error("Earthquake map layer is unavailable");
+      source.setData(data);
+      if (chip) {
+        chip.textContent = `◇ ${data.features.length} QUAKES · ${new Date().toISOString().slice(11, 16)}Z`;
+        chip.title = "USGS earthquakes of magnitude 2.5 or greater in the past 24 hours; refreshes every 5 minutes.";
+      }
+    } finally {
+      state.quakesLoading = false;
+    }
+  }
+
+  function showQuakeStatusError(error) {
+    const chip = document.getElementById("quake-chip");
+    if (!chip) return;
+    chip.textContent = "◇ QUAKES · UPDATE FAILED";
+    chip.title = String(error && error.message || error);
+  }
+
+  function addQuakeLayers() {
+    if (!map.getSource("quakes")) {
+      map.addSource("quakes", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "quake-circles", type: "circle", source: "quakes",
+        paint: {
+          "circle-color": [
+            "interpolate", ["linear"], ["coalesce", ["get", "mag"], 0],
+            0, "#41efc2", 2, "#d9b56d", 4, "#ff994d", 6, "#ff667d",
+          ],
+          "circle-radius": [
+            "interpolate", ["linear"], ["coalesce", ["get", "mag"], 0],
+            0, 3, 2, 5, 4, 8, 6, 13, 8, 18,
+          ],
+          "circle-opacity": 0.82,
+          "circle-stroke-color": "#f4fbff",
+          "circle-stroke-width": 1,
+          "circle-stroke-opacity": 0.75,
+        },
+      });
+      map.on("click", "quake-circles", (event) => {
+        const feature = event.features && event.features[0];
+        if (!feature) return;
+        const properties = feature.properties || {};
+        const coordinates = feature.geometry.coordinates;
+        const content = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = String(properties.place || "Earthquake");
+        title.style.color = "#ff994d";
+        content.appendChild(title);
+        const detail = document.createElement("div");
+        const magnitude = properties.mag == null ? "unknown" : Number(properties.mag).toFixed(1);
+        const depth = coordinates[2] == null ? "unknown" : `${Number(coordinates[2]).toFixed(1)} km`;
+        detail.textContent = `Magnitude ${magnitude} · depth ${depth}`;
+        content.appendChild(detail);
+        if (Number.isFinite(Number(properties.time))) {
+          const time = document.createElement("div");
+          time.textContent = new Date(Number(properties.time)).toISOString();
+          content.appendChild(time);
+        }
+        if (typeof properties.url === "string" && properties.url.startsWith("https://earthquake.usgs.gov/")) {
+          const link = document.createElement("a");
+          link.href = properties.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = "USGS event details ↗";
+          content.appendChild(link);
+        }
+        new maplibregl.Popup({ closeButton: true, maxWidth: "300px" })
+          .setLngLat(coordinates)
+          .setDOMContent(content)
+          .addTo(map);
+      });
+      map.on("mouseenter", "quake-circles", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "quake-circles", () => { map.getCanvas().style.cursor = ""; });
+    } else {
+      map.setLayoutProperty("quake-circles", "visibility", "visible");
+    }
+  }
+
+  async function toggleQuakes() {
+    state.quakes = !state.quakes;
+    const chip = document.getElementById("quake-chip");
+    if (!state.quakes) {
+      clearInterval(state.quakesTimer);
+      if (map.getLayer("quake-circles")) map.setLayoutProperty("quake-circles", "visibility", "none");
+      if (chip) chip.classList.add("hidden");
+      return false;
+    }
+
+    addQuakeLayers();
+    if (chip) chip.classList.remove("hidden");
+    try {
+      await quakeTick();
+      if (!state.quakes) return false;
+      clearInterval(state.quakesTimer);
+      state.quakesTimer = setInterval(() => {
+        quakeTick().catch(showQuakeStatusError);
+      }, 5 * 60 * 1000);
+      return true;
+    } catch (error) {
+      state.quakes = false;
+      if (map.getLayer("quake-circles")) map.setLayoutProperty("quake-circles", "visibility", "none");
+      if (chip) chip.classList.add("hidden");
+      throw error;
+    }
+  }
+
+  function restoreQuakeLayer() {
+    if (!state.quakes) return;
+    addQuakeLayers();
+    quakeTick().catch(showQuakeStatusError);
+  }
+
   function init(m) {
     map = m;
     window.GE_CAMS = window.GE_CAMS || {};
   }
 
-  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
+  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
            get state() { return state; } };
 })();
