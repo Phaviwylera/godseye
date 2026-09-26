@@ -16,7 +16,7 @@ echo "  OK server + tools"
 
 echo "== Unit tests =="
 python3 -m unittest discover -s tests -p "test_*.py" -v
-node --test tests/api.test.mjs
+node --test tests/*.test.mjs
 python3 tools/build_site.py
 test -f site/index.html && test -f site/data/cameras.index.json
 test ! -e site/godseye-netlify-drop.zip && test ! -e site/tools
