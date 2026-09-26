@@ -114,6 +114,8 @@ class TestContract(unittest.TestCase):
         self.assertIn("closeWall", appjs)
         self.assertIn("line-progress", appjs)     # gradient sweep animation
         self.assertIn("_camFreshness", appjs)     # honest ground-truth pings
+        self.assertIn("toggleFav", appjs)        # persistent favourites
+        self.assertIn("cam-fav", idx)            # star in cam modal
         self.assertTrue(os.path.exists("sw.js"))
         self.assertTrue(os.path.exists("img/godseye-icon.png"))
         import json
