@@ -1,5 +1,5 @@
 /* God's Eye service worker — offline shell; network-first so feeds stay fresh. */
-const CACHE = 'godseye-shell-v5';
+const CACHE = 'godseye-shell-v6';
 const CORE = ['./', './index.html', './css/style.css', './js/app.js', './js/players.js',
               './js/intel.js', './js/sources.js', './js/satellites.js', './vendor/maplibre-gl.js', './vendor/maplibre-gl.css', './vendor/satellite.min.js',
               './vendor/hls.min.js', './manifest.json', './icon.svg', './assets/gods-eye-emblem.svg', './img/godseye-icon.png'];
