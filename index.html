@@ -161,10 +161,12 @@
     <button id="btn-radar">⌁ RADAR</button>
     <button id="btn-route">⌇ ROUTE</button>
     <button id="btn-air">△ AIR</button>
+    <button id="btn-vessels" type="button" aria-pressed="false" title="Recent AIS vessel observations in selected shipping corridors">◇ SHIPS</button>
     <button id="btn-quakes" title="Latest 24 hours of USGS earthquakes">◇ QUAKES</button>
   </div>
   <div id="intel-row">
     <span id="air-chip" class="hidden">AIR</span>
+    <span id="vessel-chip" class="hidden" aria-live="polite">AIS</span>
     <span id="iss-chip" class="hidden">ISS</span>
     <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
     <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
@@ -276,6 +278,7 @@
     <button data-do="#btn-iss">◇ ISS</button>
     <button data-do="#btn-satellites">◇ SATELLITES</button>
     <button data-do="#btn-air">△ AIR</button>
+    <button data-do="#btn-vessels">◇ SHIPS</button>
     <button data-do="#btn-quakes">◇ QUAKES</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
@@ -325,6 +328,7 @@
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
 <script src="js/satellites.js"></script>
+<script src="js/vessels.js"></script>
 <script src="js/intel.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>

@@ -1272,6 +1272,7 @@ function wireUI() {
       Intel.restoreAirLayer();
       Intel.restoreQuakeLayer();
       Satellites.restore();
+      Vessels.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1340,6 +1341,7 @@ function wireUI() {
     if (Intel.state.radarPlaying) { Intel.pauseRadar(); $("#radar-play").textContent = "▶"; }
     else { Intel.playRadar(); $("#radar-play").textContent = "⏸"; }
   };
+  $("#btn-vessels").onclick = () => { Vessels.toggle(); fxBlip(); };
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
   $("#air-chip").onclick = () => {
     if (!Intel.state.airTrack) {
@@ -1573,6 +1575,7 @@ function tickClock() {
     await initMap();
     Intel.init(map);
     Satellites.init(map);
+    Vessels.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

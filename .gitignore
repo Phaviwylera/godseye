@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 site/
 .DS_Store
+node_modules/
