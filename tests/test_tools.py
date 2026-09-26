@@ -135,6 +135,22 @@ class TestContract(unittest.TestCase):
         self.assertIn("bearing: sharedScene ? sharedScene.bearing", app)
         self.assertIn("function shareScene()", app)
 
+    def test_aircraft_tracking_trails(self):
+        intel = open(os.path.join(ROOT, "js", "intel.js"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        self.assertIn('id: "air-track-line"', intel)
+        self.assertIn("function selectAirTrack(record)", intel)
+        self.assertIn("60 * 60 * 1000", intel)
+        self.assertIn("state.airFollow", intel)
+        self.assertIn("function toggleAirFollow()", intel)
+        self.assertIn('"STOP TRACKING"', intel)
+        self.assertIn("c.lng.toFixed(2)", intel)
+        self.assertIn("restoreAirLayer()", intel)
+        self.assertIn("Intel.restoreAirLayer()", app)
+        self.assertIn("if (!Intel.state.airTrack)", app)
+        readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+        self.assertIn("recent flight trails", readme)
+
     def test_player_types_supported(self):
         pl = open(os.path.join(ROOT, "js", "players.js")).read()
         for t in ("m3u8", "mp4", "youtube", "mjpeg", "dynamic", "embed"):
