@@ -304,6 +304,7 @@ function refreshSource() {
 
 function statusOf(c) {
   /* unified feed status: live | down | checking | unknown */
+  if (archivedImageDate(c)) return "unknown";
   if (c._playing) return "live";
   if (c._checking) return "checking";
   const checked = c._probedAt && Date.now() - c._probedAt < STATUS_TTL_MS
@@ -314,7 +315,22 @@ function statusOf(c) {
   return "unknown";
 }
 
+function archivedImageDate(c) {
+  if (c.stype !== "image" || !c.stream) return null;
+  let path;
+  try { path = new URL(c.stream).pathname; } catch { return null; }
+  const match = path.match(/\/(20\d\d)\/(0?[1-9]|1[0-2])(?:\/(0?[1-9]|[12]\d|3[01]))?\//);
+  if (!match) return null;
+  const year = +match[1], month = +match[2], day = match[3] ? +match[3] : null;
+  const date = new Date(Date.UTC(year, month - 1, day || 1));
+  const age = Date.now() - date.getTime();
+  if (age < 0 || age < (day ? 48 * 3600000 : 62 * 86400000)) return null;
+  return date;
+}
+
 function checkedLabel(c) {
+  const archived = archivedImageDate(c);
+  if (archived) return `SOURCE IMAGE PATH ${archived.toISOString().slice(0, 7)}`;
   const at = c._probedAt || c._lastCheckedAt;
   if (!at || !Number.isFinite(at)) return c.live === 0 || c.live === 1 ? "CHECK TIME UNKNOWN" : "NOT YET CHECKED";
   const age = Math.max(0, Date.now() - at);
@@ -566,6 +582,7 @@ function scheduleRegionLoad() {
 /* ---------- accurate feed status (on-demand probe) ---------- */
 async function probeCam(c, { force = false } = {}) {
   if (!c || !PROBE_TYPES.has(c.stype)) return c;
+  if (archivedImageDate(c)) return c;
   if (!force && statusFresh(c)) return c;
   if (!c.stream) {
     await ensureCamDetail(c.id);
@@ -574,7 +591,13 @@ async function probeCam(c, { force = false } = {}) {
   if (!c.stream) return c;
   c._checking = true;
   try {
-    const ok = await Players.probe(c.stream, c.stype);
+    let target = c.stream, type = c.stype;
+    if (c.stype === "dynamic" && c.src === "sg") {
+      target = await Sources.singaporeFrame(c.id);
+      type = "image";
+      c._resolvedStream = target || "";
+    }
+    const ok = !!target && await Players.probe(target, type);
     c.live = ok ? 1 : 0;
     c._probedAt = Date.now();
     c._lastCheckedAt = c._probedAt;
@@ -629,14 +652,15 @@ async function probeViewportStatus() {
 
 function setModalStatus(c) {
   const st = statusOf(c);
+  const archived = archivedImageDate(c);
   const label = {
     live: c._playing ? (c.stype === "image" || c.stype === "dynamic" || c.stype === "mjpeg" ? "FRAME RECEIVED" : "PLAYING NOW") : "FEED RESPONDS",
     down: "SIGNAL DOWN",
     checking: "CHECKING…",
     unknown: c.stype === "embed" ? "AGENCY PORTAL" : c.stype === "youtube" ? "YOUTUBE · UNVERIFIED" : "UNVERIFIED FEED",
   }[st] || "FEED";
-  el.mStatus.textContent = label;
-  el.mStatus.dataset.state = st;
+  el.mStatus.textContent = archived ? "ARCHIVED IMAGE" : label;
+  el.mStatus.dataset.state = archived ? "unknown" : st;
   el.mChecked.textContent = checkedLabel(c);
   const at = c._probedAt || c._lastCheckedAt;
   el.mChecked.title = at ? `Last response checked ${new Date(at).toISOString()}` : "No recorded response check";
