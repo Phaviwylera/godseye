@@ -1,4 +1,4 @@
-# GOD'S EYE — Global Public CCTV Grid 🌍👁️
+# GOD'S EYE — Global Observation Network 🌍👁️
 
 A **3D globe web app** (think Google Earth × Fast & Furious "God's Eye") that maps
 **thousands of real, publicly-published CCTV / traffic cameras** at their exact
@@ -6,6 +6,22 @@ coordinates. Zoom out, hunt the camera icons, click one — and the **live feed 
 that exact location** plays instantly.
 
 ![status](https://img.shields.io/badge/cameras-24%2C800%2B-blue) ![countries](https://img.shields.io/badge/countries-120%2B-orange) ![feeds](https://img.shields.io/badge/live%20video-13%2C000%2B-green)
+
+
+## 🎛️ Cinematic UI V3
+
+The interface has been redesigned around a restrained global-intelligence aesthetic rather than a generic neon terminal look:
+
+- custom Earth/iris targeting emblem (`assets/gods-eye-emblem.svg`)
+- Michroma display typography + IBM Plex Mono telemetry typography
+- animated orbital boot sequence with autonomous system-status rows
+- desaturated cyan / graphite visual system with low-intensity glass surfaces
+- ambient map grid, vignette and slow scan layer
+- camera target-acquisition reticle before the feed opens
+- refined HUD, camera index, video wall, route panel, radar, compass and mobile controls
+- redesigned PWA/app icon to match the interface
+
+No build step is required; the visual system is contained in the existing HTML/CSS/JS files and the SVG asset.
 
 ## ✨ Features
 

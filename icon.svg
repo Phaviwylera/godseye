@@ -1,6 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60">
-  <rect width="120" height="60" fill="#05070d" rx="10"/>
-  <path d="M10 30 Q60 -6 110 30 Q60 66 10 30 Z" fill="none" stroke="#00f0ff" stroke-width="3.5"/>
-  <circle cx="60" cy="30" r="13" fill="none" stroke="#00f0ff" stroke-width="3.5"/>
-  <circle cx="60" cy="30" r="5.5" fill="#00f0ff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="b" cx="50%" cy="44%" r="65%"><stop stop-color="#0B2130"/><stop offset="1" stop-color="#020508"/></radialGradient>
+    <filter id="g" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="url(#b)"/>
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#55DDF5" stroke-opacity=".18" stroke-dasharray="3 8"/>
+  <path d="M31 128c27-39 59-57 97-57s70 18 97 57c-27 39-59 57-97 57s-70-18-97-57Z" fill="none" stroke="#97ECFA" stroke-width="5"/>
+  <circle cx="128" cy="128" r="39" fill="#061722" stroke="#5BE0F7" stroke-width="4"/>
+  <circle cx="128" cy="128" r="10" fill="#E6FCFF" filter="url(#g)"/>
+  <path d="M128 25v34M128 197v34M25 128h34M197 128h34" stroke="#4FD7F0" stroke-opacity=".55" stroke-width="3"/>
 </svg>

@@ -1,7 +1,7 @@
 /* God's Eye service worker — offline shell; network-first so feeds stay fresh. */
-const CACHE = 'godseye-v6';
+const CACHE = 'godseye-cinematic-v3';
 const CORE = ['./', './index.html', './css/style.css', './js/app.js', './js/players.js',
-              './js/intel.js', './js/sources.js', './manifest.json', './img/godseye-icon.png'];
+              './js/intel.js', './js/sources.js', './manifest.json', './icon.svg', './assets/gods-eye-emblem.svg', './img/godseye-icon.png'];
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();

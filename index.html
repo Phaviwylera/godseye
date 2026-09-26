@@ -2,44 +2,90 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GOD'S EYE — Global CCTV Grid</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="description" content="God's Eye — an immersive global interface for openly published public camera feeds." />
+<meta name="theme-color" content="#020508" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>GOD'S EYE — Global Observation Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Michroma&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="vendor/maplibre-gl.css" />
 <link rel="stylesheet" href="css/style.css" />
-  <link rel="manifest" href="manifest.json" />
-  <link rel="apple-touch-icon" href="img/godseye-icon.png" />
-  <meta name="theme-color" content="#05070d" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%2300f0ff' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='16' fill='%2300f0ff'/%3E%3C/svg%3E" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="img/godseye-icon.png" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
 </head>
-<body>
+<body data-map-style="dark">
 
-<!-- boot sequence overlay -->
-<div id="boot">
+<!-- cinematic boot sequence -->
+<div id="boot" role="dialog" aria-label="God's Eye system initialization">
+  <div class="boot-grid" aria-hidden="true"></div>
+  <div class="boot-horizon" aria-hidden="true"></div>
+  <div class="boot-axis boot-axis-x" aria-hidden="true"></div>
+  <div class="boot-axis boot-axis-y" aria-hidden="true"></div>
+
   <div class="boot-inner">
-    <svg class="boot-eye" viewBox="0 0 120 60" aria-hidden="true">
-      <path d="M4 30 Q60 -18 116 30 Q60 78 4 30 Z" fill="none" stroke="#00f0ff" stroke-width="2"/>
-      <circle cx="60" cy="30" r="14" fill="none" stroke="#00f0ff" stroke-width="2"/>
-      <circle cx="60" cy="30" r="6" fill="#00f0ff"/>
-    </svg>
-    <h1>GOD'S EYE</h1>
-    <div id="boot-log"></div>
+    <div class="boot-kicker"><span></span> GLOBAL OBSERVATION NETWORK <span></span></div>
+
+    <div class="boot-core" aria-hidden="true">
+      <div class="orbit orbit-a"></div>
+      <div class="orbit orbit-b"></div>
+      <div class="orbit orbit-c"></div>
+      <div class="orbit-node node-a"></div>
+      <div class="orbit-node node-b"></div>
+      <div class="orbit-node node-c"></div>
+      <img class="boot-eye" src="assets/gods-eye-emblem.svg" alt="" />
+      <div class="core-scan"></div>
+    </div>
+
+    <div class="boot-wordmark">
+      <h1>GOD'S EYE</h1>
+      <p>PLANETARY VISUAL INTELLIGENCE INTERFACE</p>
+    </div>
+
+    <div id="boot-log" aria-live="polite"></div>
+
+    <div class="boot-footer">
+      <span class="boot-id">NODE // GE-01</span>
+      <button id="boot-enter" type="button">ENTER SYSTEM <b>↗</b></button>
+      <span class="boot-secure"><i></i> ENCRYPTED SESSION</span>
+    </div>
   </div>
 </div>
 
-  <!-- top HUD -->
+<!-- ambient map overlays -->
+<div id="map-atmosphere" aria-hidden="true">
+  <div class="map-vignette"></div>
+  <div class="map-grid"></div>
+  <div class="map-scan"></div>
+</div>
+
+<!-- camera acquisition reticle -->
+<div id="acquire" aria-hidden="true">
+  <div class="acquire-ring r1"></div>
+  <div class="acquire-ring r2"></div>
+  <div class="acquire-cross x"></div>
+  <div class="acquire-cross y"></div>
+  <div class="acquire-dot"></div>
+  <div id="acquire-label">TARGET ACQUIRED</div>
+</div>
+
+<!-- top HUD -->
 <header id="hud">
   <div class="hud-left">
-    <svg class="hud-eye" viewBox="0 0 120 60" aria-hidden="true">
-      <path d="M4 30 Q60 -18 116 30 Q60 78 4 30 Z" fill="none" stroke="#00f0ff" stroke-width="4"/>
-      <circle cx="60" cy="30" r="14" fill="none" stroke="#00f0ff" stroke-width="4"/>
-      <circle cx="60" cy="30" r="6" fill="#00f0ff"/>
-    </svg>
-    <div class="hud-title">GOD'S EYE <span>// GLOBAL CCTV GRID</span></div>
-    <div class="hud-actions">
-      <button id="btn-tour" class="hud-btn" title="Autopilot world tour">✨ TOUR</button>
-      <button id="btn-live" class="hud-btn" title="Jump to the freshest verified feeds">● LIVE</button>
-      <button id="btn-install" class="hud-btn" title="Install as app" style="display:none">📥 INSTALL</button>
+    <div class="hud-emblem-wrap"><img class="hud-eye" src="assets/gods-eye-emblem.svg" alt="" /></div>
+    <div class="hud-brand">
+      <div class="hud-title">GOD'S EYE</div>
+      <div class="hud-subtitle">GLOBAL OBSERVATION NETWORK</div>
     </div>
+    <div class="hud-actions">
+      <button id="btn-tour" class="hud-btn" title="Autopilot world tour">TOUR</button>
+      <button id="btn-live" class="hud-btn" title="Jump to the freshest verified feeds">● LIVE</button>
+      <button id="btn-install" class="hud-btn" title="Install as app" style="display:none">INSTALL</button>
+    </div>
+    <div class="network-state"><i></i> ONLINE</div>
   </div>
   <div class="hud-stats">
     <div class="stat"><label>CAMS</label><b id="st-cams">0</b></div>
@@ -53,29 +99,32 @@
 
 <!-- left panel: search + camera list -->
 <aside id="panel">
+  <div class="panel-rail" aria-hidden="true"><span>PUBLIC FEED INDEX</span></div>
   <div class="panel-head">
+    <div class="panel-eyebrow"><span>01</span> CAMERA REGISTRY</div>
     <div class="searchbox">
-      <input id="q" type="text" placeholder="Search cameras, roads, places…" autocomplete="off" />
+      <span class="search-glyph" aria-hidden="true">⌖</span>
+      <input id="q" type="text" placeholder="Search camera, road, place…" autocomplete="off" />
       <div id="geo-results"></div>
     </div>
     <div class="filters">
-      <select id="f-type">
+      <select id="f-type" aria-label="Feed type">
         <option value="all">all feeds</option>
         <option value="m3u8">live video</option>
         <option value="image">snapshots</option>
         <option value="embed">portals</option>
       </select>
-      <select id="f-country"><option value="all">world</option></select>
-      <select id="f-live">
+      <select id="f-country" aria-label="Country"><option value="all">world</option></select>
+      <select id="f-live" aria-label="Feed status">
         <option value="all">any status</option>
         <option value="live">verified live</option>
         <option value="down">currently down</option>
       </select>
     </div>
   </div>
-  <div class="panel-count"><span id="list-count">0</span> cameras matched</div>
+  <div class="panel-count"><span id="list-count">0</span> cameras indexed <i></i></div>
   <ul id="cam-list"></ul>
-  <button id="panel-toggle" title="collapse panel">◀</button>
+  <button id="panel-toggle" title="Collapse panel" aria-label="Collapse camera panel">◀</button>
 </aside>
 
 <!-- map -->
@@ -83,6 +132,7 @@
 
 <!-- bottom-right controls -->
 <div id="controls">
+  <div class="control-caption">VISUAL LAYERS</div>
   <div class="btn-group" id="styles">
     <button data-style="dark" class="active">DARK</button>
     <button data-style="streets">STREETS</button>
@@ -93,17 +143,17 @@
     <button id="btn-wall6">▦ WALL 6</button>
     <button id="btn-wall9">▦ WALL 9</button>
     <button id="btn-fav">★ FAVS</button>
-    <button id="btn-fx" class="active">🔊 FX</button>
+    <button id="btn-fx" class="active">◌ FX</button>
   </div>
   <div class="btn-group">
-    <button id="btn-night">☾ NIGHT</button>
-    <button id="btn-iss">🛰 ISS</button>
-    <button id="btn-radar">🌧 RADAR</button>
-    <button id="btn-route">🛣 ROUTE</button>
-    <button id="btn-air">✈ AIR</button>
+    <button id="btn-night">◐ NIGHT</button>
+    <button id="btn-iss">◇ ISS</button>
+    <button id="btn-radar">⌁ RADAR</button>
+    <button id="btn-route">⌇ ROUTE</button>
+    <button id="btn-air">△ AIR</button>
   </div>
   <div id="intel-row">
-    <span id="air-chip" class="hidden">✈</span>
+    <span id="air-chip" class="hidden">AIR</span>
     <span id="iss-chip" class="hidden">ISS</span>
     <span id="radar-ctl" class="hidden">
       <button id="radar-play">⏸</button>
@@ -113,28 +163,30 @@
   </div>
   <div class="btn-group">
     <button id="btn-terrain" class="active">3D TERRAIN</button>
-    <button id="btn-sync">⟳ SYNC FEEDS</button>
+    <button id="btn-sync">⟳ SYNC</button>
     <button id="btn-home">◎ WORLD</button>
   </div>
 </div>
 
 <!-- compass reset -->
-<button id="compass" class="level" title="Reset to north — flatten tilt">
+<button id="compass" class="level" title="Reset north and flatten tilt" aria-label="Reset map orientation">
   <svg viewBox="0 0 40 40" aria-hidden="true">
     <g id="compass-needle">
-      <path d="M20 5 L24.5 22 L20 18.5 L15.5 22 Z" fill="#ff2a4d"/>
-      <path d="M20 35 L15.5 22 L20 18.5 L24.5 22 Z" fill="#cfeaf2" opacity="0.75"/>
+      <path d="M20 5 L24.5 22 L20 18.5 L15.5 22 Z" fill="#ff667d"/>
+      <path d="M20 35 L15.5 22 L20 18.5 L24.5 22 Z" fill="#cfeaf2" opacity="0.7"/>
     </g>
-    <circle cx="20" cy="20" r="17.5" fill="none" stroke="rgba(0,240,255,.35)" stroke-width="1.5"/>
+    <circle cx="20" cy="20" r="17.5" fill="none" stroke="rgba(139,233,250,.32)" stroke-width="1.2"/>
   </svg>
 </button>
 
 <!-- radar decoration -->
-<div id="radar" title="scanning">
+<div id="radar" title="Global scan">
+  <div class="radar-axis h"></div><div class="radar-axis v"></div>
   <div class="radar-sweep"></div>
   <div class="radar-blip" style="left:62%; top:38%"></div>
   <div class="radar-blip" style="left:34%; top:56%"></div>
   <div class="radar-blip" style="left:71%; top:70%"></div>
+  <span class="radar-label">SCAN</span>
 </div>
 
 <!-- camera player modal -->
@@ -142,13 +194,15 @@
   <div class="modal-box">
     <div class="modal-grab"></div>
     <div class="scanlines"></div>
+    <div class="modal-corner tl"></div><div class="modal-corner tr"></div>
+    <div class="modal-corner bl"></div><div class="modal-corner br"></div>
     <div class="modal-head">
       <div class="rec"><span class="rec-dot"></span><span id="m-status">LIVE</span></div>
       <div class="modal-title" id="m-title">—</div>
-      <button id="m-star" title="favorite">☆</button>
-      <button id="m-link" title="copy camera link">🔗</button>
-      <button id="m-cap" title="capture frame">📸</button>
-      <button id="m-close">✕</button>
+      <button id="m-star" title="Favorite">☆</button>
+      <button id="m-link" title="Copy camera link">↗</button>
+      <button id="m-cap" title="Capture frame">⊙</button>
+      <button id="m-close" title="Close">✕</button>
     </div>
     <div class="modal-meta">
       <span id="m-coords">--, --</span>
@@ -159,26 +213,26 @@
     </div>
     <div id="player"></div>
     <div id="scrub-wrap" style="display:none">
-      <span class="scrub-label">⏪ REWIND</span>
+      <span class="scrub-label">REWIND</span>
       <input id="m-scrub" type="range" min="0" max="0" value="0" />
       <button id="m-scrub-live" class="hidden">● LIVE</button>
     </div>
     <div class="modal-foot">
       <span id="m-attr"></span>
-      <a id="m-page" href="#" target="_blank" rel="noopener">official page ↗</a>
+      <a id="m-page" href="#" target="_blank" rel="noopener">SOURCE ↗</a>
     </div>
   </div>
 </div>
 
-<!-- ROUTE corridor sweep -->
+<!-- route corridor sweep -->
 <div id="route" class="hidden">
   <div class="route-head">
-    <span>🛣 CORRIDOR SWEEP</span>
+    <span>CORRIDOR SWEEP // ROUTE INTELLIGENCE</span>
     <button id="route-close">✕</button>
   </div>
   <div class="route-body">
-    <input id="route-a" type="text" placeholder="From… (city, address, landmark)" />
-    <input id="route-b" type="text" placeholder="To…" />
+    <input id="route-a" type="text" placeholder="Origin — city, address, landmark" />
+    <input id="route-b" type="text" placeholder="Destination" />
     <div class="route-actions">
       <button id="route-go">SWEEP CAMERAS</button>
       <button id="route-clear">CLEAR</button>
@@ -188,41 +242,43 @@
 </div>
 
 <!-- mobile quick actions -->
-<button id="fab" title="quick actions">☰</button>
+<button id="fab" title="Quick actions" aria-label="Open quick actions"><span></span><span></span><span></span></button>
 <div id="fab-sheet" class="hidden">
   <div class="fab-grab"></div>
-  <div class="fab-title">QUICK ACTIONS</div>
+  <div class="fab-title">TACTICAL CONTROLS</div>
   <div class="fab-grid">
     <button data-do="#btn-wall4">▦ WALL 4</button>
+    <button data-do="#btn-wall6">▦ WALL 6</button>
+    <button data-do="#btn-tour">TOUR</button>
+    <button data-do="#btn-live">● LIVE</button>
+    <button data-do="#btn-install">INSTALL</button>
     <button data-do="#btn-wall9">▦ WALL 9</button>
     <button data-do="#btn-fav">★ FAVS</button>
-    <button data-do="#btn-fx">🔊 FX</button>
-    <button data-do="#btn-night">☾ NIGHT</button>
-    <button data-do="#btn-iss">🛰 ISS</button>
-    <button data-do="#btn-air">✈ AIR</button>
-    <button data-do="#btn-radar">🌧 RADAR</button>
-    <button data-do="#btn-route">🛣 ROUTE</button>
-    <button data-do="#btn-terrain">⛰ 3D</button>
+    <button data-do="#btn-fx">◌ FX</button>
+    <button data-do="#btn-night">◐ NIGHT</button>
+    <button data-do="#btn-iss">◇ ISS</button>
+    <button data-do="#btn-air">△ AIR</button>
+    <button data-do="#btn-radar">⌁ RADAR</button>
+    <button data-do="#btn-route">⌇ ROUTE</button>
+    <button data-do="#btn-terrain">3D</button>
     <button data-do="#btn-sync">⟳ SYNC</button>
-    <button data-do="#btn-tour">✨ TOUR</button>
-    <button data-do="#btn-live">● LIVE</button>
     <button data-do="#btn-home">◎ WORLD</button>
-    <button data-do="#styles button[data-style=dark]">🌑 DARK</button>
-    <button data-do="#styles button[data-style=streets]">🗺 STREETS</button>
-    <button data-do="#styles button[data-style=satellite]">🛰 SAT</button>
-    <button data-do="#panel-toggle">📋 PANEL</button>
+    <button data-do="#styles button[data-style=dark]">DARK</button>
+    <button data-do="#styles button[data-style=streets]">STREETS</button>
+    <button data-do="#styles button[data-style=satellite]">SAT</button>
+    <button data-do="#panel-toggle">INDEX</button>
   </div>
 </div>
 
 <div id="disclaimer">
-  Public feeds only — cameras published openly by transport &amp; government agencies.
-  Respect each source's terms. <b id="sync-msg"></b>
+  <span class="legal-dot"></span> OPENLY PUBLISHED PUBLIC FEEDS ONLY · RESPECT SOURCE TERMS
+  <b id="sync-msg"></b>
 </div>
 
-<!-- CONTROL ROOM: video wall -->
+<!-- control room: video wall -->
 <div id="wall" class="hidden">
   <div class="wall-head">
-    <span class="wall-title">▦ CONTROL ROOM // VIDEO WALL</span>
+    <span class="wall-title">CONTROL ROOM // MULTI-FEED ARRAY</span>
     <span id="wall-count"></span>
     <button id="wall-fill">⟳ REFILL</button>
     <button id="wall-close">✕</button>

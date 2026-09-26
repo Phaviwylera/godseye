@@ -86,15 +86,15 @@ const Intel = (() => {
   function issIcon() {
     const c = document.createElement("canvas"); c.width = c.height = 48;
     const g = c.getContext("2d");
-    g.strokeStyle = "#00f0ff"; g.fillStyle = "#04101a"; g.lineWidth = 2.2;
-    g.shadowColor = "#00f0ff"; g.shadowBlur = 8;
+    g.strokeStyle = "#8be9fa"; g.fillStyle = "#031018"; g.lineWidth = 2.2;
+    g.shadowColor = "#8be9fa"; g.shadowBlur = 8;
     // solar panels
     g.beginPath(); g.roundRect(3, 18, 14, 12, 2); g.roundRect(31, 18, 14, 12, 2); g.fill(); g.stroke();
     // body
     g.beginPath(); g.roundRect(18, 16, 12, 16, 3); g.fill(); g.stroke();
     // antenna
     g.beginPath(); g.moveTo(24, 16); g.lineTo(24, 8); g.stroke();
-    g.fillStyle = "#2aff8b"; g.beginPath(); g.arc(24, 7, 2.4, 0, 7); g.fill();
+    g.fillStyle = "#41efc2"; g.beginPath(); g.arc(24, 7, 2.4, 0, 7); g.fill();
     return g.getImageData(0, 0, 48, 48);
   }
 
@@ -137,7 +137,7 @@ const Intel = (() => {
         map.addLayer({
           id: "iss-trail", type: "line", source: "iss",
           filter: ["==", ["geometry-type"], "LineString"],
-          paint: { "line-color": "#00f0ff", "line-width": 1.6, "line-opacity": 0.55, "line-dasharray": [2, 2] },
+          paint: { "line-color": "#8be9fa", "line-width": 1.6, "line-opacity": 0.55, "line-dasharray": [2, 2] },
         });
         map.addLayer({
           id: "iss-dot", type: "symbol", source: "iss",
@@ -147,7 +147,7 @@ const Intel = (() => {
             "text-field": ["get", "name"], "text-font": ["Open Sans Regular"], "text-size": 11,
             "text-offset": [0, 1.4], "text-anchor": "top", "text-allow-overlap": true,
           },
-          paint: { "text-color": "#00f0ff", "text-halo-color": "#020610", "text-halo-width": 1.5 },
+          paint: { "text-color": "#8be9fa", "text-halo-color": "#02070b", "text-halo-width": 1.5 },
         });
       } else {
         map.setLayoutProperty("iss-trail", "visibility", "visible");
@@ -330,13 +330,13 @@ const Intel = (() => {
     map.addLayer({
       id: "route-line", type: "line", source: "route",
       filter: ["==", ["get", "kind"], "line"],
-      paint: { "line-color": "#ffb300", "line-width": 2.4, "line-opacity": 0.85, "line-dasharray": [3, 1.5] },
+      paint: { "line-color": "#d9b56d", "line-width": 2.4, "line-opacity": 0.85, "line-dasharray": [3, 1.5] },
     });
     map.addLayer({
       id: "route-cams", type: "circle", source: "route",
       filter: ["==", ["get", "kind"], "cam"],
       paint: {
-        "circle-color": "#ffb300", "circle-radius": 6,
+        "circle-color": "#d9b56d", "circle-radius": 6,
         "circle-stroke-color": "#fff", "circle-stroke-width": 1.2,
       },
     });
@@ -351,8 +351,8 @@ const Intel = (() => {
     const c = document.createElement("canvas"); c.width = c.height = 48;
     const g = c.getContext("2d");
     g.translate(24, 24); g.rotate(Math.PI); // nose points up after rotation by track
-    g.fillStyle = "#04101a"; g.strokeStyle = "#2aff8b"; g.lineWidth = 2.2;
-    g.shadowColor = "#2aff8b"; g.shadowBlur = 6;
+    g.fillStyle = "#031018"; g.strokeStyle = "#41efc2"; g.lineWidth = 2.2;
+    g.shadowColor = "#41efc2"; g.shadowBlur = 6;
     g.beginPath();
     g.moveTo(0, -14); g.lineTo(7, 4); g.lineTo(13, 10); g.lineTo(7, 8);
     g.lineTo(5, 14); g.lineTo(0, 11); g.lineTo(-5, 14); g.lineTo(-7, 8);
@@ -417,7 +417,7 @@ const Intel = (() => {
           const p = f.properties;
           new maplibregl.Popup({ closeButton: false, maxWidth: "260px" })
             .setLngLat(f.geometry.coordinates)
-            .setHTML(`<b style="color:#2aff8b">${p.callsign}</b><br>
+            .setHTML(`<b style="color:#41efc2">${p.callsign}</b><br>
               ${p.alt} ft · ${p.gs} kt${p.type ? " · " + p.type : ""}`)
             .addTo(map);
         });

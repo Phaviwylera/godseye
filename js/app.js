@@ -13,7 +13,7 @@ let modalHandle = null;
 
 const $ = (s) => document.querySelector(s);
 const el = {
-  boot: $("#boot"), bootLog: $("#boot-log"), stCams: $("#st-cams"), stVideo: $("#st-video"),
+  boot: $("#boot"), bootLog: $("#boot-log"), bootEnter: $("#boot-enter"), acquire: $("#acquire"), acquireLabel: $("#acquire-label"), stCams: $("#st-cams"), stVideo: $("#st-video"),
   stZoom: $("#st-zoom"), stCursor: $("#st-cursor"), stClock: $("#st-clock"),
   q: $("#q"), geoResults: $("#geo-results"), fType: $("#f-type"), fCountry: $("#f-country"), fLive: $("#f-live"),
   stLive: $("#st-live"),
@@ -49,22 +49,52 @@ const fxLockOn = () => { beep(660, 0.07, 0); beep(990, 0.09, 0.08); };
 const fxBlip = () => beep(880, 0.04, 0, 0.03);
 
 function bootLines() {
-  const lines = [
-    '<span class="dim">> uplink handshake</span> … <span class="ok">OK</span>',
-    '<span class="dim">> terrain mesh</span> … <span class="ok">MOUNTED</span>',
-    '<span class="dim">> satellite basemap</span> … <span class="ok">LOCKED</span>',
-    '<span class="dim">> public cctv registries</span> … <span class="ok">LINKED</span>',
-    '<span class="dim">> control room</span> … <span class="ok">ARMED</span>',
-    '<span class="dim">> god\'s eye</span> … <span class="ok">ONLINE</span>',
+  const rows = [
+    ["UPLINK HANDSHAKE", "OK"],
+    ["TERRAIN MESH", "MOUNTED"],
+    ["SATELLITE BASEMAP", "LOCKED"],
+    ["PUBLIC FEED REGISTRY", "LINKED"],
+    ["CONTROL ROOM", "ARMED"],
+    ["GOD'S EYE", "ONLINE"],
   ];
-  let i = 0;
-  const t = setInterval(() => {
-    el.bootLog.insertAdjacentHTML("beforeend", lines[i] + "<br>");
-    if (++i >= lines.length) clearInterval(t);
-  }, 240);
-  const done = () => { el.boot.classList.add("gone"); clearInterval(t); };
-  el.boot.addEventListener("click", done, { once: true });
-  setTimeout(done, 2000);
+  let i = 0, closed = false;
+  const renderNext = () => {
+    if (i >= rows.length) {
+      el.bootEnter && el.bootEnter.classList.add("ready");
+      return;
+    }
+    const [name, state] = rows[i++];
+    el.bootLog.insertAdjacentHTML("beforeend",
+      `<div class="boot-status-row" style="animation-delay:${(i - 1) * 0.025}s"><span class="sig"></span><span class="name">${name}</span><span class="state">${state}</span></div>`
+    );
+    setTimeout(renderNext, 185);
+  };
+  renderNext();
+
+  const done = () => {
+    if (closed) return;
+    closed = true;
+    el.boot.classList.add("gone");
+    document.body.classList.add("system-ready");
+    setTimeout(() => { el.boot.style.display = "none"; }, 1200);
+  };
+  if (el.bootEnter) el.bootEnter.addEventListener("click", (e) => { e.stopPropagation(); done(); }, { once: true });
+  el.boot.addEventListener("click", (e) => {
+    if (e.target.closest("#boot-enter")) return;
+    done();
+  }, { once: true });
+  setTimeout(done, 3000);
+}
+
+function pulseAcquire(cam) {
+  if (!el.acquire) return;
+  const place = [cam.place, cam.region, cam.country].filter(Boolean).slice(0, 2).join(" · ");
+  if (el.acquireLabel) el.acquireLabel.textContent = place ? `TARGET ACQUIRED // ${place.toUpperCase()}` : "TARGET ACQUIRED";
+  el.acquire.classList.remove("active");
+  void el.acquire.offsetWidth;
+  el.acquire.classList.add("active");
+  clearTimeout(pulseAcquire._t);
+  pulseAcquire._t = setTimeout(() => el.acquire.classList.remove("active"), 1850);
 }
 
 // ------------------------------------------------------------- map styles --
@@ -137,20 +167,20 @@ function cctvIcon(ledColor) {
   const c = document.createElement("canvas"); c.width = c.height = 48;
   const g = c.getContext("2d");
   g.shadowColor = ledColor; g.shadowBlur = 6;
-  g.fillStyle = "#04101a"; g.strokeStyle = "#00f0ff"; g.lineWidth = 2.5;
+  g.fillStyle = "#031018"; g.strokeStyle = "#8be9fa"; g.lineWidth = 2.5;
   g.beginPath(); g.roundRect(8, 16, 24, 16, 3); g.fill(); g.stroke();
   g.beginPath(); g.moveTo(32, 19); g.lineTo(41, 14); g.lineTo(41, 34); g.lineTo(32, 29); g.closePath(); g.fill(); g.stroke();
   g.shadowBlur = 10; g.fillStyle = ledColor;
   g.beginPath(); g.arc(14, 21, 2.6, 0, 7); g.fill();
-  g.shadowBlur = 0; g.strokeStyle = "rgba(0,240,255,.5)"; g.lineWidth = 2;
+  g.shadowBlur = 0; g.strokeStyle = "rgba(139,233,250,.45)"; g.lineWidth = 2;
   g.beginPath(); g.moveTo(20, 32); g.lineTo(20, 40); g.moveTo(14, 42); g.lineTo(26, 42); g.stroke();
   return g.getImageData(0, 0, 48, 48);
 }
 
 function ensureIcons() {
   if (!map.hasImage("cctv-live")) {
-    map.addImage("cctv-live", cctvIcon("#2aff8b"), { pixelRatio: 2 });
-    map.addImage("cctv-snap", cctvIcon("#ffb300"), { pixelRatio: 2 });
+    map.addImage("cctv-live", cctvIcon("#41efc2"), { pixelRatio: 2 });
+    map.addImage("cctv-snap", cctvIcon("#d9b56d"), { pixelRatio: 2 });
     map.addImage("cctv-portal", cctvIcon("#b78dff"), { pixelRatio: 2 });
   }
 }
@@ -169,9 +199,9 @@ function addCamLayers() {
   map.addLayer({
     id: "cam-clusters", type: "circle", source: "cams", filter: ["has", "point_count"],
     paint: {
-      "circle-color": ["step", ["get", "point_count"], "#0a3a4a", 50, "#0d5a6a", 400, "#0f7f8f"],
+      "circle-color": ["step", ["get", "point_count"], "#0a2732", 50, "#0d3b49", 400, "#105767"],
       "circle-radius": ["step", ["get", "point_count"], 14, 50, 18, 400, 24],
-      "circle-stroke-color": "#00f0ff", "circle-stroke-width": 1.5,
+      "circle-stroke-color": "#8be9fa", "circle-stroke-width": 1.5,
       "circle-stroke-opacity": 0.7, "circle-opacity": 0.85,
     },
   });
@@ -181,7 +211,7 @@ function addCamLayers() {
       "text-field": ["get", "point_count_abbreviated"], "text-font": ["Open Sans Regular"],
       "text-size": 11, "text-allow-overlap": true,
     },
-    paint: { "text-color": "#00f0ff" },
+    paint: { "text-color": "#bceff7" },
   });
   map.on("click", "cam-clusters", (e) => {
     const f = map.queryRenderedFeatures(e.point, { layers: ["cam-clusters"] })[0];
@@ -315,6 +345,7 @@ function openCam(id, fly) {
     });
   }
   fxLockOn();
+  pulseAcquire(c);
   const box = document.querySelector(".modal-box");
   box.classList.remove("sweep"); void box.offsetWidth; box.classList.add("sweep");
 
@@ -608,6 +639,7 @@ function wireUI() {
     document.querySelectorAll("#styles button").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
     currentStyle = b.dataset.style;
+    document.body.dataset.mapStyle = currentStyle;
     const style = await loadStyle(currentStyle);
     map.setStyle(style);
     map.once("styledata", () => {
@@ -689,7 +721,7 @@ async function initMap() {
   map.on("style.load", () => {
     try { map.setProjection({ type: "globe" }); } catch (e) {}
     try {
-      map.setSky && map.setSky({ skyColor: "#020610", horizonColor: "#0a1626", fogColor: "#0a1626" });
+      map.setSky && map.setSky({ skyColor: "#010508", horizonColor: "#071722", fogColor: "#06131c" });
     } catch (e) {}
     ensureTerrain();
   });
