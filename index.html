@@ -119,10 +119,11 @@
         <option value="all">any status</option>
         <option value="live">verified live</option>
         <option value="down">currently down</option>
+        <option value="checking">checking now</option>
       </select>
     </div>
   </div>
-  <div class="panel-count"><span id="list-count">0</span> cameras indexed <i></i></div>
+  <div class="panel-count"><span id="list-count">0</span> cameras indexed <span id="load-status" class="load-status"></span><i></i></div>
   <ul id="cam-list"></ul>
   <button id="panel-toggle" title="Collapse panel" aria-label="Collapse camera panel">◀</button>
 </aside>
@@ -142,6 +143,7 @@
     <button id="btn-wall4">▦ WALL 4</button>
     <button id="btn-wall6">▦ WALL 6</button>
     <button id="btn-wall9">▦ WALL 9</button>
+    <button id="btn-wall-custom" title="Custom video wall layout">▦ WALL ▾</button>
     <button id="btn-fav">★ FAVS</button>
     <button id="btn-fx" class="active">◌ FX</button>
   </div>
@@ -280,6 +282,18 @@
   <div class="wall-head">
     <span class="wall-title">CONTROL ROOM // MULTI-FEED ARRAY</span>
     <span id="wall-count"></span>
+    <div class="wall-layout" title="Grid size">
+      <label>COLS <input id="wall-cols" type="number" min="1" max="6" value="2" /></label>
+      <label>ROWS <input id="wall-rows" type="number" min="1" max="6" value="2" /></label>
+      <button id="wall-apply" type="button">APPLY</button>
+    </div>
+    <select id="wall-pref" title="Feed preference" aria-label="Wall feed preference">
+      <option value="auto">auto mix</option>
+      <option value="video">video only</option>
+      <option value="live">verified live</option>
+      <option value="favs">favorites</option>
+      <option value="view">in view</option>
+    </select>
     <button id="wall-fill">⟳ REFILL</button>
     <button id="wall-close">✕</button>
   </div>

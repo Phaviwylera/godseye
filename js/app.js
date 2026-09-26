@@ -6,17 +6,28 @@
 let map, cams = [], byId = new Map(), activeId = null, idleAt = Date.now();
 let currentStyle = "dark", terrainOn = true;
 let wallTiles = [], wallOpen = false, wallN = 4;
+let wallCols = Math.max(1, Math.min(6, +localStorage.getItem("ge_wall_cols") || 2));
+let wallRows = Math.max(1, Math.min(6, +localStorage.getItem("ge_wall_rows") || 2));
+let wallPref = localStorage.getItem("ge_wall_pref") || "auto";
 const favs = new Set(JSON.parse(localStorage.getItem("ge_favs") || "[]"));
 let favsOnly = localStorage.getItem("ge_favs_only") === "1";
 let fxOn = localStorage.getItem("ge_fx") !== "0";
 let modalHandle = null;
+
+/* progressive regional load */
+const loadedPacks = new Set();
+const loadingPacks = new Map();
+let regionLoadTimer = null;
+let statusProbeTimer = null;
+const STATUS_TTL_MS = 5 * 60 * 1000; // fresh probe good for 5 minutes
+const PROBE_TYPES = new Set(["m3u8", "mp4", "mjpeg", "image", "dynamic"]);
 
 const $ = (s) => document.querySelector(s);
 const el = {
   boot: $("#boot"), bootLog: $("#boot-log"), bootEnter: $("#boot-enter"), acquire: $("#acquire"), acquireLabel: $("#acquire-label"), stCams: $("#st-cams"), stVideo: $("#st-video"),
   stZoom: $("#st-zoom"), stCursor: $("#st-cursor"), stClock: $("#st-clock"),
   q: $("#q"), geoResults: $("#geo-results"), fType: $("#f-type"), fCountry: $("#f-country"), fLive: $("#f-live"),
-  stLive: $("#st-live"),
+  stLive: $("#st-live"), loadStatus: $("#load-status"),
   list: $("#cam-list"), listCount: $("#list-count"), panel: $("#panel"), panelToggle: $("#panel-toggle"),
   modal: $("#modal"), player: $("#player"), mTitle: $("#m-title"), mCoords: $("#m-coords"),
   mRegion: $("#m-region"), mSrc: $("#m-src"), mClock: $("#m-clock"), mStatus: $("#m-status"),
@@ -24,6 +35,7 @@ const el = {
   mStar: $("#m-star"), mLink: $("#m-link"), mCap: $("#m-cap"),
   scrub: $("#m-scrub"), scrubWrap: $("#scrub-wrap"), scrubLive: $("#m-scrub-live"),
   wall: $("#wall"), wallGrid: $("#wall-grid"), wallCount: $("#wall-count"),
+  wallCols: $("#wall-cols"), wallRows: $("#wall-rows"), wallApply: $("#wall-apply"), wallPref: $("#wall-pref"),
   syncMsg: $("#sync-msg"),
 };
 
@@ -232,7 +244,16 @@ function addCamLayers() {
 
 // ------------------------------------------------------------------- data --
 function camToFeature(c) {
-  return { type: "Feature", geometry: { type: "Point", coordinates: [c.lon, c.lat] }, properties: c };
+  // keep map properties lean — full stream URLs stay in byId
+  return {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+    properties: {
+      id: c.id, name: c.name, stype: c.stype, src: c.src,
+      country: c.country, region: c.region || "", place: c.place || "",
+      live: c.live, status: c.status || "unknown", detail: c.detail ? 1 : 0,
+    },
+  };
 }
 
 function refreshSource() {
@@ -240,19 +261,37 @@ function refreshSource() {
   if (src) src.setData({ type: "FeatureCollection", features: filtered().map(camToFeature) });
 }
 
+function statusOf(c) {
+  /* unified feed status: live | down | checking | unknown */
+  if (c._checking) return "checking";
+  if (c.live === 1) return "live";
+  if (c.live === 0) return "down";
+  if (c.status === "live") return "live";
+  return "unknown";
+}
+
+function statusFresh(c) {
+  return c._probedAt && (Date.now() - c._probedAt) < STATUS_TTL_MS;
+}
+
 function filtered() {
   const q = el.q.value.trim().toLowerCase();
   const t = el.fType.value, co = el.fCountry.value;
-  return cams.filter(c =>
-    (t === "all" || c.stype === t || (t === "image" && c.stype === "dynamic")) &&
-    (co === "all" || c.country === co) &&
-    (!favsOnly || favs.has(c.id)) &&
-    (el.fLive.value === "all" || (el.fLive.value === "live" && c.live === 1) || (el.fLive.value === "down" && c.live === 0)) &&
-    (!q || (c.name + " " + (c.place || "") + " " + (c.region || "")).toLowerCase().includes(q))
-  );
+  const liveF = el.fLive.value;
+  return cams.filter(c => {
+    if (t !== "all" && c.stype !== t && !(t === "image" && c.stype === "dynamic")) return false;
+    if (co !== "all" && c.country !== co) return false;
+    if (favsOnly && !favs.has(c.id)) return false;
+    if (liveF === "live" && statusOf(c) !== "live") return false;
+    if (liveF === "down" && statusOf(c) !== "down") return false;
+    if (liveF === "checking" && statusOf(c) !== "checking") return false;
+    if (q && !(c.name + " " + (c.place || "") + " " + (c.region || "")).toLowerCase().includes(q)) return false;
+    return true;
+  });
 }
 
 function animateNum(node, to) {
+  if (!node) return;
   const from = parseInt(String(node.textContent).replace(/[^\d]/g, "")) || 0;
   if (from === to) { node.textContent = fmtNum(to); return; }
   const t0 = performance.now(), dur = 700;
@@ -267,7 +306,22 @@ function animateNum(node, to) {
 function updateStats() {
   animateNum(el.stCams, cams.length);
   animateNum(el.stVideo, cams.filter(c => c.stype === "m3u8" || c.stype === "mp4" || c.stype === "youtube").length);
-  if (cams.some(c => c.live !== undefined)) animateNum(el.stLive, cams.filter(c => c.live === 1).length);
+  const alive = cams.filter(c => statusOf(c) === "live").length;
+  if (alive || cams.some(c => c.live !== undefined)) animateNum(el.stLive, alive);
+}
+
+function setLoadStatus(msg) {
+  if (el.loadStatus) el.loadStatus.textContent = msg || "";
+}
+
+function dotClass(c) {
+  const st = statusOf(c);
+  if (st === "live") return "m3u8";
+  if (st === "down") return "dead";
+  if (st === "checking") return "checking";
+  if (c.stype === "m3u8" || c.stype === "mp4") return "m3u8";
+  if (c.status === "live") return "live";
+  return "";
 }
 
 function renderList() {
@@ -276,43 +330,284 @@ function renderList() {
   const show = f.slice(0, 300);
   el.list.innerHTML = show.map(c => `
     <li data-id="${c.id}" class="${c.id === activeId ? "active" : ""}">
-      <span class="dot ${c.live === 1 ? "m3u8" : c.live === 0 ? "dead" : c.stype === "m3u8" ? "m3u8" : c.status === "live" ? "live" : ""}"></span>
+      <span class="dot ${dotClass(c)}" title="${statusOf(c)}"></span>
       <div>
         <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${c.name}</div>
-        <div class="cam-sub">${[c.place, c.region, c.country].filter(Boolean).join(" · ")}</div>
+        <div class="cam-sub">${[c.place, c.region, c.country].filter(Boolean).join(" · ")}${c.detail ? "" : " · …"}</div>
       </div>
       <span class="badge ${c.stype}">${TYPE_LABEL[c.stype] || c.stype}</span>
     </li>`).join("") + (f.length > 300
       ? `<li style="cursor:default;color:#51707c;font-size:10px">… +${fmtNum(f.length - 300)} more — zoom in or refine search</li>` : "");
 }
 
+function applyIndexCam(row) {
+  /* compact index row → runtime cam stub (detail filled when pack loads) */
+  const c = {
+    id: row.id,
+    name: row.n,
+    src: row.s,
+    stype: row.t,
+    country: row.c,
+    region: row.r || "",
+    place: row.p || "",
+    lon: row.lon,
+    lat: row.lat,
+    stream: "",
+    attr: "",
+    status: "unknown",
+    page: "",
+    detail: false,
+    pk: row.pk || row.c,
+  };
+  if (row.l !== undefined) c.live = row.l;
+  return c;
+}
+
+function upsertCam(full) {
+  const existing = byId.get(full.id);
+  if (existing) {
+    Object.assign(existing, full, { detail: true });
+    if (full.live !== undefined) existing.live = full.live;
+    return false;
+  }
+  const c = { ...full, detail: true };
+  byId.set(c.id, c);
+  cams.push(c);
+  return true;
+}
+
+async function loadPack(packKey) {
+  if (!packKey || loadedPacks.has(packKey)) return 0;
+  if (loadingPacks.has(packKey)) return loadingPacks.get(packKey);
+  const p = (async () => {
+    try {
+      const r = await fetch("data/regions/" + encodeURIComponent(packKey) + ".json", { cache: "default" });
+      if (!r.ok) throw new Error("pack " + packKey + " " + r.status);
+      const data = await r.json();
+      let added = 0;
+      for (const full of (data.cams || [])) {
+        if (upsertCam(full)) added++;
+      }
+      loadedPacks.add(packKey);
+      window.GE_CAMS = Object.fromEntries(byId);
+      return added;
+    } catch (e) {
+      console.warn("region pack failed", packKey, e);
+      return 0;
+    } finally {
+      loadingPacks.delete(packKey);
+    }
+  })();
+  loadingPacks.set(packKey, p);
+  return p;
+}
+
+async function ensureCamDetail(id) {
+  const c = byId.get(id);
+  if (!c) return null;
+  if (c.detail && c.stream) return c;
+  if (c.pk) await loadPack(c.pk);
+  return byId.get(id) || c;
+}
+
+function packsForViewport() {
+  if (!map) return [];
+  const z = map.getZoom();
+  // globe view: don't prefetch heavy packs
+  if (z < 4) return [];
+  let bounds;
+  try { bounds = map.getBounds(); } catch (e) { return []; }
+  const need = new Set();
+  const pad = 0.15;
+  const w = bounds.getWest() - (bounds.getEast() - bounds.getWest()) * pad;
+  const e = bounds.getEast() + (bounds.getEast() - bounds.getWest()) * pad;
+  const s = bounds.getSouth() - (bounds.getNorth() - bounds.getSouth()) * pad;
+  const n = bounds.getNorth() + (bounds.getNorth() - bounds.getSouth()) * pad;
+  // sample cams in view for pack keys (index already has all)
+  let scanned = 0;
+  for (const c of cams) {
+    if (scanned > 4000) break;
+    scanned++;
+    if (c.lon >= w && c.lon <= e && c.lat >= s && c.lat <= n && c.pk) {
+      need.add(c.pk);
+      if (need.size >= 12) break;
+    }
+  }
+  return [...need];
+}
+
+async function loadViewportPacks() {
+  const keys = packsForViewport().filter(k => !loadedPacks.has(k) && !loadingPacks.has(k));
+  if (!keys.length) {
+    setLoadStatus(loadedPacks.size ? `${loadedPacks.size} regions cached` : "");
+    return;
+  }
+  setLoadStatus(`loading ${keys.length} region${keys.length > 1 ? "s" : ""}…`);
+  await Promise.all(keys.map(k => loadPack(k)));
+  setLoadStatus(`${loadedPacks.size} regions ready`);
+  updateStats();
+  renderList();
+  refreshSource();
+  scheduleStatusProbe();
+}
+
+function scheduleRegionLoad() {
+  clearTimeout(regionLoadTimer);
+  regionLoadTimer = setTimeout(() => { loadViewportPacks().catch(() => {}); }, 280);
+}
+
+/* ---------- accurate feed status (on-demand probe) ---------- */
+async function probeCam(c, { force = false } = {}) {
+  if (!c || !PROBE_TYPES.has(c.stype)) return c;
+  if (!force && statusFresh(c)) return c;
+  if (!c.stream) {
+    await ensureCamDetail(c.id);
+    c = byId.get(c.id) || c;
+  }
+  if (!c.stream) return c;
+  c._checking = true;
+  try {
+    const ok = await Players.probe(c.stream, c.stype);
+    c.live = ok ? 1 : 0;
+    c._probedAt = Date.now();
+    c.status = ok ? "live" : "down";
+  } catch (e) {
+    c.live = 0;
+    c._probedAt = Date.now();
+    c.status = "down";
+  }
+  c._checking = false;
+  return c;
+}
+
+function scheduleStatusProbe() {
+  clearTimeout(statusProbeTimer);
+  statusProbeTimer = setTimeout(() => { probeViewportStatus().catch(() => {}); }, 600);
+}
+
+async function probeViewportStatus() {
+  if (!map || map.getZoom() < 8) return;
+  let bounds;
+  try { bounds = map.getBounds(); } catch (e) { return; }
+  const candidates = [];
+  for (const c of cams) {
+    if (!PROBE_TYPES.has(c.stype)) continue;
+    if (statusFresh(c)) continue;
+    if (c.lon < bounds.getWest() || c.lon > bounds.getEast()) continue;
+    if (c.lat < bounds.getSouth() || c.lat > bounds.getNorth()) continue;
+    candidates.push(c);
+    if (candidates.length >= 14) break;
+  }
+  if (!candidates.length) return;
+  // ensure details for streams
+  const packs = [...new Set(candidates.map(c => c.pk).filter(Boolean))];
+  await Promise.all(packs.map(p => loadPack(p)));
+  setLoadStatus(`probing ${candidates.length} feeds…`);
+  // limited concurrency
+  let i = 0;
+  const workers = Array.from({ length: 4 }, async () => {
+    while (i < candidates.length) {
+      const c = candidates[i++];
+      await probeCam(c);
+    }
+  });
+  await Promise.all(workers);
+  updateStats();
+  renderList();
+  refreshSource();
+  setLoadStatus(`${loadedPacks.size} regions · status fresh`);
+}
+
+function setModalStatus(c) {
+  const st = statusOf(c);
+  const label = {
+    live: c.stype === "m3u8" || c.stype === "mp4" ? "LIVE VIDEO" : c.stype === "youtube" ? "YT LIVE" : "LIVE FEED",
+    down: "SIGNAL DOWN",
+    checking: "CHECKING…",
+    unknown: ({ m3u8: "LIVE VIDEO", mp4: "VIDEO", youtube: "YT LIVE", mjpeg: "MJPEG LIVE", embed: "PORTAL" })[c.stype] || "FEED",
+  }[st] || "FEED";
+  el.mStatus.textContent = label;
+  el.mStatus.dataset.state = st;
+}
+
 async function loadBundled() {
-  const g = await fetch("data/cameras.geojson").then(r => r.json());
-  cams = g.features.map(f => ({ ...f.properties, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
-  cams.forEach(c => byId.set(c.id, c));
+  setLoadStatus("loading index…");
+  // Prefer compact index for fast first paint; fall back to full GeoJSON.
+  let usedIndex = false;
+  try {
+    const idx = await fetch("data/cameras.index.json").then(r => {
+      if (!r.ok) throw new Error("no index");
+      return r.json();
+    });
+    cams = (idx.cams || []).map(applyIndexCam);
+    cams.forEach(c => byId.set(c.id, c));
+    usedIndex = true;
+    setLoadStatus(`index ${fmtNum(cams.length)} · regional on zoom`);
+  } catch (e) {
+    const g = await fetch("data/cameras.geojson").then(r => r.json());
+    cams = g.features.map(f => ({
+      ...f.properties,
+      lon: f.geometry.coordinates[0],
+      lat: f.geometry.coordinates[1],
+      detail: true,
+    }));
+    cams.forEach(c => byId.set(c.id, c));
+    setLoadStatus("full dataset");
+  }
   window.GE_CAMS = Object.fromEntries(byId);
+
+  // merge weekly liveness (authoritative baseline until live probe)
   try {
     const lv = await fetch("data/liveness.json").then(r => r.ok ? r.json() : null);
-    if (lv && lv.s) cams.forEach(c => { if (c.id in lv.s) c.live = lv.s[c.id]; });
+    if (lv && lv.s) {
+      cams.forEach(c => {
+        if (c.id in lv.s) {
+          c.live = lv.s[c.id];
+          c._probedAt = 0; // allow fresh re-probe soon
+        }
+      });
+    }
   } catch (e) {}
-  const countries = [...new Set(cams.map(c => c.country))].sort();
+
+  const countries = [...new Set(cams.map(c => c.country).filter(Boolean))].sort();
   el.fCountry.innerHTML = '<option value="all">world</option>' +
     countries.map(c => `<option value="${c}">${c}</option>`).join("");
   updateStats();
   renderList();
   refreshSource();
-  // deep link ?cam=ID
+
+  // deep link ?cam=ID — ensure pack then open
   const want = new URLSearchParams(location.search).get("cam");
-  if (want && byId.has(want)) setTimeout(() => openCam(want, true), 700);
+  if (want && byId.has(want)) {
+    setTimeout(async () => {
+      await ensureCamDetail(want);
+      openCam(want, true);
+    }, 500);
+  }
+
+  // if index mode, warm packs for current view after map settles
+  if (usedIndex) {
+    map.once("idle", () => scheduleRegionLoad());
+    map.on("moveend", scheduleRegionLoad);
+    map.on("zoomend", scheduleRegionLoad);
+  }
 }
 
 async function mergeNew(newOnes) {
   let added = 0;
   for (const c of newOnes) {
     if (!c.lon && c.lon !== 0) continue;
-    if (byId.has(c.id)) continue;
+    if (byId.has(c.id)) {
+      // refresh stream URL / status on existing
+      const ex = byId.get(c.id);
+      if (c.stream) { ex.stream = c.stream; ex.detail = true; }
+      if (c.stype) ex.stype = c.stype;
+      continue;
+    }
+    c.detail = true;
     byId.set(c.id, c); cams.push(c); added++;
   }
+  window.GE_CAMS = Object.fromEntries(byId);
   if (added) { updateStats(); renderList(); refreshSource(); }
   return added;
 }
@@ -330,8 +625,8 @@ function updateStarBtn() {
 }
 
 // ---------------------------------------------------------- modal player --
-function openCam(id, fly) {
-  const c = byId.get(id);
+async function openCam(id, fly) {
+  let c = byId.get(id);
   if (!c) return;
   activeId = id;
   const seen = bumpVisit(id);
@@ -352,16 +647,41 @@ function openCam(id, fly) {
   el.mTitle.textContent = c.name;
   el.mCoords.textContent = `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
   el.mRegion.textContent = [c.place, c.region, c.country].filter(Boolean).join(" · ");
-  el.mSrc.textContent = "SRC " + c.src.toUpperCase();
-  el.mStatus.textContent = ({ m3u8: "LIVE VIDEO", mp4: "VIDEO", youtube: "YT LIVE", mjpeg: "MJPEG LIVE", embed: "PORTAL" })[c.stype] || "LIVE FEED";
-  el.mAttr.textContent = c.attr || "public feed";
+  el.mSrc.textContent = "SRC " + (c.src || "").toUpperCase();
+  setModalStatus(c);
+  el.mAttr.textContent = c.attr || (c.detail ? "public feed" : "loading region pack…");
   el.mPage.href = c.page || c.stream || "#";
   el.mPage.style.display = (c.page || c.stream) ? "" : "none";
   updateStarBtn();
   el.modal.classList.remove("hidden");
   Players.stop();
+  el.player.innerHTML = `<div class="player-msg">RESOLVING FEED…</div>`;
+
+  // ensure full record (stream URL) then fresh status probe before play
+  c = await ensureCamDetail(id) || c;
+  if (activeId !== id) return; // user moved on
+  el.mAttr.textContent = c.attr || "public feed";
+  el.mPage.href = c.page || c.stream || "#";
+  el.mPage.style.display = (c.page || c.stream) ? "" : "none";
+  setModalStatus(Object.assign(c, { _checking: true }));
+  if (PROBE_TYPES.has(c.stype) && c.stream && !statusFresh(c)) {
+    await probeCam(c, { force: false });
+  }
+  if (activeId !== id) return;
+  setModalStatus(c);
+  renderList();
+  updateStats();
+
   modalHandle = Players.play(c, el.player, {
     onRetry: () => openCam(id, false),
+    onStatus: (ok) => {
+      c.live = ok ? 1 : 0;
+      c._probedAt = Date.now();
+      c.status = ok ? "live" : "down";
+      if (activeId === id) setModalStatus(c);
+      updateStats();
+      renderList();
+    },
     captureFrames: c.stype === "image" || c.stype === "dynamic" || c.stype === "m3u8",
     frameW: 1024,
     onFrame: (count) => {
@@ -383,20 +703,65 @@ function closeModal() {
 }
 
 // ------------------------------------------------------------ video wall --
-function pickWallCams(n) {
-  const pool = filtered();
+function wallLayoutFromN(n) {
+  /* map preset counts to cols×rows; custom uses stored wallCols/wallRows */
+  if (n === 4) return { cols: 2, rows: 2 };
+  if (n === 6) return { cols: 3, rows: 2 };
+  if (n === 9) return { cols: 3, rows: 3 };
+  if (n === 1) return { cols: 1, rows: 1 };
+  if (n === 12) return { cols: 4, rows: 3 };
+  if (n === 16) return { cols: 4, rows: 4 };
+  // derive near-square
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  return { cols, rows };
+}
+
+function saveWallLayout() {
+  localStorage.setItem("ge_wall_cols", String(wallCols));
+  localStorage.setItem("ge_wall_rows", String(wallRows));
+  localStorage.setItem("ge_wall_pref", wallPref);
+  if (el.wallCols) el.wallCols.value = wallCols;
+  if (el.wallRows) el.wallRows.value = wallRows;
+  if (el.wallPref) el.wallPref.value = wallPref;
+}
+
+function pickWallCams(n, pref) {
+  pref = pref || wallPref || "auto";
+  let pool = filtered();
+  if (pref === "video") pool = pool.filter(c => c.stype === "m3u8" || c.stype === "mp4" || c.stype === "youtube");
+  if (pref === "live") pool = pool.filter(c => statusOf(c) === "live");
+  if (pref === "favs") pool = pool.filter(c => favs.has(c.id));
+  if (!pool.length) pool = filtered();
   if (!pool.length) return [];
+
   let inView = pool, center = map.getCenter();
   try {
     const b = map.getBounds();
     const vis = pool.filter(c => b.contains([c.lon, c.lat]));
-    if (vis.length >= 3) inView = vis;
+    if (pref === "view") {
+      inView = vis.length ? vis : pool;
+    } else if (vis.length >= Math.min(3, n)) {
+      inView = vis;
+    }
   } catch (e) {}
-  // live video first, then spread geographically
+
+  const rank = (c) => {
+    let s = 0;
+    if (c.stype === "m3u8") s += 4;
+    else if (c.stype === "mp4" || c.stype === "youtube") s += 3;
+    else if (c.stype === "image" || c.stype === "dynamic" || c.stype === "mjpeg") s += 2;
+    if (statusOf(c) === "live") s += 3;
+    if (statusOf(c) === "down") s -= 4;
+    if (c.detail && c.stream) s += 1;
+    if (favs.has(c.id)) s += 1;
+    return s;
+  };
   inView = [...inView].sort((a, b2) =>
-    (b2.stype === "m3u8") - (a.stype === "m3u8") ||
+    rank(b2) - rank(a) ||
     Math.hypot(a.lat - center.lat, a.lon - center.lng) - Math.hypot(b2.lat - center.lat, b2.lon - center.lng));
-  const out = [], step = Math.max(1, Math.floor(inView.length / n));
+
+  const out = [], step = Math.max(1, Math.floor(inView.length / Math.max(n, 1)));
   for (let i = 0; i < inView.length && out.length < n; i += step) out.push(inView[i]);
   for (const c of inView) { if (out.length >= n) break; if (!out.includes(c)) out.push(c); }
   return out;
@@ -410,32 +775,82 @@ function closeWall() {
   wallOpen = false;
 }
 
-function openWall(n) {
+async function openWall(n, layout) {
   closeWall();
-  wallN = n;
-  const picks = pickWallCams(n);
-  if (!picks.length) return;
-  el.wallGrid.style.gridTemplateColumns = `repeat(${n === 4 ? 2 : 3}, 1fr)`;
-  el.wallCount.textContent = `${picks.length} FEEDS // ${n === 4 ? "2×2" : n === 9 ? "3×3" : "3×2"}`;
-  picks.forEach((c, i) => {
+  let cols, rows;
+  if (layout && layout.cols && layout.rows) {
+    cols = Math.max(1, Math.min(6, +layout.cols));
+    rows = Math.max(1, Math.min(6, +layout.rows));
+    wallCols = cols; wallRows = rows;
+    wallN = cols * rows;
+  } else if (typeof n === "number" && n > 0) {
+    wallN = n;
+    ({ cols, rows } = wallLayoutFromN(n));
+    wallCols = cols; wallRows = rows;
+  } else {
+    cols = wallCols; rows = wallRows; wallN = cols * rows;
+  }
+  saveWallLayout();
+
+  const picks = pickWallCams(wallN, wallPref);
+  if (!picks.length) {
+    el.syncMsg.textContent = "no feeds match wall filters";
+    setTimeout(() => (el.syncMsg.textContent = ""), 3000);
+    return;
+  }
+
+  // hydrate region packs so tiles have stream URLs
+  const packs = [...new Set(picks.map(c => c.pk).filter(p => p && !loadedPacks.has(p)))];
+  if (packs.length) {
+    setLoadStatus(`wall: loading ${packs.length} packs…`);
+    await Promise.all(packs.map(p => loadPack(p)));
+  }
+  const ready = picks.map(c => byId.get(c.id) || c).filter(c => c.stream || c.stype === "embed" || c.stype === "youtube");
+  const finalPicks = ready.length ? ready.slice(0, wallN) : picks.slice(0, wallN);
+
+  el.wallGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  el.wallGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  el.wallCount.textContent = `${finalPicks.length} FEEDS // ${cols}×${rows}` +
+    (wallPref !== "auto" ? ` · ${wallPref}` : "");
+
+  finalPicks.forEach((c, i) => {
     const tile = document.createElement("div");
     tile.className = "wall-tile";
+    const st = statusOf(c);
     tile.innerHTML = `
       <div class="wall-tile-head">
-        <span class="wall-dot ${c.stype === "m3u8" ? "m3u8" : ""}"></span>
+        <span class="wall-dot ${st === "live" || c.stype === "m3u8" ? "m3u8" : st === "down" ? "dead" : ""}"></span>
         <span class="wall-tile-name">${c.name}</span>
         <button class="wall-open" title="open & fly">⤢</button>
       </div>
       <div class="wall-tile-player"></div>`;
     tile.style.animationDelay = (i * 80) + "ms";
     el.wallGrid.appendChild(tile);
-    const handle = Players.mount(c, tile.querySelector(".wall-tile-player"), { minimal: true, frameW: 480, captureFrames: false });
+    const handle = Players.mount(c, tile.querySelector(".wall-tile-player"), {
+      minimal: true, frameW: 480, captureFrames: false,
+      onStatus: (ok) => {
+        c.live = ok ? 1 : 0;
+        c._probedAt = Date.now();
+        c.status = ok ? "live" : "down";
+        const dot = tile.querySelector(".wall-dot");
+        if (dot) {
+          dot.classList.toggle("m3u8", ok);
+          dot.classList.toggle("dead", !ok);
+        }
+      },
+    });
     tile.querySelector(".wall-open").onclick = () => { fxLockOn(); openCam(c.id, true); };
     wallTiles.push({ cam: c, handle });
   });
   el.wall.classList.remove("hidden");
   wallOpen = true;
   fxLockOn();
+  setLoadStatus(`${loadedPacks.size} regions ready`);
+}
+
+function openCustomWall() {
+  /* prompt-free: open wall with last custom layout and focus controls */
+  openWall(null, { cols: wallCols, rows: wallRows });
 }
 
 // ----------------------------------------------------------- frame tools --
@@ -565,9 +980,11 @@ function stopTour() {
 let tour = null;
 
 function goLive() {
-  const rows = cams.filter((c) => c.live === 1 && (c.stype === "m3u8" || c.stype === "image"));
-  if (!rows.length) { el.syncMsg.textContent = "no verified-live feeds yet — try ⟳ SYNC"; return; }
+  const rows = cams.filter((c) => statusOf(c) === "live" && (c.stype === "m3u8" || c.stype === "image" || c.stype === "mp4"));
+  if (!rows.length) { el.syncMsg.textContent = "no verified-live feeds yet — try ⟳ SYNC or zoom in to probe"; return; }
   if (tour) stopTour();
+  wallPref = "live";
+  saveWallLayout();
   openWall(4);
 }
 
@@ -590,7 +1007,22 @@ function wireUI() {
   });
   el.fType.addEventListener("change", () => { renderList(); refreshSource(); });
   el.fLive.addEventListener("change", () => { renderList(); refreshSource(); });
-  el.fCountry.addEventListener("change", () => { renderList(); refreshSource(); });
+  el.fCountry.addEventListener("change", async () => {
+    renderList(); refreshSource();
+    const co = el.fCountry.value;
+    if (co && co !== "all") {
+      // warm packs for selected country (index stubs carry pk)
+      const keys = [...new Set(cams.filter(c => c.country === co && c.pk).map(c => c.pk))].slice(0, 20);
+      const missing = keys.filter(k => !loadedPacks.has(k));
+      if (missing.length) {
+        setLoadStatus(`loading ${co}…`);
+        await Promise.all(missing.map(k => loadPack(k)));
+        setLoadStatus(`${loadedPacks.size} regions ready`);
+        updateStats(); renderList(); refreshSource();
+        scheduleStatusProbe();
+      }
+    }
+  });
   el.panelToggle.onclick = () => el.panel.classList.toggle("collapsed");
   el.mClose.onclick = closeModal;
   el.modal.addEventListener("click", (e) => { if (e.target === el.modal) closeModal(); });
@@ -616,13 +1048,34 @@ function wireUI() {
   $("#btn-wall4").onclick = () => openWall(4);
   $("#btn-wall6").onclick = () => openWall(6);
   $("#btn-wall9").onclick = () => openWall(9);
+  const btnWallCustom = $("#btn-wall-custom");
+  if (btnWallCustom) btnWallCustom.onclick = () => openCustomWall();
   $("#btn-tour").onclick = startTour;
   $("#btn-live").onclick = goLive;
   $("#btn-install").onclick = () => {
     if (window._installPrompt) { window._installPrompt.prompt(); window._installPrompt = null; $("#btn-install").style.display = "none"; }
   };
   $("#wall-close").onclick = closeWall;
-  $("#wall-fill").onclick = () => openWall(wallN);
+  $("#wall-fill").onclick = () => openWall(null, { cols: wallCols, rows: wallRows });
+  if (el.wallCols) el.wallCols.value = wallCols;
+  if (el.wallRows) el.wallRows.value = wallRows;
+  if (el.wallPref) el.wallPref.value = wallPref;
+  if (el.wallApply) {
+    el.wallApply.onclick = () => {
+      wallCols = Math.max(1, Math.min(6, +el.wallCols.value || 2));
+      wallRows = Math.max(1, Math.min(6, +el.wallRows.value || 2));
+      if (el.wallPref) wallPref = el.wallPref.value || "auto";
+      saveWallLayout();
+      openWall(null, { cols: wallCols, rows: wallRows });
+    };
+  }
+  if (el.wallPref) {
+    el.wallPref.onchange = () => {
+      wallPref = el.wallPref.value || "auto";
+      localStorage.setItem("ge_wall_pref", wallPref);
+      if (wallOpen) openWall(null, { cols: wallCols, rows: wallRows });
+    };
+  }
   $("#btn-fx").onclick = (e) => {
     fxOn = !fxOn; localStorage.setItem("ge_fx", fxOn ? "1" : "0");
     e.target.classList.toggle("active", fxOn);

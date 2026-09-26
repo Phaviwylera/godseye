@@ -18,11 +18,13 @@ jobs:
           python-version: "3.12"
       - name: probe every direct-media feed
         run: python tools/check_liveness.py
+      - name: rebuild region packs with fresh liveness
+        run: python tools/build_regions.py
       - name: commit + push if changed
         run: |
           git config user.name "godseye-bot"
           git config user.email "godseye-bot@users.noreply.github.com"
-          git add data/liveness.json
+          git add data/liveness.json data/cameras.index.json data/regions
           if git diff --cached --quiet; then
             echo "no liveness changes"
           else

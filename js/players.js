@@ -9,6 +9,34 @@ const Players = (() => {
   const FRAME_MAX = 12;
   const HEAL_MS = 45000;
 
+  /** Lightweight feed liveness probe (accurate status). Returns boolean. */
+  async function probe(url, stype) {
+    if (!url) return false;
+    const target = proxied(url);
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const t = setTimeout(() => { try { ctrl && ctrl.abort(); } catch (e) {} }, 7000);
+    try {
+      const r = await fetch(target, {
+        method: "GET",
+        cache: "no-store",
+        signal: ctrl ? ctrl.signal : undefined,
+        headers: stype === "m3u8" ? { Accept: "application/vnd.apple.mpegurl,*/*" } : { Accept: "*/*" },
+      });
+      if (!r.ok) return false;
+      if (stype === "m3u8") {
+        const text = await r.text();
+        return text.trimStart().startsWith("#EXTM3U");
+      }
+      // image / mp4 / mjpeg — any non-empty body or 2xx is enough
+      const buf = await r.arrayBuffer();
+      return buf.byteLength > 32;
+    } catch (e) {
+      return false;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   // ------------------------------------------------------------ YouTube ---
   let ytApiPromise = null;
   function loadYT() {
@@ -149,6 +177,7 @@ const Players = (() => {
     function failPanel(why) {
       clearInterval(st.timer); st.timer = null;
       if (st.hls) { try { st.hls.destroy(); } catch (e) {} st.hls = null; }
+      opts.onStatus && opts.onStatus(false);
       const hint = cam.live === 0 ? "Last probe marked this camera DOWN."
         : cam.live === 1 ? "It was verified live recently — this may be temporary."
         : "Public DOT cams go offline sometimes (maintenance, network, weather).";
@@ -228,7 +257,10 @@ const Players = (() => {
       const img = document.createElement("img");
       img.alt = cam.name;
       st.img = img;
-      img.onload = () => pushFrame(img);
+      img.onload = () => {
+        pushFrame(img);
+        if (!st._signaledOk) { st._signaledOk = true; opts.onStatus && opts.onStatus(true); }
+      };
       img.onerror = () => {
         if (n > 4 && !st.frames.length) {
           failPanel("The agency's snapshot feed is unreachable right now.");
@@ -270,6 +302,9 @@ const Players = (() => {
         });
         st.hls.loadSource(src);
         st.hls.attachMedia(video);
+        st.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          opts.onStatus && opts.onStatus(true);
+        });
         st.hls.on(Hls.Events.ERROR, (_, data) => {
           if (!data.fatal) return;
           const isManifest = data.details === "manifestLoadError" || data.details === "manifestParsingError";
@@ -284,6 +319,7 @@ const Players = (() => {
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = src;
+        video.addEventListener("loadedmetadata", () => opts.onStatus && opts.onStatus(true), { once: true });
         video.onerror = () => fail("native player error", false);
       } else {
         fail("HLS not supported in this browser", true);
@@ -405,5 +441,5 @@ const Players = (() => {
     stopClock();
   }
 
-  return { mount, play, stop, startClock, proxied, extractYt };
+  return { mount, play, stop, startClock, proxied, extractYt, probe };
 })();

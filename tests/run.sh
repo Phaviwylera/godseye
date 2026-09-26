@@ -11,7 +11,7 @@ for f in js/*.js netlify/functions/*.mjs; do
 done
 
 echo "== Python syntax =="
-python3 -m py_compile server.py tools/build_dataset.py tools/check_liveness.py
+python3 -m py_compile server.py tools/build_dataset.py tools/check_liveness.py tools/build_regions.py
 echo "  OK server + tools"
 
 echo "== Unit tests =="

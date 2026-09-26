@@ -236,11 +236,26 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   box-shadow: 0 0 80px rgba(0, 240, 255, .12); backdrop-filter: blur(6px);
 }
 .wall-head {
-  display: flex; align-items: center; gap: 16px; padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  border-bottom: 1px solid var(--line); flex-wrap: wrap;
 }
-.wall-title { flex: 1; letter-spacing: .28em; font-size: 12px; color: var(--cyan); }
+.wall-title { flex: 1; letter-spacing: .28em; font-size: 12px; color: var(--cyan); min-width: 160px; }
 #wall-count { font-size: 10px; color: #51707c; letter-spacing: .15em; }
+.wall-layout {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; letter-spacing: .12em; color: #51707c;
+}
+.wall-layout label { display: flex; align-items: center; gap: 4px; }
+.wall-layout input[type="number"] {
+  width: 42px; background: rgba(0, 0, 0, .45); color: var(--cyan);
+  border: 1px solid var(--line); font-family: var(--mono); font-size: 11px;
+  padding: 4px 6px; text-align: center;
+}
+#wall-pref {
+  background: rgba(0, 0, 0, .45); color: var(--cyan); border: 1px solid var(--line);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  padding: 5px 8px; cursor: pointer;
+}
 .wall-head button {
   background: transparent; color: var(--cyan); border: 1px solid var(--line);
   font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
@@ -275,8 +290,20 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 
 /* liveness + new feed types */
 .dot.dead { background: var(--red); box-shadow: 0 0 5px var(--red); opacity: .8; }
+.dot.checking {
+  background: var(--amber); box-shadow: 0 0 6px var(--amber);
+  animation: pulse 0.9s infinite;
+}
+.wall-dot.dead { background: var(--red); box-shadow: 0 0 5px var(--red); }
 .badge.mp4, .badge.mjpeg { color: var(--green); border-color: rgba(42, 255, 139, .4); }
 .badge.youtube { color: #ff5555; border-color: rgba(255, 85, 85, .4); }
+.load-status {
+  margin-left: 8px; color: #51707c; font-size: 9px; letter-spacing: .08em;
+  text-transform: lowercase;
+}
+#m-status[data-state="down"] { color: var(--red); }
+#m-status[data-state="checking"] { color: var(--amber); }
+#m-status[data-state="live"] { color: var(--green); }
 
 .retry-btn {
   background: transparent; color: var(--cyan); border: 1px solid var(--cyan-dim);

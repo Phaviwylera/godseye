@@ -90,6 +90,27 @@ class TestContract(unittest.TestCase):
         self.assertIn("153", pl)              # youtube embed restriction handled
         self.assertIn("nearestAlternative", pl)  # dead-cam failover
         self.assertIn("armHeal", pl)          # background auto-heal
+        self.assertIn("async function probe", pl)  # accurate feed status probe
+
+    def test_progressive_regional_loading(self):
+        app = open(os.path.join(ROOT, "js", "app.js")).read()
+        self.assertIn("cameras.index.json", app)
+        self.assertIn("loadPack", app)
+        self.assertIn("loadViewportPacks", app)
+        self.assertIn("probeCam", app)
+        self.assertTrue(os.path.exists(os.path.join(ROOT, "data", "cameras.index.json")))
+        self.assertTrue(os.path.exists(os.path.join(ROOT, "data", "regions", "manifest.json")))
+        self.assertTrue(os.path.exists(os.path.join(ROOT, "tools", "build_regions.py")))
+
+    def test_customizable_video_wall(self):
+        idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        app = open(os.path.join(ROOT, "js", "app.js")).read()
+        self.assertIn("wall-cols", idx)
+        self.assertIn("wall-rows", idx)
+        self.assertIn("wall-pref", idx)
+        self.assertIn("btn-wall-custom", idx)
+        self.assertIn("openCustomWall", app)
+        self.assertIn("ge_wall_cols", app)
 
     def test_player_types_supported(self):
         pl = open(os.path.join(ROOT, "js", "players.js")).read()
