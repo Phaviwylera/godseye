@@ -419,15 +419,20 @@ function renderList() {
   el.listCount.textContent = fmtNum(f.length) + (favsOnly ? " ★" : "");
   const show = f.slice(0, 300);
   el.list.innerHTML = show.map(c => `
-    <li data-id="${c.id}" class="${c.id === activeId ? "active" : ""}">
-      <span class="dot ${dotClass(c)}" title="${statusOf(c)}"></span>
+    <li data-id="${escapeHTML(c.id)}" class="${c.id === activeId ? "active" : ""}">
+      <span class="dot ${escapeHTML(dotClass(c))}" title="${escapeHTML(statusOf(c))}"></span>
       <div>
-        <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${c.name}</div>
-        <div class="cam-sub">${[c.place, c.region, c.country].filter(Boolean).join(" · ")}${c.detail ? "" : " · …"}</div>
+        <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${escapeHTML(c.name)}</div>
+        <div class="cam-sub">${escapeHTML([c.place, c.region, c.country].filter(Boolean).join(" · "))}${c.detail ? "" : " · …"}</div>
       </div>
-      <span class="badge ${c.stype}">${TYPE_LABEL[c.stype] || c.stype}</span>
+      <span class="badge ${escapeHTML(c.stype)}">${escapeHTML(TYPE_LABEL[c.stype] || c.stype)}</span>
     </li>`).join("") + (f.length > 300
       ? `<li style="cursor:default;color:#51707c;font-size:10px">… +${fmtNum(f.length - 300)} more — zoom in or refine search</li>` : "");
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 }
 
 function applyIndexCam(row) {
@@ -910,7 +915,7 @@ async function openWall(n, layout) {
     tile.innerHTML = `
       <div class="wall-tile-head">
         <span class="wall-dot ${st === "live" || c.stype === "m3u8" ? "m3u8" : st === "down" ? "dead" : ""}"></span>
-        <span class="wall-tile-name">${c.name}</span>
+        <span class="wall-tile-name">${escapeHTML(c.name)}</span>
         <button class="wall-open" title="open & fly">⤢</button>
       </div>
       <div class="wall-tile-player"></div>`;
@@ -973,13 +978,32 @@ function wireScrub() {
 
 // --------------------------------------------------------------- geosearch --
 async function geoSearch(q) {
+  const coords = q.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+  if (coords && Math.abs(+coords[1]) <= 90 && Math.abs(+coords[2]) <= 180) {
+    el.geoResults.replaceChildren();
+    const row = document.createElement("div");
+    row.textContent = `Fly to ${(+coords[1]).toFixed(5)}, ${(+coords[2]).toFixed(5)}`;
+    row.onclick = () => {
+      map.flyTo({ center: [+coords[2], +coords[1]], zoom: 12, duration: 2500, essential: true });
+      el.geoResults.style.display = "none";
+    };
+    el.geoResults.appendChild(row);
+    el.geoResults.style.display = "block";
+    return;
+  }
   if (q.length < 3) { el.geoResults.style.display = "none"; return; }
   try {
     const r = await Sources.fetchJSON(
       "https://nominatim.openstreetmap.org/search?format=json&limit=5&q=" + encodeURIComponent(q));
     if (!r.length) { el.geoResults.style.display = "none"; return; }
-    el.geoResults.innerHTML = r.map(x =>
-      `<div data-lat="${x.lat}" data-lon="${x.lon}">${x.display_name}</div>`).join("");
+    el.geoResults.replaceChildren();
+    for (const x of r) {
+      const row = document.createElement("div");
+      row.dataset.lat = x.lat;
+      row.dataset.lon = x.lon;
+      row.textContent = x.display_name;
+      el.geoResults.appendChild(row);
+    }
     el.geoResults.style.display = "block";
     el.geoResults.querySelectorAll("div").forEach(d => d.onclick = () => {
       map.flyTo({ center: [+d.dataset.lon, +d.dataset.lat], zoom: 12, duration: 2500, essential: true });

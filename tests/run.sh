@@ -11,11 +11,15 @@ for f in js/*.js netlify/functions/*.mjs; do
 done
 
 echo "== Python syntax =="
-python3 -m py_compile server.py tools/build_dataset.py tools/check_liveness.py tools/build_regions.py
+python3 -m py_compile server.py tools/build_dataset.py tools/check_liveness.py tools/build_regions.py tools/build_site.py
 echo "  OK server + tools"
 
 echo "== Unit tests =="
 python3 -m unittest discover -s tests -p "test_*.py" -v
+node --test tests/api.test.mjs
+python3 tools/build_site.py
+test -f site/index.html && test -f site/data/cameras.index.json
+test ! -e site/godseye-netlify-drop.zip && test ! -e site/tools
 
 echo ""
 echo "ALL TESTS PASSED ✅"

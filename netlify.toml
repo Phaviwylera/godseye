@@ -1,6 +1,7 @@
 # GOD'S EYE — Netlify config
 [build]
-  publish = "."
+  command = "python3 tools/build_site.py"
+  publish = "site"
   functions = "netlify/functions"
 
 [functions]
