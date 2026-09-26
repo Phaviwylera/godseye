@@ -23,6 +23,12 @@ The interface has been redesigned around a restrained global-intelligence aesthe
 
 No build step is required; the visual system is contained in the existing HTML/CSS/JS files and the SVG asset.
 
+Netlify runs `python3 tools/build_site.py` and publishes `site/`, which contains
+only the app and its camera data. The Python server and repository utilities are
+excluded from the public deployment. Search accepts `latitude, longitude` as
+well as place names. The offline shell caches app assets; camera data and live
+feeds always use the network.
+
 ## ✨ Features
 
 | | |

@@ -8,6 +8,14 @@ const Players = (() => {
   const proxied = (u) => window.GE_NO_PROXY ? u : "/api/proxy?url=" + encodeURIComponent(u);
   const FRAME_MAX = 12;
   const HEAL_MS = 45000;
+  const escapeHTML = value => String(value ?? "").replace(/[&<>"']/g, ch =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+  function safeLink(value) {
+    try {
+      const url = new URL(value);
+      return ["http:", "https:"].includes(url.protocol) ? escapeHTML(url.href) : "#";
+    } catch { return "#"; }
+  }
 
   /** Lightweight feed liveness probe (accurate status). Returns boolean. */
   async function probe(url, stype) {
@@ -126,11 +134,11 @@ const Players = (() => {
       <img src="assets/gods-eye-emblem.svg" alt="" style="width:104px;opacity:.88;filter:drop-shadow(0 0 12px rgba(42,223,255,.12))">
       <div style="letter-spacing:.28em;color:#8be9fa;font-size:13px">${isYt ? "YOUTUBE FEED" : "AGENCY PORTAL FEED"}</div>
       <div style="font-size:11px;max-width:460px;line-height:1.7;color:#51707c">
-        ${cam.name || ""}<br>
+        ${escapeHTML(cam.name || "")}<br>
         ${isYt ? "This live cam plays on YouTube — the owner may restrict outside players. Open it directly and it will play."
                : "This agency publishes its live view only through its own secure portal and blocks outside embedding. One click through — the feed is live there."}
       </div>
-      <a href="${cam.stream || cam.page || "#"}" target="_blank" rel="noopener"
+      <a href="${safeLink(cam.stream || cam.page)}" target="_blank" rel="noopener noreferrer"
          style="font-family:inherit;font-size:13px;letter-spacing:.2em;color:#031018;background:#8be9fa;
                 padding:12px 26px;text-decoration:none;box-shadow:0 0 24px rgba(139,233,250,.18)">
         ▶ ${isYt ? "OPEN ON YOUTUBE" : "OPEN LIVE FEED"} ↗
@@ -186,13 +194,13 @@ const Players = (() => {
       container.innerHTML = `
         <div class="player-msg" style="max-width:520px;line-height:1.8">
           <div style="color:#ff667d;letter-spacing:.25em;font-size:14px">SIGNAL LOST</div>
-          <div style="font-size:11px;margin-top:8px">${why}</div>
+          <div style="font-size:11px;margin-top:8px">${escapeHTML(why)}</div>
           <div style="font-size:10px;color:#51707c;margin-top:6px">${hint}</div>
           <div style="font-size:9px;color:#3d5c66;margin-top:4px">background auto-heal: probing every 45s…</div>
           <div style="margin-top:14px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
             <button class="retry-btn">↻ RETRY</button>
-            ${alt ? `<button class="retry-btn alt-btn">↪ ${alt.cam.name.slice(0, 26)} · ${alt.km.toFixed(1)}km</button>` : ""}
-            <a href="${cam.stream || cam.page || "#"}" target="_blank" rel="noopener"
+            ${alt ? `<button class="retry-btn alt-btn">↪ ${escapeHTML(alt.cam.name.slice(0, 26))} · ${alt.km.toFixed(1)}km</button>` : ""}
+            <a href="${safeLink(cam.stream || cam.page)}" target="_blank" rel="noopener noreferrer"
                style="font-size:10px;letter-spacing:.15em;color:#8be9fa;border:1px solid rgba(139,233,250,.22);padding:6px 12px;text-decoration:none">
               ${isYt ? "OPEN ON YOUTUBE ↗" : "OFFICIAL PAGE ↗"}</a>
           </div>

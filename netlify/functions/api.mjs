@@ -2,7 +2,11 @@
  * Gives the static deployment the same CORS / mixed-content safe feed access
  * as server.py does locally.
  */
-const BLOCKED = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
+const BLOCKED = new Set(["localhost", "0.0.0.0", "::1"]);
+const MAX_BYTES = 16 * 1024 * 1024;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -38,8 +42,53 @@ function valid(u) {
   try {
     const p = new URL(u);
     return (p.protocol === "http:" || p.protocol === "https:") &&
-      !BLOCKED.has(p.hostname) && !p.hostname.endsWith(".local");
+      !p.username && !p.password && !BLOCKED.has(p.hostname) &&
+      !p.hostname.endsWith(".local") && !p.hostname.endsWith(".internal") &&
+      !p.hostname.endsWith(".localhost");
   } catch { return false; }
+}
+
+export function publicIP(address) {
+  const ip = address.replace(/^\[|\]$/g, "").toLowerCase();
+  if (isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) ||
+      (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)));
+  }
+  if (isIP(ip) === 6) {
+    if (ip.includes(".")) return false; // reject mapped IPv4 forms
+    return !(ip === "::" || ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") ||
+      /^fe[89ab]/.test(ip) || ip.startsWith("2001:db8:"));
+  }
+  return false;
+}
+
+async function safeTarget(url) {
+  if (!valid(url)) return false;
+  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+  if (isIP(host)) return publicIP(host);
+  const addresses = await lookup(host, { all: true });
+  return addresses.length > 0 && addresses.every(({ address }) => publicIP(address));
+}
+
+async function readLimited(response) {
+  const length = Number(response.headers.get("content-length"));
+  if (length > MAX_BYTES) throw new Error("source-too-large");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_BYTES) throw new Error("source-too-large");
+      chunks.push(Buffer.from(value));
+    }
+  } finally { reader.cancel().catch(() => {}); }
+  return Buffer.concat(chunks, size);
 }
 
 function rewriteM3u8(text, base) {
@@ -82,21 +131,35 @@ export async function handler(event) {
 
   try {
     let r;
+    let current = url;
     try {
-      r = await fetch(url, {
-        redirect: "follow",
-        signal: AbortSignal.timeout(8000), // stay inside the function time budget
-        headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
-      });
+      for (let redirects = 0; redirects <= 3; redirects++) {
+        if (!await safeTarget(current)) return { statusCode: 400, headers: CORS,
+          body: JSON.stringify({ error: "unsafe source address" }) };
+        r = await fetch(current, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(8000),
+          headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
+        });
+        if (![301, 302, 303, 307, 308].includes(r.status)) break;
+        const location = r.headers.get("location");
+        if (!location || redirects === 3) return { statusCode: 502, headers: CORS,
+          body: JSON.stringify({ error: "source redirect limit" }) };
+        current = new URL(location, current).href;
+      }
     } catch (te) {
       return { statusCode: 504, headers: CORS,
         body: JSON.stringify({ error: "source-timeout-or-unreachable", detail: String(te) }) };
     }
+    if (!r.ok) return { statusCode: r.status >= 400 && r.status < 600 ? r.status : 502,
+      headers: { ...CORS, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "source returned HTTP " + r.status }) };
     const ctype = r.headers.get("content-type") || "application/octet-stream";
-    const isHls = url.split("?")[0].toLowerCase().endsWith(".m3u8") || ctype.includes("mpegurl");
+    const isHls = current.split("?")[0].toLowerCase().endsWith(".m3u8") || ctype.includes("mpegurl");
+    const buf = await readLimited(r);
 
     if (isHls) {
-      const text = await r.text();
+      const text = buf.toString("utf8");
       // agencies return "Not Found"/empty bodies for offline cams — say so honestly
       // instead of rewriting garbage into a fake playlist
       if (!text.trimStart().startsWith("#EXTM3U")) {
@@ -109,12 +172,10 @@ export async function handler(event) {
       return {
         statusCode: 200,
         headers: { ...CORS, "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store" },
-        body: rewriteM3u8(text, url),
+        body: rewriteM3u8(text, current),
       };
     }
 
-    const buf = Buffer.from(await r.arrayBuffer());
-    const asText = isFetch || ctype.includes("json") || ctype.includes("text") || buf.length < 2_000_000 && isFetch;
     return {
       statusCode: 200,
       headers: { ...CORS, "Content-Type": ctype, "Cache-Control": "no-store" },
