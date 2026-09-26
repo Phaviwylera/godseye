@@ -679,3 +679,15 @@ button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 @media (max-width:760px){
   #cam-wall{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(3,1fr)}
 }
+
+
+/* === MOBILE · bottom sheets + thumb-zone polish ============================ */
+@media (max-width:760px){
+  #place-res{left:6px;right:6px;width:auto;top:42px}
+  #wall-bar{top:auto;bottom:14px}
+  #tour-pill{bottom:64px}
+}
+@media (max-width:420px){
+  #place-q.hud-place{width:70px}
+  #place-q.hud-place:focus{width:120px}
+}
