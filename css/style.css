@@ -401,10 +401,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   visibility: hidden; pointer-events: none;
   transition: opacity .35s var(--ease-apple), transform .45s var(--ease-apple), visibility 0s .45s; }
 
-#radar-ctl, #iss-chip, #air-chip, #m-scrub-live, #scrub-wrap {
+#radar-ctl, #iss-chip, #air-chip, #quake-chip, #m-scrub-live, #scrub-wrap {
   transition: opacity var(--t-med) var(--ease-apple), transform .5s var(--ease-spring), visibility 0s;
 }
-#radar-ctl.hidden, #iss-chip.hidden, #air-chip.hidden, #m-scrub-live.hidden, #scrub-wrap.hidden {
+#radar-ctl.hidden, #iss-chip.hidden, #air-chip.hidden, #quake-chip.hidden, #m-scrub-live.hidden, #scrub-wrap.hidden {
   display: flex !important; opacity: 0; transform: translateY(8px);
   visibility: hidden; pointer-events: none;
   transition: opacity .3s var(--ease-apple), transform .35s var(--ease-apple), visibility 0s .35s;
@@ -1049,7 +1049,7 @@ body[data-map-style="streets"] .maplibregl-canvas { filter: saturate(.75) contra
 .btn-group button:hover { color:#b6edf6; background:rgba(139,233,250,.045); }
 .btn-group button.active { color:#bceff7; background:linear-gradient(180deg, rgba(139,233,250,.09), rgba(139,233,250,.035)); text-shadow:none; box-shadow:inset 0 -1px rgba(139,233,250,.24); }
 #intel-row { gap:5px; }
-#iss-chip, #air-chip { background:rgba(3,10,16,.8); border-color:rgba(132,226,255,.11); color:#82d9e7; border-radius:3px; font-size:7px; }
+#iss-chip, #air-chip, #quake-chip { background:rgba(3,10,16,.8); border:1px solid rgba(132,226,255,.11); color:#82d9e7; border-radius:3px; font-size:7px; padding:5px 10px; }
 #radar-ctl { background:rgba(3,10,16,.82); border-color:rgba(132,226,255,.11); border-radius:3px; }
 #radar-time { color:#d8b772; font-size:8px; }
 

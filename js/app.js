@@ -1099,6 +1099,7 @@ function wireUI() {
       ensureTerrain();
       map.setProjection && map.setProjection({ type: "globe" });
       addCamLayers(); refreshSource();
+      Intel.restoreQuakeLayer();
     });
   });
 
@@ -1143,6 +1144,17 @@ function wireUI() {
   };
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
   $("#air-chip").onclick = () => { $("#btn-air").click(); };
+  $("#btn-quakes").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Intel.toggleQuakes());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("earthquake feed unavailable", error);
+      el.syncMsg.textContent = "◇ earthquake feed unavailable — try again shortly";
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 6000);
+    }
+  };
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
