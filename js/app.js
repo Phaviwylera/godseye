@@ -27,6 +27,7 @@ function readSharedScene() {
 
 const sharedScene = readSharedScene();
 let currentStyle = sharedScene ? sharedScene.style : "dark", terrainOn = true;
+let buildingsOn = localStorage.getItem("ge_buildings") !== "0";
 let currentSensorMode = sharedScene ? sharedScene.sensor :
   (SENSOR_MODES.includes(localStorage.getItem("ge_sensor_mode")) ? localStorage.getItem("ge_sensor_mode") : "natural");
 let wallTiles = [], wallOpen = false, wallN = 4;
@@ -1283,6 +1284,16 @@ function wireUI() {
     e.target.classList.toggle("active", terrainOn);
     ensureTerrain();
   };
+  const buildingsButton = $("#btn-buildings");
+  buildingsButton.classList.toggle("active", buildingsOn);
+  buildingsButton.setAttribute("aria-pressed", String(buildingsOn));
+  buildingsButton.onclick = () => {
+    buildingsOn = !buildingsOn;
+    localStorage.setItem("ge_buildings", buildingsOn ? "1" : "0");
+    buildingsButton.classList.toggle("active", buildingsOn);
+    buildingsButton.setAttribute("aria-pressed", String(buildingsOn));
+    ensureBuildings();
+  };
   $("#btn-home").onclick = () => map.flyTo({ center: [10, 20], zoom: 1.55, pitch: 0, bearing: 0, duration: 2500, essential: true });
   $("#btn-context-view").onclick = toggleContextView;
   $("#btn-sensor-mode").onclick = () => {
@@ -1365,6 +1376,33 @@ function ensureTerrain() {
   } catch (e) {}
 }
 
+function ensureBuildings() {
+  if (!map) return;
+  if (!buildingsOn) {
+    if (map.getLayer("ge-buildings")) map.removeLayer("ge-buildings");
+    if (map.getSource("ge-buildings")) map.removeSource("ge-buildings");
+    return;
+  }
+  if (!map.getSource("ge-buildings")) {
+    map.addSource("ge-buildings", { type: "vector", url: "https://tiles.openfreemap.org/planet",
+      attribution: "© OpenStreetMap contributors" });
+  }
+  if (!map.getLayer("ge-buildings")) {
+    const before = map.getLayer("labels") ? "labels" :
+      map.getStyle().layers.find(layer => layer.type === "symbol")?.id;
+    map.addLayer({
+      id: "ge-buildings", type: "fill-extrusion", source: "ge-buildings", "source-layer": "building",
+      minzoom: 15, filter: ["!=", ["get", "hide_3d"], true],
+      paint: {
+        "fill-extrusion-color": currentStyle === "satellite" ? "#b5cee0" : "#65a9bf",
+        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 0],
+        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+        "fill-extrusion-opacity": 0.72,
+      },
+    }, before);
+  }
+}
+
 // -------------------------------------------------------------------- map --
 async function initMap() {
   const style = await loadStyle(currentStyle);
@@ -1386,6 +1424,7 @@ async function initMap() {
       map.setSky && map.setSky({ skyColor: "#010508", horizonColor: "#071722", fogColor: "#06131c" });
     } catch (e) {}
     ensureTerrain();
+    ensureBuildings();
   });
 
   map.on("load", () => {

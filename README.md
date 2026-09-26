@@ -49,6 +49,7 @@ backend; no vessel positions are displayed until that service is configured.
 |---|---|
 | 🌐 **Real 3D globe** | drag to rotate, scroll to zoom, right-drag to tilt — full globe projection with atmosphere |
  ⛰️ **3D terrain** | real elevation (AWS Terrarium DEM), hillshade relief, toggleable |
+ 🏙️ **3D buildings** | OpenStreetMap building heights from OpenFreeMap at zoom 15+, toggle saved across visits; availability varies by location |
  🛣️ **Full map detail** | roads, labels, POIs, buildings — OpenStreetMap vector tiles (OpenFreeMap) + Esri satellite |
  🎨 **3 map modes** | GOD'S-EYE dark / streets / satellite |
  📹 **Live CCTV layer** | camera icons pinned at exact real coordinates, colored by feed type |
