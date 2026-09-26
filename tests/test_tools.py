@@ -143,6 +143,10 @@ class TestContract(unittest.TestCase):
         self.assertIn("60 * 60 * 1000", intel)
         self.assertIn("state.airFollow", intel)
         self.assertIn("function toggleAirFollow()", intel)
+        self.assertIn("function toggleAirCockpit()", intel)
+        self.assertIn('cockpit.textContent = state.airCockpit ? "EXIT COCKPIT" : "COCKPIT VIEW"', intel)
+        self.assertIn("positionAirCockpit(coordinates, state.airTrack.track, 900)", intel)
+        self.assertIn("state.airSavedCamera = {", intel)
         self.assertIn('"STOP TRACKING"', intel)
         self.assertIn("c.lng.toFixed(2)", intel)
         self.assertIn("restoreAirLayer()", intel)
@@ -150,6 +154,7 @@ class TestContract(unittest.TestCase):
         self.assertIn("if (!Intel.state.airTrack)", app)
         readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
         self.assertIn("recent flight trails", readme)
+        self.assertIn("cockpit view", readme)
 
     def test_player_types_supported(self):
         pl = open(os.path.join(ROOT, "js", "players.js")).read()
