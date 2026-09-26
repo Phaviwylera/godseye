@@ -304,6 +304,9 @@ function openCam(id, fly) {
   const c = byId.get(id);
   if (!c) return;
   activeId = id;
+  const seen = bumpVisit(id);
+  const vc = document.getElementById("m-visits");
+  if (vc) vc.textContent = "watched ×" + seen;
   renderList();
   if (fly) {
     map.flyTo({
@@ -381,8 +384,8 @@ function openWall(n) {
   wallN = n;
   const picks = pickWallCams(n);
   if (!picks.length) return;
-  el.wallGrid.style.gridTemplateColumns = `repeat(${n === 9 ? 3 : 2}, 1fr)`;
-  el.wallCount.textContent = `${picks.length} FEEDS // ${n === 9 ? "3×3" : "2×2"}`;
+  el.wallGrid.style.gridTemplateColumns = `repeat(${n === 4 ? 2 : 3}, 1fr)`;
+  el.wallCount.textContent = `${picks.length} FEEDS // ${n === 4 ? "2×2" : n === 9 ? "3×3" : "3×2"}`;
   picks.forEach((c, i) => {
     const tile = document.createElement("div");
     tile.className = "wall-tile";
@@ -449,6 +452,103 @@ async function geoSearch(q) {
   } catch (e) { /* offline is fine */ }
 }
 
+// --------------------------------------------------- tour / live / visits ---
+const TOUR_STOPS = [
+  [/times square|42nd st/i, "Times Square, New York"],
+  [/las vegas/i, "The Strip, Las Vegas"],
+  [/shibuya/i, "Shibuya Crossing, Tokyo"],
+  [/tower bridge/i, "Tower Bridge, London"],
+  [/trafalgar/i, "Trafalgar Square, London"],
+  [/colosseum|coliseum/i, "Colosseum, Rome"],
+  [/sydney harbour|sydney harbor/i, "Sydney Harbour"],
+  [/waikiki|diamond head/i, "Waikiki, Hawaii"],
+  [/miami beach|ocean dr/i, "Miami Beach"],
+  [/niagara/i, "Niagara Falls"],
+  [/golden gate/i, "Golden Gate, California"],
+  [/gatlinburg|smoky/i, "Smoky Mountains, Tennessee"],
+];
+
+function tourStops() {
+  const out = [];
+  for (const [re, label] of TOUR_STOPS) {
+    const c = cams.find((c) => re.test(c.name || ""));
+    if (c) out.push({ cam: c, label });
+  }
+  const hubs = [[-73.98, 40.75], [-0.12, 51.5], [139.7, 35.68], [2.35, 48.85],
+                [151.2, -33.86], [-118.24, 34.05], [-80.19, 25.76], [-157.83, 21.27]];
+  for (const [lon, lat] of hubs) {
+    if (out.length >= 12) break;
+    let best = null, bd = 1e9;
+    for (const c of cams) {
+      if (c.stype !== "m3u8") continue;
+      const d = Math.hypot(c.lon - lon, c.lat - lat);
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (best && bd < 1.5 && !out.some((o) => o.cam === best)) out.push({ cam: best, label: best.name || "City camera" });
+  }
+  return out.slice(0, 12);
+}
+
+function startTour() {
+  if (tour) { stopTour(); return; }
+  const stops = tourStops();
+  if (!stops.length) { el.syncMsg.textContent = "no tour stops available yet"; return; }
+  const pill = document.createElement("div");
+  pill.id = "tour-pill";
+  pill.innerHTML = '<span class="tour-dot"></span><span class="tour-title">AUTOPILOT</span>' +
+    '<button class="tour-next">NEXT ›</button><button class="tour-stop">✕</button>';
+  document.body.appendChild(pill);
+  tour = { stops, i: -1, timer: 0, pill };
+  pill.querySelector(".tour-next").onclick = (e) => { e.stopPropagation(); tourStep(); };
+  pill.querySelector(".tour-stop").onclick = (e) => { e.stopPropagation(); stopTour(); };
+  map.once("mousedown", () => tour && stopTour());
+  tourStep();
+}
+
+function tourStep() {
+  if (!tour) return;
+  tour.i = (tour.i + 1) % tour.stops.length;
+  const st = tour.stops[tour.i];
+  const t = tour.pill.querySelector(".tour-title");
+  if (t) t.textContent = st.label + " · " + (tour.i + 1) + "/" + tour.stops.length;
+  map.flyTo({
+    center: [st.cam.lon, st.cam.lat], zoom: 15.4, pitch: 58,
+    bearing: (tour.i * 47) % 360, duration: 4200, essential: true,
+    easing: (t2) => 1 - Math.pow(1 - t2, 3),
+  });
+  clearTimeout(tour.timer);
+  tour.timer = setTimeout(() => {
+    if (!tour) return;
+    openCam(st.cam.id, false);
+    tour.timer = setTimeout(tourStep, 11000);
+  }, 4300);
+}
+
+function stopTour() {
+  if (!tour) return;
+  clearTimeout(tour.timer);
+  if (tour.pill) tour.pill.remove();
+  tour = null;
+}
+
+let tour = null;
+
+function goLive() {
+  const rows = cams.filter((c) => c.live === 1 && (c.stype === "m3u8" || c.stype === "image"));
+  if (!rows.length) { el.syncMsg.textContent = "no verified-live feeds yet — try ⟳ SYNC"; return; }
+  if (tour) stopTour();
+  openWall(4);
+}
+
+function bumpVisit(id) {
+  try {
+    const v = JSON.parse(localStorage.getItem("ge_visits") || "{}");
+    v[id] = (v[id] || 0) + 1;
+    localStorage.setItem("ge_visits", JSON.stringify(v));
+    return v[id];
+  } catch (e) { return 1; }
+}
+
 // --------------------------------------------------------------- controls --
 function wireUI() {
   let debounce;
@@ -483,7 +583,13 @@ function wireUI() {
   wireScrub();
 
   $("#btn-wall4").onclick = () => openWall(4);
+  $("#btn-wall6").onclick = () => openWall(6);
   $("#btn-wall9").onclick = () => openWall(9);
+  $("#btn-tour").onclick = startTour;
+  $("#btn-live").onclick = goLive;
+  $("#btn-install").onclick = () => {
+    if (window._installPrompt) { window._installPrompt.prompt(); window._installPrompt = null; $("#btn-install").style.display = "none"; }
+  };
   $("#wall-close").onclick = closeWall;
   $("#wall-fill").onclick = () => openWall(wallN);
   $("#btn-fx").onclick = (e) => {

@@ -691,3 +691,24 @@ button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   #place-q.hud-place{width:70px}
   #place-q.hud-place:focus{width:120px}
 }
+
+@media (max-width:760px){
+  #cam-visits{display:none}
+}
+
+
+/* === E-TIER v2 · HUD actions + tour pill + visit badge ==================== */
+.hud-actions{pointer-events:auto;display:flex;gap:6px;margin-left:10px}
+.hud-btn{background:rgba(0,240,255,.07);color:var(--cyan);border:1px solid var(--line);
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;padding:7px 11px;cursor:pointer;
+  transition:color .2s var(--ease-apple),background .2s var(--ease-apple),transform .3s var(--ease-spring),box-shadow .3s var(--ease-apple)}
+.hud-btn:hover{background:rgba(0,240,255,.16);transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,240,255,.18)}
+.hud-btn:active{transform:scale(.93)!important;transition-duration:.06s!important}
+#m-visits{color:var(--amber)}
+.tour-title{max-width:44vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tour-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);animation:pulse 1.6s infinite}
+#tour-pill button{border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--text);
+  border-radius:999px;padding:5px 10px;font-family:var(--mono);font-size:9px;letter-spacing:.12em;cursor:pointer;
+  transition:all .25s var(--ease-apple)}
+#tour-pill button:hover{border-color:var(--cyan);color:var(--cyan)}
+@media (max-width:760px){.hud-actions{display:none}}

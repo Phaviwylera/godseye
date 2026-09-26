@@ -34,6 +34,11 @@
       <circle cx="60" cy="30" r="6" fill="#00f0ff"/>
     </svg>
     <div class="hud-title">GOD'S EYE <span>// GLOBAL CCTV GRID</span></div>
+    <div class="hud-actions">
+      <button id="btn-tour" class="hud-btn" title="Autopilot world tour">✨ TOUR</button>
+      <button id="btn-live" class="hud-btn" title="Jump to the freshest verified feeds">● LIVE</button>
+      <button id="btn-install" class="hud-btn" title="Install as app" style="display:none">📥 INSTALL</button>
+    </div>
   </div>
   <div class="hud-stats">
     <div class="stat"><label>CAMS</label><b id="st-cams">0</b></div>
@@ -84,6 +89,7 @@
   </div>
   <div class="btn-group">
     <button id="btn-wall4">▦ WALL 4</button>
+    <button id="btn-wall6">▦ WALL 6</button>
     <button id="btn-wall9">▦ WALL 9</button>
     <button id="btn-fav">★ FAVS</button>
     <button id="btn-fx" class="active">🔊 FX</button>
@@ -148,6 +154,7 @@
       <span id="m-region"></span>
       <span id="m-src"></span>
       <span id="m-clock"></span>
+      <span id="m-visits"></span>
     </div>
     <div id="player"></div>
     <div id="scrub-wrap" style="display:none">
@@ -196,6 +203,8 @@
     <button data-do="#btn-route">🛣 ROUTE</button>
     <button data-do="#btn-terrain">⛰ 3D</button>
     <button data-do="#btn-sync">⟳ SYNC</button>
+    <button data-do="#btn-tour">✨ TOUR</button>
+    <button data-do="#btn-live">● LIVE</button>
     <button data-do="#btn-home">◎ WORLD</button>
     <button data-do="#styles button[data-style=dark]">🌑 DARK</button>
     <button data-do="#styles button[data-style=streets]">🗺 STREETS</button>
@@ -226,5 +235,16 @@
 <script src="js/intel.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
+<script>
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+  }
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    window._installPrompt = e;
+    var b = document.getElementById("btn-install");
+    if (b) b.style.display = "";
+  });
+</script>
 </body>
 </html>

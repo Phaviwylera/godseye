@@ -1,6 +1,7 @@
-/* God's Eye service worker — offline shell; network-first for everything fresh. */
-const CACHE = 'godseye-v5';
-const CORE = ['./', './index.html', './css/style.css', './js/config.js', './manifest.webmanifest'];
+/* God's Eye service worker — offline shell; network-first so feeds stay fresh. */
+const CACHE = 'godseye-v6';
+const CORE = ['./', './index.html', './css/style.css', './js/app.js', './js/players.js',
+              './js/intel.js', './js/sources.js', './manifest.json', './img/godseye-icon.png'];
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -17,7 +18,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url);
-  /* never touch relays, tiles, or cross-origin data — network only */
+  /* never intercept relays, tiles, or cross-origin data */
   if (e.request.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
   e.respondWith(
     fetch(e.request)

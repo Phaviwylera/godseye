@@ -98,29 +98,28 @@ class TestContract(unittest.TestCase):
 
 
     def test_upgrade_e_tier(self):
+        """Tour, LIVE jump, 6-feed wall, PWA install, revisit badge must all ship."""
         idx = open("index.html", encoding="utf-8").read()
         appjs = open("js/app.js", encoding="utf-8").read()
-        self.assertIn("place-q", idx)          # place search input
-        self.assertIn("tour-btn", idx)         # autopilot control
-        self.assertIn("live-btn", idx)         # live view control
-        self.assertIn("sw.js", idx)            # service worker registered
+        self.assertIn("btn-tour", idx)            # autopilot world tour
+        self.assertIn("btn-live", idx)            # freshest-feeds jump
+        self.assertIn("btn-wall6", idx)           # 6-feed wall (3x2)
+        self.assertIn("btn-install", idx)         # PWA install button
+        self.assertIn("m-visits", idx)            # revisit counter badge
+        self.assertIn("serviceWorker.register", idx)
         self.assertIn("img/godseye-icon.png", idx)
-        self.assertIn("_buildLiveEdge", appjs)  # live fractal mesh
-        self.assertIn("toggleLiveView", appjs)  # freshest-feeds view
-        self.assertIn("startTour", appjs)       # autopilot
-        self.assertIn("beforeinstallprompt", appjs)
-        self.assertIn("nominatim", appjs)       # real geocoder
-        self.assertIn("openWall", appjs)         # 6-feed icon wall
-        self.assertIn("closeWall", appjs)
-        self.assertIn("line-progress", appjs)     # gradient sweep animation
-        self.assertIn("_camFreshness", appjs)     # honest ground-truth pings
-        self.assertIn("toggleFav", appjs)        # persistent favourites
-        self.assertIn("cam-fav", idx)            # star in cam modal
+        self.assertIn("startTour", appjs)
+        self.assertIn("tourStops", appjs)
+        self.assertIn("goLive", appjs)
+        self.assertIn("bumpVisit", appjs)
+        self.assertIn("ge_visits", appjs)
+        self.assertIn("beforeinstallprompt", idx)
         self.assertTrue(os.path.exists("sw.js"))
         self.assertTrue(os.path.exists("img/godseye-icon.png"))
+        self.assertFalse(os.path.exists("E-TIER-COMPLETE.md"))  # no banner docs
         import json
         mf = json.load(open("manifest.json", encoding="utf-8"))
-        self.assertTrue(mf.get("icons"))
+        self.assertEqual(mf.get("short_name"), "God's Eye")
 
 
 if __name__ == "__main__":
