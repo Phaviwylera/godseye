@@ -22,7 +22,7 @@ jobs:
         run: |
           git config user.name "godseye-bot"
           git config user.email "godseye-bot@users.noreply.github.com"
-          git add data/cameras.geojson data/stats.json
+          git add data/cameras.geojson data/stats.json data/cameras.index.json data/regions
           if git diff --cached --quiet; then
             echo "no dataset changes"
           else

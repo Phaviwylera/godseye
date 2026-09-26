@@ -19,6 +19,16 @@
     Cache-Control = "public, max-age=300"
 
 [[headers]]
+  for = "/data/regions/*"
+  [headers.values]
+    Cache-Control = "public, max-age=600"
+
+[[headers]]
+  for = "/data/cameras.index.json"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+
+[[headers]]
   for = "/vendor/*"
   [headers.values]
     Cache-Control = "public, max-age=86400"

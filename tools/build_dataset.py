@@ -421,6 +421,13 @@ def main():
         json.dump(out_stats, f, indent=2)
     print("stats:", json.dumps({k: v["cams"] for k, v in out_stats.items()}))
 
+    # progressive-load packs (index + per-region full records)
+    try:
+        import subprocess
+        subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "build_regions.py")])
+    except Exception as e:
+        print(f"[WARN] build_regions failed: {e}")
+
 
 if __name__ == "__main__":
     main()
