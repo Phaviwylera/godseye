@@ -8,7 +8,7 @@ that exact location** plays instantly.
 ![status](https://img.shields.io/badge/cameras-24%2C800%2B-blue) ![countries](https://img.shields.io/badge/countries-120%2B-orange) ![feeds](https://img.shields.io/badge/live%20video-13%2C000%2B-green)
 
 
-## 🎛️ Cinematic UI V3
+## 🎛️ GODSEYE V3
 
 The interface has been redesigned around a restrained global-intelligence aesthetic rather than a generic neon terminal look:
 
