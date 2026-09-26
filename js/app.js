@@ -44,6 +44,7 @@ const loadingPacks = new Map();
 let regionLoadTimer = null;
 let statusProbeTimer = null;
 const STATUS_TTL_MS = 5 * 60 * 1000; // fresh probe good for 5 minutes
+const BASELINE_TTL_MS = 48 * 60 * 60 * 1000; // historical checks are not live playback
 const PROBE_TYPES = new Set(["m3u8", "mp4", "mjpeg", "image", "dynamic"]);
 
 function applySensorMode(mode) {
@@ -69,7 +70,7 @@ const el = {
   stLive: $("#st-live"), loadStatus: $("#load-status"),
   list: $("#cam-list"), listCount: $("#list-count"), panel: $("#panel"), panelToggle: $("#panel-toggle"),
   modal: $("#modal"), player: $("#player"), mTitle: $("#m-title"), mCoords: $("#m-coords"),
-  mRegion: $("#m-region"), mSrc: $("#m-src"), mClock: $("#m-clock"), mStatus: $("#m-status"),
+  mRegion: $("#m-region"), mSrc: $("#m-src"), mClock: $("#m-clock"), mStatus: $("#m-status"), mChecked: $("#m-checked"),
   mAttr: $("#m-attr"), mPage: $("#m-page"), mClose: $("#m-close"),
   mStar: $("#m-star"), mLink: $("#m-link"), mCap: $("#m-cap"),
   scrub: $("#m-scrub"), scrubWrap: $("#scrub-wrap"), scrubLive: $("#m-scrub-live"),
@@ -296,17 +297,30 @@ function camToFeature(c) {
 }
 
 function refreshSource() {
+  if (!map) return;
   const src = map.getSource("cams");
   if (src) src.setData({ type: "FeatureCollection", features: filtered().map(camToFeature) });
 }
 
 function statusOf(c) {
   /* unified feed status: live | down | checking | unknown */
+  if (c._playing) return "live";
   if (c._checking) return "checking";
-  if (c.live === 1) return "live";
-  if (c.live === 0) return "down";
-  if (c.status === "live") return "live";
+  const checked = c._probedAt && Date.now() - c._probedAt < STATUS_TTL_MS
+    ? c._probedAt : c._lastCheckedAt && Date.now() - c._lastCheckedAt < BASELINE_TTL_MS
+      ? c._lastCheckedAt : 0;
+  if (checked && c.live === 1) return "live";
+  if (checked && c.live === 0) return "down";
   return "unknown";
+}
+
+function checkedLabel(c) {
+  const at = c._probedAt || c._lastCheckedAt;
+  if (!at || !Number.isFinite(at)) return c.live === 0 || c.live === 1 ? "CHECK TIME UNKNOWN" : "NOT YET CHECKED";
+  const age = Math.max(0, Date.now() - at);
+  const unit = age < 60000 ? "just now" : age < 3600000 ? `${Math.floor(age / 60000)}m ago`
+    : age < 86400000 ? `${Math.floor(age / 3600000)}h ago` : `${Math.floor(age / 86400000)}d ago`;
+  return `CHECKED ${unit}`;
 }
 
 function statusFresh(c) {
@@ -409,8 +423,6 @@ function dotClass(c) {
   if (st === "live") return "m3u8";
   if (st === "down") return "dead";
   if (st === "checking") return "checking";
-  if (c.stype === "m3u8" || c.stype === "mp4") return "m3u8";
-  if (c.status === "live") return "live";
   return "";
 }
 
@@ -420,7 +432,7 @@ function renderList() {
   const show = f.slice(0, 300);
   el.list.innerHTML = show.map(c => `
     <li data-id="${escapeHTML(c.id)}" class="${c.id === activeId ? "active" : ""}">
-      <span class="dot ${escapeHTML(dotClass(c))}" title="${escapeHTML(statusOf(c))}"></span>
+      <span class="dot ${escapeHTML(dotClass(c))}" title="${escapeHTML(statusOf(c) + ' · ' + checkedLabel(c))}"></span>
       <div>
         <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${escapeHTML(c.name)}</div>
         <div class="cam-sub">${escapeHTML([c.place, c.region, c.country].filter(Boolean).join(" · "))}${c.detail ? "" : " · …"}</div>
@@ -565,10 +577,12 @@ async function probeCam(c, { force = false } = {}) {
     const ok = await Players.probe(c.stream, c.stype);
     c.live = ok ? 1 : 0;
     c._probedAt = Date.now();
+    c._lastCheckedAt = c._probedAt;
     c.status = ok ? "live" : "down";
   } catch (e) {
     c.live = 0;
     c._probedAt = Date.now();
+    c._lastCheckedAt = c._probedAt;
     c.status = "down";
   }
   c._checking = false;
@@ -616,13 +630,16 @@ async function probeViewportStatus() {
 function setModalStatus(c) {
   const st = statusOf(c);
   const label = {
-    live: c.stype === "m3u8" || c.stype === "mp4" ? "LIVE VIDEO" : c.stype === "youtube" ? "YT LIVE" : "LIVE FEED",
+    live: c._playing ? (c.stype === "image" || c.stype === "dynamic" || c.stype === "mjpeg" ? "FRAME RECEIVED" : "PLAYING NOW") : "FEED RESPONDS",
     down: "SIGNAL DOWN",
     checking: "CHECKING…",
-    unknown: ({ m3u8: "LIVE VIDEO", mp4: "VIDEO", youtube: "YT LIVE", mjpeg: "MJPEG LIVE", embed: "PORTAL" })[c.stype] || "FEED",
+    unknown: c.stype === "embed" ? "AGENCY PORTAL" : c.stype === "youtube" ? "YOUTUBE · UNVERIFIED" : "UNVERIFIED FEED",
   }[st] || "FEED";
   el.mStatus.textContent = label;
   el.mStatus.dataset.state = st;
+  el.mChecked.textContent = checkedLabel(c);
+  const at = c._probedAt || c._lastCheckedAt;
+  el.mChecked.title = at ? `Last response checked ${new Date(at).toISOString()}` : "No recorded response check";
 }
 
 async function loadBundled() {
@@ -659,6 +676,7 @@ async function loadBundled() {
         if (c.id in lv.s) {
           c.live = lv.s[c.id];
           c._probedAt = 0; // allow fresh re-probe soon
+          c._lastCheckedAt = Number(lv.t && lv.t[c.id]) * 1000 || 0;
         }
       });
     }
@@ -682,9 +700,11 @@ async function loadBundled() {
 
   // if index mode, warm packs for current view after map settles
   if (usedIndex) {
-    map.once("idle", () => scheduleRegionLoad());
-    map.on("moveend", scheduleRegionLoad);
-    map.on("zoomend", scheduleRegionLoad);
+    if (map) {
+      map.once("idle", () => scheduleRegionLoad());
+      map.on("moveend", scheduleRegionLoad);
+      map.on("zoomend", scheduleRegionLoad);
+    }
   }
 }
 
@@ -723,12 +743,13 @@ function updateStarBtn() {
 async function openCam(id, fly) {
   let c = byId.get(id);
   if (!c) return;
+  c._playing = false;
   activeId = id;
   const seen = bumpVisit(id);
   const vc = document.getElementById("m-visits");
   if (vc) vc.textContent = "watched ×" + seen;
   renderList();
-  if (fly) {
+  if (fly && map) {
     map.flyTo({
       center: [c.lon, c.lat], zoom: Math.max(map.getZoom(), 15.2), pitch: 58,
       bearing: (Math.random() * 50 - 25), duration: 2800, curve: 1.4, easing: (t) => 1 - Math.pow(1 - t, 3), essential: true,
@@ -770,8 +791,10 @@ async function openCam(id, fly) {
   modalHandle = Players.play(c, el.player, {
     onRetry: () => openCam(id, false),
     onStatus: (ok) => {
+      c._playing = ok;
       c.live = ok ? 1 : 0;
       c._probedAt = Date.now();
+      c._lastCheckedAt = c._probedAt;
       c.status = ok ? "live" : "down";
       if (activeId === id) setModalStatus(c);
       updateStats();
@@ -793,6 +816,7 @@ function closeModal() {
   el.modal.classList.add("hidden");
   Players.stop();
   modalHandle = null;
+  if (activeId && byId.has(activeId)) byId.get(activeId)._playing = false;
   activeId = null;
   renderList();
 }
@@ -914,7 +938,7 @@ async function openWall(n, layout) {
     const st = statusOf(c);
     tile.innerHTML = `
       <div class="wall-tile-head">
-        <span class="wall-dot ${st === "live" || c.stype === "m3u8" ? "m3u8" : st === "down" ? "dead" : ""}"></span>
+        <span class="wall-dot ${st === "live" ? "m3u8" : st === "down" ? "dead" : ""}"></span>
         <span class="wall-tile-name">${escapeHTML(c.name)}</span>
         <button class="wall-open" title="open & fly">⤢</button>
       </div>
@@ -923,9 +947,10 @@ async function openWall(n, layout) {
     el.wallGrid.appendChild(tile);
     const handle = Players.mount(c, tile.querySelector(".wall-tile-player"), {
       minimal: true, frameW: 480, captureFrames: false,
-      onStatus: (ok) => {
+    onStatus: (ok) => {
         c.live = ok ? 1 : 0;
-        c._probedAt = Date.now();
+      c._probedAt = Date.now();
+      c._lastCheckedAt = c._probedAt;
         c.status = ok ? "live" : "down";
         const dot = tile.querySelector(".wall-dot");
         if (dot) {
@@ -978,6 +1003,7 @@ function wireScrub() {
 
 // --------------------------------------------------------------- geosearch --
 async function geoSearch(q) {
+  if (!map) { el.geoResults.style.display = "none"; return; }
   const coords = q.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
   if (coords && Math.abs(+coords[1]) <= 90 && Math.abs(+coords[2]) <= 180) {
     el.geoResults.replaceChildren();
@@ -1447,6 +1473,16 @@ async function initMap() {
   })(performance.now());
 }
 
+async function startCameraListFallback(error) {
+  console.warn("3D map unavailable; loading camera list", error);
+  map = null;
+  document.body.classList.add("map-unavailable");
+  $("#map-fallback").classList.remove("hidden");
+  setLoadStatus("3D map unavailable · camera list is ready");
+  await loadBundled();
+  setLoadStatus(`${fmtNum(cams.length)} cameras · list mode`);
+}
+
 // ------------------------------------------------------------------- boot --
 function tickClock() {
   const t = () => { el.stClock.textContent = new Date().toISOString().slice(11, 19); };
@@ -1464,8 +1500,13 @@ function tickClock() {
     window.GE_NO_PROXY = true;
   }
   if (window.GE_NO_PROXY) el.syncMsg.textContent = "static mode — live video needs the /api relay";
-  await initMap();
-  Intel.init(map);
+  try {
+    await initMap();
+    Intel.init(map);
+  } catch (error) {
+    await startCameraListFallback(error);
+  }
+  if (!map) return;
   setTimeout(async () => {
     try {
       el.syncMsg.textContent = "⟳ background sync…";

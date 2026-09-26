@@ -2,7 +2,8 @@
 """
 GOD'S EYE — liveness prober.
 Checks every bundled direct-media feed with a tiny ranged GET and writes
-data/liveness.json:  {"generated": "...", "s": {"<cam-id>": 1|0}}
+data/liveness.json:  {"generated": "...", "s": {"<cam-id>": 1|0},
+                       "t": {"<cam-id>": unix_seconds}}
 
 Only direct media is probed (m3u8, mp4, mjpeg, image, dynamic). Portal/youtube
 cams are skipped — their pages block bots and would report false negatives.
@@ -42,11 +43,12 @@ def probe(item):
 def main():
     cams = json.load(open(os.path.join(ROOT, "data", "cameras.geojson")))["features"]
     out_path = os.path.join(ROOT, "data", "liveness.json")
-    state = {"generated": None, "s": {}}
+    state = {"generated": None, "s": {}, "t": {}}
     if os.path.exists(out_path):
         try:
             state = json.load(open(out_path))
             state.setdefault("s", {})
+            state.setdefault("t", {})
         except Exception:
             pass
 
@@ -66,6 +68,7 @@ def main():
         for fut in as_completed(futs):
             cid, ok = fut.result()
             state["s"][cid] = ok
+            state["t"][cid] = int(time.time())
             done += 1
             if done % 500 == 0:
                 state["generated"] = datetime.now(timezone.utc).isoformat()
