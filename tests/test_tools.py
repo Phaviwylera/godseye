@@ -110,6 +110,10 @@ class TestContract(unittest.TestCase):
         self.assertIn("startTour", appjs)       # autopilot
         self.assertIn("beforeinstallprompt", appjs)
         self.assertIn("nominatim", appjs)       # real geocoder
+        self.assertIn("openWall", appjs)         # 6-feed icon wall
+        self.assertIn("closeWall", appjs)
+        self.assertIn("line-progress", appjs)     # gradient sweep animation
+        self.assertIn("_camFreshness", appjs)     # honest ground-truth pings
         self.assertTrue(os.path.exists("sw.js"))
         self.assertTrue(os.path.exists("img/godseye-icon.png"))
         import json
