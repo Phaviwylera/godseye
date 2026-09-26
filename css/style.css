@@ -665,3 +665,17 @@ button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce){
   #tour-pill, .hud-live.live-on{animation:none}
 }
+
+/* === WALL — icon-grid multi-feed =========================================== */
+#cam-wall{position:fixed;inset:0;z-index:1500;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:4px;padding:4px;background:rgba(2,4,10,.96);backdrop-filter:blur(12px)}
+#cam-wall.hidden{display:none}
+.wall-slot{position:relative;overflow:hidden;border:1px solid rgba(34,211,238,.2);border-radius:4px;background:#000}
+.wall-slot>div:first-child{position:absolute;bottom:0;left:0;right:0}
+.wall-label{position:absolute;top:6px;left:8px;z-index:5;padding:2px 6px;background:rgba(2,4,10,.7);border:1px solid rgba(34,211,238,.25);border-radius:2px;color:#22d3ee;font:600 8px/1.4 ui-monospace,SFMono-Regular,monospace;letter-spacing:.12em;pointer-events:none}
+#wall-bar{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:1510;display:flex;align-items:center;gap:10px;padding:8px 14px;border:1px solid rgba(34,211,238,.35);border-radius:999px;background:rgba(8,12,20,.92);color:#e8edf5;font:600 10px/1 ui-monospace,SFMono-Regular,monospace;letter-spacing:.12em}
+#wall-bar button{border:1px solid rgba(255,255,255,.15);background:transparent;color:#e8edf5;border-radius:999px;padding:5px 10px;font:600 9px/1 ui-monospace,SFMono-Regular,monospace;letter-spacing:.12em;cursor:pointer;transition:all .25s ease}
+#wall-bar button:hover{border-color:#22d3ee;color:#22d3ee}
+#wall-live{color:#ff5a63!important;border-color:rgba(255,90,99,.4)!important}
+@media (max-width:760px){
+  #cam-wall{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(3,1fr)}
+}
