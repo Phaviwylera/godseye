@@ -593,7 +593,9 @@ const Intel = (() => {
       map.addLayer({
         id: "air-tracked-pin", type: "symbol", source: "air-pin",
         layout: {
-          "icon-image": "ge-aircraft-pin-teal", "icon-size": 1.2,
+          "icon-image": "ge-aircraft-pin-teal",
+          // Compact on the globe, full prominence once the user zooms in.
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.7, 8, 1.0, 12, 1.3],
           "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
         },
