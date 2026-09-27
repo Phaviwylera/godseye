@@ -7,7 +7,7 @@ test('aircraft uses a visible custom sprite even when a base style has a plane i
   const sources = new Map(), layers = new Map(), images = new Map();
   const strokes = [], fills = [];
   const drawing = {
-    translate() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+    translate() {}, beginPath() {}, arc() {}, moveTo() {}, lineTo() {}, closePath() {},
     fill() { fills.push(this.fillStyle); }, stroke() { strokes.push(this.strokeStyle); },
     fillRect() {}, getImageData(x, y, width, height) { return { width, height }; },
   };

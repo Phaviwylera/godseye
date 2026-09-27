@@ -367,6 +367,27 @@ const Intel = (() => {
     return g.getImageData(0, 0, 64, 64);
   }
 
+  /** Dedicated pin for the selected aircraft: large teal plane inside a glowing ring. */
+  function planePinIcon() {
+    const c = document.createElement("canvas"); c.width = c.height = 72;
+    const g = c.getContext("2d");
+    g.beginPath(); g.arc(36, 36, 33, 0, 7);
+    g.fillStyle = "rgba(4, 28, 34, 0.85)"; g.fill();
+    g.lineWidth = 2.5; g.strokeStyle = "#41efc2";
+    g.shadowColor = "#41efc2"; g.shadowBlur = 10; g.stroke();
+    g.shadowBlur = 0;
+    g.translate(36, 36); // nose points north; icon-rotate applies the reported heading
+    g.fillStyle = "#69ffe0"; g.strokeStyle = "#e6fff8"; g.lineWidth = 2.4;
+    g.beginPath();
+    g.moveTo(0, -20); g.lineTo(4, -3); g.lineTo(19, 8); g.lineTo(19, 12);
+    g.lineTo(4, 8); g.lineTo(4, 17); g.lineTo(9, 21); g.lineTo(9, 23);
+    g.lineTo(0, 21); g.lineTo(-9, 23); g.lineTo(-9, 21); g.lineTo(-4, 17);
+    g.lineTo(-4, 8); g.lineTo(-19, 12); g.lineTo(-19, 8); g.lineTo(-4, -3); g.closePath();
+    g.fill(); g.stroke();
+    g.fillStyle = "#07333b"; g.fillRect(-2, -7, 4, 15);
+    return g.getImageData(0, 0, 72, 72);
+  }
+
   function setAirTrackData() {
     const src = map.getSource("air-track");
     const points = state.airTrack ? state.airTrack.points : [];
@@ -384,6 +405,23 @@ const Intel = (() => {
       { type: "Feature", properties: { label: "FIRST OBSERVED" }, geometry: { type: "Point", coordinates: points[0].coordinates } },
       { type: "Feature", properties: { label: "LATEST" }, geometry: { type: "Point", coordinates: points.at(-1).coordinates } },
     ] });
+    // Waypoint dots on every earlier observation; the pin marks the latest one.
+    map.getSource("air-track-waypoints")?.setData({ type: "FeatureCollection",
+      features: points.length < 2 ? [] : points.slice(0, -1).map(p => ({
+        type: "Feature", properties: { observed: p.time },
+        geometry: { type: "Point", coordinates: p.coordinates },
+      })) });
+    const last = points.at(-1);
+    const rawHeading = Number(state.airTrack && state.airTrack.track);
+    map.getSource("air-pin")?.setData({ type: "FeatureCollection",
+      features: state.airTrack && last ? [{
+        type: "Feature",
+        properties: {
+          callsign: state.airTrack.callsign,
+          heading: Number.isFinite(rawHeading) ? rawHeading : 0,
+        },
+        geometry: { type: "Point", coordinates: last.coordinates },
+      }] : [] });
   }
 
   function updateAirChip(count) {
@@ -500,8 +538,15 @@ const Intel = (() => {
     if (!map.getSource("air-track-points")) {
       map.addSource("air-track-points", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     }
+    if (!map.getSource("air-track-waypoints")) {
+      map.addSource("air-track-waypoints", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
+    if (!map.getSource("air-pin")) {
+      map.addSource("air-pin", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
     // Use a private image id: map styles may already define a small dark "plane" sprite.
     if (!map.hasImage("ge-aircraft-teal-v3")) map.addImage("ge-aircraft-teal-v3", planeIcon(), { pixelRatio: 2 });
+    if (!map.hasImage("ge-aircraft-pin-teal")) map.addImage("ge-aircraft-pin-teal", planePinIcon(), { pixelRatio: 2 });
     if (!map.getLayer("air-track-line")) {
       map.addLayer({
         id: "air-track-line", type: "line", source: "air-track",
@@ -509,7 +554,7 @@ const Intel = (() => {
           "line-color": "#41efc2",
           "line-width": 2.5,
           "line-opacity": 0.9,
-          "line-dasharray": [2, 1],
+          "line-dasharray": [2, 2],
         },
       });
     }
@@ -530,6 +575,25 @@ const Intel = (() => {
             ["interpolate", ["linear"], ["zoom"], 3, 1.3, 8, 1.15, 12, 1.3]],
           "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true, "icon-padding": 1,
+        },
+        // The dedicated tracked pin replaces the fleet icon for the selected plane.
+        paint: { "icon-opacity": ["case", ["get", "tracked"], 0, 1] },
+      });
+    }
+    if (!map.getLayer("air-track-waypoint-dots")) {
+      map.addLayer({
+        id: "air-track-waypoint-dots", type: "circle", source: "air-track-waypoints",
+        paint: { "circle-radius": 3, "circle-color": "#9afbe9",
+          "circle-stroke-color": "#06232a", "circle-stroke-width": 1 },
+      });
+    }
+    if (!map.getLayer("air-tracked-pin")) {
+      map.addLayer({
+        id: "air-tracked-pin", type: "symbol", source: "air-pin",
+        layout: {
+          "icon-image": "ge-aircraft-pin-teal", "icon-size": 1.9,
+          "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
         },
       });
     }
@@ -560,12 +624,22 @@ const Intel = (() => {
           properties.track != null && `Heading ${Math.round(Number(properties.track))}°`,
         ].filter(Boolean).join(" · ");
         content.appendChild(details);
+        const note = document.createElement("div");
+        const paintNote = () => {
+          const tracked = state.airTrack && state.airTrack.hex === record.hex ? state.airTrack : null;
+          note.textContent = tracked && tracked.points.length > 1
+            ? `${tracked.points.length} observed positions in the last hour · the large teal pin marks the latest`
+            : "Dashed trail, waypoint dots and pin appear after a second distinct position is observed";
+        };
+        paintNote();
+        content.appendChild(note);
         const action = document.createElement("button");
         action.type = "button";
         action.textContent = tracking ? "STOP TRACKING" : "TRACK AIRCRAFT";
         action.onclick = () => {
           const isTracking = selectAirTrack(record);
           action.textContent = isTracking ? "STOP TRACKING" : "TRACK AIRCRAFT";
+          paintNote();
         };
         content.appendChild(action);
         const cockpit = document.createElement("button");
@@ -722,6 +796,8 @@ const Intel = (() => {
       map.setLayoutProperty("air-dots", "visibility", "visible");
       map.setLayoutProperty("air-track-line", "visibility", "visible");
       map.setLayoutProperty("air-track-labels", "visibility", "visible");
+      map.setLayoutProperty("air-track-waypoint-dots", "visibility", "visible");
+      map.setLayoutProperty("air-tracked-pin", "visibility", "visible");
       if (chip) chip.classList.remove("hidden");
       airTick();
       state.airTimer = setInterval(airTick, 30000);
@@ -744,6 +820,8 @@ const Intel = (() => {
       if (map.getLayer("air-dots")) map.setLayoutProperty("air-dots", "visibility", "none");
       if (map.getLayer("air-track-line")) map.setLayoutProperty("air-track-line", "visibility", "none");
       if (map.getLayer("air-track-labels")) map.setLayoutProperty("air-track-labels", "visibility", "none");
+      if (map.getLayer("air-track-waypoint-dots")) map.setLayoutProperty("air-track-waypoint-dots", "visibility", "none");
+      if (map.getLayer("air-tracked-pin")) map.setLayoutProperty("air-tracked-pin", "visibility", "none");
     }
     return state.air;
   }
@@ -881,6 +959,6 @@ const Intel = (() => {
     window.GE_CAMS = window.GE_CAMS || {};
   }
 
-  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, openAirList, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
+  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, selectAirTrack, openAirList, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
            get state() { return state; } };
 })();
