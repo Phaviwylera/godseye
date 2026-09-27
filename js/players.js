@@ -131,20 +131,23 @@ const Players = (() => {
 
   function portalCard(container, cam, kind) {
     const isYt = kind === "youtube";
+    let skyline = false;
+    try { skyline = /(^|\.)skylinewebcams\.com$/i.test(new URL(cam.page || cam.stream).hostname); } catch (e) {}
     const wrap = document.createElement("div");
     wrap.style.cssText = "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100%;padding:24px;text-align:center";
     wrap.innerHTML = `
       <img src="assets/gods-eye-emblem.svg" alt="" style="width:104px;opacity:.88;filter:drop-shadow(0 0 12px rgba(42,223,255,.12))">
-      <div style="letter-spacing:.28em;color:#8be9fa;font-size:13px">${isYt ? "YOUTUBE FEED" : "AGENCY PORTAL FEED"}</div>
+      <div style="letter-spacing:.28em;color:#8be9fa;font-size:13px">${isYt ? "YOUTUBE FEED" : skyline ? "SKYLINEWEBCAMS · PUBLISHER PAGE" : "PUBLISHER PORTAL"}</div>
       <div style="font-size:11px;max-width:460px;line-height:1.7;color:#51707c">
         ${escapeHTML(cam.name || "")}<br>
-        ${isYt ? "This live cam plays on YouTube — the owner may restrict outside players. Open it directly and it will play."
-               : "This agency publishes its live view only through its own secure portal and blocks outside embedding. One click through — the feed is live there."}
+        ${isYt ? "This video is hosted on YouTube. The owner may restrict playback on other sites."
+               : skyline ? "This entry links to the publisher's webcam page. No authorized playable stream is supplied to God's Eye; watch it on SkylineWebcams."
+               : "This entry supplies a publisher page rather than a playable video stream. Open the source to watch it there; availability is controlled by the publisher."}
       </div>
       <a href="${safeLink(cam.stream || cam.page)}" target="_blank" rel="noopener noreferrer"
          style="font-family:inherit;font-size:13px;letter-spacing:.2em;color:#031018;background:#8be9fa;
                 padding:12px 26px;text-decoration:none;box-shadow:0 0 24px rgba(139,233,250,.18)">
-        ▶ ${isYt ? "OPEN ON YOUTUBE" : "OPEN LIVE FEED"} ↗
+        ▶ ${isYt ? "OPEN ON YOUTUBE" : skyline ? "VIEW ON SKYLINEWEBCAMS" : "VIEW ON PUBLISHER SITE"} ↗
       </a>`;
     container.appendChild(wrap);
   }
