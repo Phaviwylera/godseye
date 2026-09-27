@@ -352,18 +352,19 @@ const Intel = (() => {
 
   // ================================================================ AIR ===
   function planeIcon() {
-    const c = document.createElement("canvas"); c.width = c.height = 48;
+    const c = document.createElement("canvas"); c.width = c.height = 64;
     const g = c.getContext("2d");
-    g.translate(24, 24); // nose points north; icon-rotate applies the reported heading
-    g.fillStyle = "#9cf8e8"; g.strokeStyle = "#062d32"; g.lineWidth = 2.2;
-    g.shadowColor = "#41efc2"; g.shadowBlur = 6;
+    g.translate(32, 32); // nose points north; icon-rotate applies the reported heading
+    g.fillStyle = "#69ffe0"; g.strokeStyle = "#e6fff8"; g.lineWidth = 2.8;
+    g.shadowColor = "#41efc2"; g.shadowBlur = 9;
     g.beginPath();
-    g.moveTo(0, -14); g.lineTo(7, 4); g.lineTo(13, 10); g.lineTo(7, 8);
-    g.lineTo(5, 14); g.lineTo(0, 11); g.lineTo(-5, 14); g.lineTo(-7, 8);
-    g.lineTo(-13, 10); g.lineTo(-7, 4); g.closePath();
+    g.moveTo(0, -24); g.lineTo(5, -3); g.lineTo(23, 9); g.lineTo(23, 14);
+    g.lineTo(5, 10); g.lineTo(5, 21); g.lineTo(11, 25); g.lineTo(11, 28);
+    g.lineTo(0, 25); g.lineTo(-11, 28); g.lineTo(-11, 25); g.lineTo(-5, 21);
+    g.lineTo(-5, 10); g.lineTo(-23, 14); g.lineTo(-23, 9); g.lineTo(-5, -3); g.closePath();
     g.fill(); g.stroke();
-    g.fillStyle = "#08383b"; g.fillRect(-2, -4, 4, 11);
-    return g.getImageData(0, 0, 48, 48);
+    g.shadowBlur = 0; g.fillStyle = "#07333b"; g.fillRect(-2, -8, 4, 18);
+    return g.getImageData(0, 0, 64, 64);
   }
 
   function setAirTrackData() {
@@ -499,7 +500,8 @@ const Intel = (() => {
     if (!map.getSource("air-track-points")) {
       map.addSource("air-track-points", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     }
-    if (!map.hasImage("plane")) map.addImage("plane", planeIcon(), { pixelRatio: 2 });
+    // Use a private image id: map styles may already define a small dark "plane" sprite.
+    if (!map.hasImage("ge-aircraft-teal-v3")) map.addImage("ge-aircraft-teal-v3", planeIcon(), { pixelRatio: 2 });
     if (!map.getLayer("air-track-line")) {
       map.addLayer({
         id: "air-track-line", type: "line", source: "air-track",
@@ -515,7 +517,7 @@ const Intel = (() => {
       map.addLayer({
         id: "air-track-labels", type: "symbol", source: "air-track-points",
         layout: { "text-field": ["get", "label"], "text-size": 10,
-          "text-offset": [0, 1.5], "text-allow-overlap": true },
+          "text-offset": [0, 3], "text-allow-overlap": true },
         paint: { "text-color": "#a9f9eb", "text-halo-color": "#041c22", "text-halo-width": 2 },
       });
     }
@@ -523,9 +525,9 @@ const Intel = (() => {
       map.addLayer({
         id: "air-dots", type: "symbol", source: "air",
         layout: {
-          "icon-image": "plane",
+          "icon-image": "ge-aircraft-teal-v3",
           "icon-size": ["case", ["get", "tracked"], 1.65,
-            ["interpolate", ["linear"], ["zoom"], 3, 1.35, 8, 1.15, 12, 1.25]],
+            ["interpolate", ["linear"], ["zoom"], 3, 1.3, 8, 1.15, 12, 1.3]],
           "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true, "icon-padding": 1,
         },
