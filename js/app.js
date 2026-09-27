@@ -1345,7 +1345,8 @@ function wireUI() {
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
   $("#air-chip").onclick = () => {
     if (!Intel.state.airTrack) {
-      $("#btn-air").click();
+      map.flyTo({ center: [80.27, 13.08], zoom: 5.2, pitch: 0,
+        duration: 1600, essential: true });
       return;
     }
     Intel.toggleAirFollow();
