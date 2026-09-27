@@ -85,8 +85,11 @@ a second distinct position arrives.
 
 Each camera carries its attribution line from the publishing agency — keep it.
 
-Enable **AIR** to view nearby aircraft. Select an aircraft to draw its recent
-track (up to one hour of sightings); use the popup actions to clear it or enter
+Enable **AIR** to view aircraft. At world zoom AIR samples four regions
+(Chennai, Singapore, London and New York); zoom in to search around the map
+center. The four-region sample is not a complete worldwide aircraft feed.
+Select an aircraft to draw its recent track (up to one hour of sightings);
+use the popup actions to clear it or enter
 cockpit view. Cockpit view follows the aircraft from an oblique camera angle and
 restores the previous map view when exited. The aircraft status chip toggles
 camera follow while a track is selected.

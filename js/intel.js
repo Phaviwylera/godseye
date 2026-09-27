@@ -11,6 +11,7 @@ const Intel = (() => {
     issTrail: [], issFollow: false, radarFrames: [], radarIdx: 0, radarPlaying: false,
     air: false, airTimer: null, airMoveTimer: null, airLoading: false,
     airTrack: null, airFollow: false, airCockpit: false, airSavedCamera: null, airFeatures: [],
+    airScope: "nearby",
     quakes: false, quakesTimer: null, quakesLoading: false,
   };
 
@@ -382,8 +383,10 @@ const Intel = (() => {
     const chip = document.getElementById("air-chip");
     if (!chip) return;
     if (!state.airTrack) {
-      chip.textContent = `✈ ${count} aircraft`;
-      chip.title = "Click an aircraft on the map to track its recent flight path.";
+      chip.textContent = `✈ ${count} AIRCRAFT · ${state.airScope === "regions" ? "4 REGIONS" : "NEARBY"}`;
+      chip.title = state.airScope === "regions"
+        ? "Sampled aircraft near Chennai, Singapore, London and New York. Zoom in for aircraft near the map center."
+        : "Aircraft near the map center. Pan to an airport or city and click a plane to track its recent path.";
       return;
     }
     const ago = Math.max(0, Math.round((Date.now() - state.airTrack.lastSeen) / 1000));
@@ -579,24 +582,26 @@ const Intel = (() => {
     const c = map.getCenter();
     const zoom = map.getZoom();
     const radius = Math.min(250, Math.max(30, 30 * Math.pow(1.45, zoom)));
-    const q = `${c.lat.toFixed(2)}/${c.lng.toFixed(2)}/${Math.round(radius)}`;
-    let ac = [];
-    const pull = async (base) => {
-      const d = await Sources.fetchJSON(base + q);
+    const localQuery = `${c.lat.toFixed(2)}/${c.lng.toFixed(2)}/${Math.round(radius)}`;
+    // A radius around the default world center contains no aircraft. At wide
+    // zooms sample four busy regions; local mode tracks the visible map center.
+    const regional = zoom < 4;
+    const targets = regional
+      ? [[13.08, 80.27], [1.35, 103.82], [51.47, -0.46], [40.64, -73.78]]
+      : [localQuery];
+    const pull = async (target) => {
+      const q = typeof target === "string" ? target : `${target[0].toFixed(2)}/${target[1].toFixed(2)}/220`;
+      const d = await Sources.fetchJSON("https://api.adsb.lol/v2/point/" + q);
       if (!Array.isArray(d.ac)) throw new Error("no ac array");
-      return d.ac.filter(a => a.lat != null && a.lon != null);
+      return d.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon)).slice(0, regional ? 90 : 350);
     };
-    // adsb.lol is the open/free source; airplanes.live needs an approval key
-    try { ac = await pull("https://api.adsb.lol/v2/point/"); }
-    catch (e) {
-      try { ac = await pull("https://api.airplanes.live/v2/point/"); }
-      catch (e2) {
-        showAirError(e2);
-        return;
-      }
-    }
+    const responses = await Promise.allSettled(targets.map(pull));
+    const successful = responses.filter(result => result.status === "fulfilled");
+    if (!successful.length) throw new Error("Aircraft provider unavailable");
     if (!state.air) return;
-    ac = ac.slice(0, 350);
+    state.airScope = regional ? "regions" : "nearby";
+    const ac = [...new Map(successful.flatMap(result => result.value)
+      .map(a => [String(a.hex || `${a.lat},${a.lon}`), a])).values()].slice(0, 350);
     const src = map.getSource("air");
     if (!src) return;
     const features = ac.map(a => ({
@@ -668,7 +673,7 @@ const Intel = (() => {
       map.setLayoutProperty("air-track-line", "visibility", "visible");
       if (chip) chip.classList.remove("hidden");
       airTick();
-      state.airTimer = setInterval(airTick, 10000);
+      state.airTimer = setInterval(airTick, 30000);
       state.airMoveTimer = null;
       map.on("moveend", () => {
         if (!state.air) return;
