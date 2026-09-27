@@ -88,6 +88,8 @@ Each camera carries its attribution line from the publishing agency — keep it.
 Enable **AIR** to view aircraft. At world zoom AIR samples four regions
 (Chennai, Singapore, London and New York); zoom in to search around the map
 center. The four-region sample is not a complete worldwide aircraft feed.
+Plane markers use a bright teal halo and a heading-aligned aircraft icon;
+click the aircraft count to zoom to the Chennai sample.
 Select an aircraft to draw its recent track (up to one hour of sightings);
 use the popup actions to clear it or enter
 cockpit view. Cockpit view follows the aircraft from an oblique camera angle and

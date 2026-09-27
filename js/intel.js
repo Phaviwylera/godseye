@@ -9,7 +9,7 @@ const Intel = (() => {
     night: false, iss: false, radar: false,
     issTimer: null, nightTimer: null, radarTimer: null,
     issTrail: [], issFollow: false, radarFrames: [], radarIdx: 0, radarPlaying: false,
-    air: false, airTimer: null, airMoveTimer: null, airLoading: false,
+    air: false, airTimer: null, airMoveTimer: null, airLoading: false, airHandlersBound: false,
     airTrack: null, airFollow: false, airCockpit: false, airSavedCamera: null, airFeatures: [],
     airScope: "nearby",
     quakes: false, quakesTimer: null, quakesLoading: false,
@@ -353,7 +353,7 @@ const Intel = (() => {
   function planeIcon() {
     const c = document.createElement("canvas"); c.width = c.height = 48;
     const g = c.getContext("2d");
-    g.translate(24, 24); g.rotate(Math.PI); // nose points up after rotation by track
+    g.translate(24, 24); // nose points north; icon-rotate applies the reported heading
     g.fillStyle = "#031018"; g.strokeStyle = "#41efc2"; g.lineWidth = 2.2;
     g.shadowColor = "#41efc2"; g.shadowBlur = 6;
     g.beginPath();
@@ -385,8 +385,8 @@ const Intel = (() => {
     if (!state.airTrack) {
       chip.textContent = `✈ ${count} AIRCRAFT · ${state.airScope === "regions" ? "4 REGIONS" : "NEARBY"}`;
       chip.title = state.airScope === "regions"
-        ? "Sampled aircraft near Chennai, Singapore, London and New York. Zoom in for aircraft near the map center."
-        : "Aircraft near the map center. Pan to an airport or city and click a plane to track its recent path.";
+        ? "Sampled aircraft near Chennai, Singapore, London and New York. Click to zoom to aircraft near Chennai."
+        : "Aircraft near the map center. Click to zoom to Chennai, or pan to another airport.";
       return;
     }
     const ago = Math.max(0, Math.round((Date.now() - state.airTrack.lastSeen) / 1000));
@@ -506,18 +506,31 @@ const Intel = (() => {
         },
       });
     }
+    if (!map.getLayer("air-pin-halo")) {
+      map.addLayer({
+        id: "air-pin-halo", type: "circle", source: "air",
+        paint: {
+          "circle-radius": ["case", ["get", "tracked"], 10, 7],
+          "circle-color": "#062328", "circle-opacity": 0.94,
+          "circle-stroke-color": "#41efc2", "circle-stroke-width": 2,
+        },
+      });
+    }
     if (!map.getLayer("air-dots")) {
       map.addLayer({
         id: "air-dots", type: "symbol", source: "air",
         layout: {
           "icon-image": "plane",
-          "icon-size": ["case", ["get", "tracked"], 1.25,
-            ["interpolate", ["linear"], ["zoom"], 3, 0.5, 8, 0.8, 12, 1]],
+          "icon-size": ["case", ["get", "tracked"], 1.5,
+            ["interpolate", ["linear"], ["zoom"], 3, 1.15, 8, 0.95, 12, 1.05]],
           "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true, "icon-padding": 1,
         },
       });
-      map.on("click", "air-dots", (event) => {
+    }
+    if (!state.airHandlersBound) {
+      state.airHandlersBound = true;
+      map.on("click", "air-pin-halo", (event) => {
         const feature = event.features && event.features[0];
         if (!feature) return;
         const properties = feature.properties || {};
@@ -564,8 +577,8 @@ const Intel = (() => {
           .setDOMContent(content)
           .addTo(map);
       });
-      map.on("mouseenter", "air-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", "air-dots", () => { map.getCanvas().style.cursor = ""; });
+      map.on("mouseenter", "air-pin-halo", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "air-pin-halo", () => { map.getCanvas().style.cursor = ""; });
     }
     setAirTrackData();
   }
@@ -670,6 +683,7 @@ const Intel = (() => {
     if (state.air) {
       addAirLayers();
       map.setLayoutProperty("air-dots", "visibility", "visible");
+      map.setLayoutProperty("air-pin-halo", "visibility", "visible");
       map.setLayoutProperty("air-track-line", "visibility", "visible");
       if (chip) chip.classList.remove("hidden");
       airTick();
@@ -687,6 +701,7 @@ const Intel = (() => {
       state.airFollow = false;
       if (chip) chip.classList.add("hidden");
       if (map.getLayer("air-dots")) map.setLayoutProperty("air-dots", "visibility", "none");
+      if (map.getLayer("air-pin-halo")) map.setLayoutProperty("air-pin-halo", "visibility", "none");
       if (map.getLayer("air-track-line")) map.setLayoutProperty("air-track-line", "visibility", "none");
     }
     return state.air;
