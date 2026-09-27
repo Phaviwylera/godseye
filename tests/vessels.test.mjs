@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVessel, collect } from '../netlify/functions/ais-collector.mjs';
+import { parseVessel, collect, attachObservedTracks } from '../netlify/functions/ais-collector.mjs';
 import { EventEmitter } from 'node:events';
 
 const message = { MessageType: 'PositionReport', MetaData: { MMSI: 368207620, ShipName: 'TEST VESSEL', Latitude: 25.7617, Longitude: -80.1918 }, Message: { PositionReport: { Valid: true, Sog: 12.4, Cog: 86.7 } } };
@@ -26,4 +26,17 @@ test('collector subscribes once with server key, deduplicates vessels, and close
   }
   assert.equal(vessels.length, 1);
   assert.equal(socket.closed, true);
+});
+test('trails use observed points, discard old history, and ignore stationary repeats', () => {
+  const at = Date.parse('2026-09-27T03:00:00Z');
+  const first = { mmsi: '368207620', lon: 80, lat: 13, received: new Date(at).toISOString() };
+  const old = [[79, 12, new Date(at - 31 * 60000).toISOString()]];
+  const one = attachObservedTracks([first], { history: { [first.mmsi]: old } }, at);
+  assert.deepEqual(one.vessels[0].track, [[80, 13, first.received]]);
+  const gap = attachObservedTracks([], one, at + 60000);
+  const still = attachObservedTracks([first], gap, at + 120000);
+  assert.equal(still.vessels[0].track.length, 1);
+  const moved = { ...first, lon: 80.003, received: new Date(at + 120000).toISOString() };
+  const two = attachObservedTracks([moved], still, at + 120000);
+  assert.deepEqual(two.vessels[0].track.map(point => point.slice(0, 2)), [[80, 13], [80.003, 13]]);
 });
