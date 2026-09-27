@@ -571,8 +571,10 @@ const Intel = (() => {
         id: "air-dots", type: "symbol", source: "air",
         layout: {
           "icon-image": "ge-aircraft-teal-v3",
-          "icon-size": ["case", ["get", "tracked"], 1.65,
-            ["interpolate", ["linear"], ["zoom"], 3, 1.3, 8, 1.15, 12, 1.3]],
+          // Keep planes compact so they never blanket the map: small on the
+          // globe, growing gradually as the user zooms in.
+          "icon-size": ["case", ["get", "tracked"], 1.15,
+            ["interpolate", ["linear"], ["zoom"], 3, 0.55, 8, 0.7, 12, 0.95]],
           "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true, "icon-padding": 1,
         },
@@ -591,7 +593,9 @@ const Intel = (() => {
       map.addLayer({
         id: "air-tracked-pin", type: "symbol", source: "air-pin",
         layout: {
-          "icon-image": "ge-aircraft-pin-teal", "icon-size": 1.9,
+          "icon-image": "ge-aircraft-pin-teal",
+          // Compact on the globe, full prominence once the user zooms in.
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 3, 0.7, 8, 1.0, 12, 1.3],
           "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
         },

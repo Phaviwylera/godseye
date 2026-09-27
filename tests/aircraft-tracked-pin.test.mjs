@@ -58,6 +58,9 @@ test('selected aircraft renders a large teal pin, waypoint dots, labels and a da
     assert.equal(pin.type, 'symbol');
     assert.equal(pin.source, 'air-pin');
     assert.equal(pin.layout['icon-image'], 'ge-aircraft-pin-teal');
+    // The pin shrinks at globe zoom instead of blanketing the map.
+    assert.equal(JSON.stringify(pin.layout['icon-size']),
+      '["interpolate",["linear"],["zoom"],3,0.7,8,1,12,1.3]');
     assert.equal(json(pin.layout['icon-rotate']), '["get","heading"]');
     // Pin and dots must draw above the fleet icons, the way ships stack.
     assert.ok(order.indexOf('air-tracked-pin') > order.indexOf('air-dots'));
