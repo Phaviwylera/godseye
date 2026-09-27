@@ -52,6 +52,37 @@ Ships use a teal vessel symbol; selecting one shows only its actually observed p
 from the last 30 minutes as a dashed trail and waypoint dots. A trail appears after
 a second distinct position arrives.
 
+The **METRO** layer draws the live metro / urban-rail networks that their own operators
+publish openly for riders: coloured line geometry, station dots (zoom 10.5+) and every
+train the feed currently reports. Click a train for its line, destination, next stop and
+ETA; click a station for the next trains due there; click the chip for a contact list.
+Data comes from `data/metro.json` and is fetched live — nothing is bundled or simulated.
+
+| id | network | adapter | provides |
+|----|---------|---------|----------|
+| `st-link` | Seattle — Sound Transit Link light rail, T Line, Sounder | OneBusAway REST (public `TEST` key) | **live GPS train positions** |
+| `tfl` | London — Underground, DLR, Elizabeth line, Overground, Trams | TfL Unified API (keyless) | live arrival predictions per train |
+| `bart` | San Francisco — BART | BART API (public demo key) | live per-station departures |
+
+Two kinds of feed are supported and labelled differently in every popup:
+
+* **positions** — the operator publishes live vehicle coordinates (Sound Transit via
+  OneBusAway). Trains are drawn where they actually are, rotated to their heading, and a
+  selected train shows the positions observed for it in the last 30 minutes.
+* **arrivals** — the operator publishes arrival predictions but no vehicle coordinates
+  (TfL, BART). Each train is drawn at the station it is next due at; TfL trains are
+  de-duplicated by vehicle id so one train appears once, and BART — which publishes no
+  vehicle ids at all — is sampled to the departures due within five minutes, so one
+  marker is one departure rather than one unique train.
+
+Line geometry and stations load once per session; only train positions are polled, every
+60 seconds. A network whose feed fails is reported as unavailable in the chip and never
+back-filled with guesses. Keep each operator's attribution, which is shown in the
+chip tooltip and in every train popup. To add a network, append a feed to
+`data/metro.json` and, if it is not OneBusAway / TfL / BART, a parser + adapter in
+`js/metro.js` — the parsers are pure functions and are unit-tested in
+`tests/metro.test.mjs`.
+
 ## ✨ Features
 
 | | |

@@ -1301,6 +1301,7 @@ function wireUI() {
       Intel.restoreQuakeLayer();
       Satellites.restore();
       Vessels.restore();
+      Metro.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1374,9 +1375,11 @@ function wireUI() {
     else { Intel.playRadar(); $("#radar-play").textContent = "⏸"; }
   };
   $("#btn-vessels").onclick = () => { Vessels.toggle(); fxBlip(); };
+  $("#btn-metro").onclick = () => { Metro.toggle(); fxBlip(); };
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
   $("#air-chip").onclick = () => Intel.openAirList();
   $("#vessel-chip").onclick = () => Vessels.openList();
+  $("#metro-chip").onclick = () => Metro.openList();
   $("#btn-quakes").onclick = async (e) => {
     try {
       e.target.classList.toggle("active", await Intel.toggleQuakes());
@@ -1563,7 +1566,8 @@ async function initMap() {
     el.stCursor.textContent = `${e.lngLat.lat.toFixed(3)}, ${e.lngLat.lng.toFixed(3)}`;
     if (Date.now() - lastCursorCheck < 70 || map.isMoving()) return;
     lastCursorCheck = Date.now();
-    const layers = ["cam-single", "cam-clusters", "air-dots", "vessel-points", "sat-dots", "quake-circles"]
+    const layers = ["cam-single", "cam-clusters", "air-dots", "vessel-points", "sat-dots", "quake-circles",
+      "metro-trains", "metro-stations"]
       .filter(id => map.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
     try {
       map.getCanvas().style.cursor = layers.length && map.queryRenderedFeatures(e.point, { layers }).length
@@ -1610,6 +1614,7 @@ function tickClock() {
     Intel.init(map);
     Satellites.init(map);
     Vessels.init(map);
+    Metro.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }
