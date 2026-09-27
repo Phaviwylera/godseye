@@ -84,7 +84,7 @@ const Satellites = (() => {
           .setLngLat(feature.geometry.coordinates).setDOMContent(box).addTo(map);
       });
       map.on("mouseenter", "sat-dots", () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", "sat-dots", () => { map.getCanvas().style.cursor = ""; });
+      map.on("mouseleave", "sat-dots", () => { map.getCanvas().style.cursor = "grab"; });
     }
     update();
   }

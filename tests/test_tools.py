@@ -177,7 +177,7 @@ class TestContract(unittest.TestCase):
         self.assertIn("c.lng.toFixed(2)", intel)
         self.assertIn("restoreAirLayer()", intel)
         self.assertIn("Intel.restoreAirLayer()", app)
-        self.assertIn("if (!Intel.state.airTrack)", app)
+        self.assertIn("Intel.openAirList()", app)
         readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
         self.assertIn("recent flight trails", readme)
         self.assertIn("cockpit view", readme)

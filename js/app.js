@@ -27,6 +27,7 @@ function readSharedScene() {
 
 const sharedScene = readSharedScene();
 let currentStyle = sharedScene ? sharedScene.style : "dark", terrainOn = true;
+let terrainApplied = null, sourceRefreshTimer = null;
 let buildingsOn = localStorage.getItem("ge_buildings") !== "0";
 let currentSensorMode = sharedScene ? sharedScene.sensor :
   (SENSOR_MODES.includes(localStorage.getItem("ge_sensor_mode")) ? localStorage.getItem("ge_sensor_mode") : "natural");
@@ -266,21 +267,34 @@ function addCamLayers() {
     },
     paint: { "text-color": "#bceff7" },
   });
-  map.on("click", "cam-clusters", (e) => {
+  map.on("click", "cam-clusters", async (e) => {
     const f = map.queryRenderedFeatures(e.point, { layers: ["cam-clusters"] })[0];
     if (!f) return;
-    map.getSource("cams").getClusterExpansionZoom(f.properties.cluster_id)
-      .then(z => map.easeTo({ center: f.geometry.coordinates, zoom: z, duration: 900 }))
-      .catch(() => {});
+    const source = map.getSource("cams"), count = Number(f.properties.point_count) || 0;
+    try {
+      const z = await source.getClusterExpansionZoom(f.properties.cluster_id);
+      // Small clusters jump past the clustering threshold to reveal camera icons.
+      map.easeTo({ center: f.geometry.coordinates,
+        zoom: Math.min(12, Math.max(z, count <= 24 ? 12 : map.getZoom() + 2.5)),
+        duration: 650, essential: true });
+      if (count <= 100) {
+        const leaves = await source.getClusterLeaves(f.properties.cluster_id, count, 0);
+        Contacts.open(`${count} CAMERAS`, leaves.map(cam => ({
+          label: String(cam.properties.name || 'Public camera'),
+          detail: [cam.properties.place, cam.properties.region, cam.properties.country].filter(Boolean).join(' · '),
+          id: cam.properties.id,
+        })), row => openCam(row.id, true));
+      }
+    } catch (error) { console.warn("cluster expansion failed", error); }
   });
   map.on("click", "cam-single", (e) => {
     const f = e.features && e.features[0];
     if (f) openCam(f.properties.id, true);
   });
   map.on("mouseenter", "cam-single", () => { map.getCanvas().style.cursor = "pointer"; });
-  map.on("mouseleave", "cam-single", () => { map.getCanvas().style.cursor = ""; });
+  map.on("mouseleave", "cam-single", () => { map.getCanvas().style.cursor = "grab"; });
   map.on("mouseenter", "cam-clusters", () => { map.getCanvas().style.cursor = "pointer"; });
-  map.on("mouseleave", "cam-clusters", () => { map.getCanvas().style.cursor = ""; });
+  map.on("mouseleave", "cam-clusters", () => { map.getCanvas().style.cursor = "grab"; });
 }
 
 // ------------------------------------------------------------------- data --
@@ -299,6 +313,12 @@ function camToFeature(c) {
 
 function refreshSource() {
   if (!map) return;
+  if (map.isMoving()) {
+    clearTimeout(sourceRefreshTimer);
+    sourceRefreshTimer = setTimeout(refreshSource, 240);
+    return;
+  }
+  clearTimeout(sourceRefreshTimer);
   const src = map.getSource("cams");
   if (src) src.setData({ type: "FeatureCollection", features: filtered().map(camToFeature) });
 }
@@ -569,9 +589,8 @@ async function loadViewportPacks() {
   setLoadStatus(`loading ${keys.length} region${keys.length > 1 ? "s" : ""}…`);
   await Promise.all(keys.map(k => loadPack(k)));
   setLoadStatus(`${loadedPacks.size} regions ready`);
-  updateStats();
-  renderList();
-  refreshSource();
+  const update = () => { updateStats(); renderList(); refreshSource(); };
+  if (map.isMoving()) map.once("moveend", update); else update();
   scheduleStatusProbe();
 }
 
@@ -775,9 +794,9 @@ async function openCam(id, fly) {
   if (vc) vc.textContent = "watched ×" + seen;
   renderList();
   if (fly && map) {
-    map.flyTo({
-      center: [c.lon, c.lat], zoom: Math.max(map.getZoom(), 15.2), pitch: 58,
-      bearing: (Math.random() * 50 - 25), duration: 2800, curve: 1.4, easing: (t) => 1 - Math.pow(1 - t, 3), essential: true,
+    map.easeTo({
+      center: [c.lon, c.lat], zoom: Math.max(map.getZoom(), 14.5), pitch: 0,
+      bearing: 0, duration: 1100, essential: true,
     });
   }
   fxLockOn();
@@ -1285,6 +1304,10 @@ function wireUI() {
     e.target.classList.toggle("active", terrainOn);
     ensureTerrain();
   };
+  $("#btn-zoom-in").onclick = () => map?.zoomTo(Math.min(map.getMaxZoom(), map.getZoom() + 1.5),
+    { duration: 300, essential: true });
+  $("#btn-zoom-out").onclick = () => map?.zoomTo(Math.max(map.getMinZoom(), map.getZoom() - 1.5),
+    { duration: 300, essential: true });
   const buildingsButton = $("#btn-buildings");
   buildingsButton.classList.toggle("active", buildingsOn);
   buildingsButton.setAttribute("aria-pressed", String(buildingsOn));
@@ -1343,14 +1366,8 @@ function wireUI() {
   };
   $("#btn-vessels").onclick = () => { Vessels.toggle(); fxBlip(); };
   $("#btn-air").onclick = (e) => { e.target.classList.toggle("active", Intel.toggleAir()); fxBlip(); };
-  $("#air-chip").onclick = () => {
-    if (!Intel.state.airTrack) {
-      map.flyTo({ center: [80.27, 13.08], zoom: 5.2, pitch: 0,
-        duration: 1600, essential: true });
-      return;
-    }
-    Intel.toggleAirFollow();
-  };
+  $("#air-chip").onclick = () => Intel.openAirList();
+  $("#vessel-chip").onclick = () => Vessels.openList();
   $("#btn-quakes").onclick = async (e) => {
     try {
       e.target.classList.toggle("active", await Intel.toggleQuakes());
@@ -1375,7 +1392,11 @@ function wireUI() {
 
 function ensureTerrain() {
   try {
-    map.setTerrain(terrainOn && map.getSource("dem") ? { source: "dem", exaggeration: 1.35 } : null);
+    const active = !!(terrainOn && map.getZoom() >= 8 && map.getSource("dem"));
+    if (terrainApplied === active) return;
+    map.setTerrain(active ? { source: "dem", exaggeration: 1.35 } : null);
+    if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", active ? "visible" : "none");
+    terrainApplied = active;
   } catch (e) {}
 }
 
@@ -1417,11 +1438,13 @@ async function initMap() {
     pitch: sharedScene ? sharedScene.pitch : 0,
     minZoom: 1, maxZoom: 18.8, maxPitch: 70, attributionControl: { compact: true },
   });
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+  map.scrollZoom.setZoomRate(1 / 32);
+  map.scrollZoom.setWheelZoomRate(1 / 320);
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
   map.on("style.load", () => {
+    terrainApplied = null;
     try { map.setProjection({ type: "globe" }); } catch (e) {}
     try {
       map.setSky && map.setSky({ skyColor: "#010508", horizonColor: "#071722", fogColor: "#06131c" });
@@ -1429,6 +1452,7 @@ async function initMap() {
     ensureTerrain();
     ensureBuildings();
   });
+  map.on("zoomend", ensureTerrain);
 
   map.on("load", () => {
     map.addSource("cams", {
@@ -1528,21 +1552,21 @@ async function initMap() {
   map.on("mousemove", (e) => {
     idleAt = Date.now();
     el.stCursor.textContent = `${e.lngLat.lat.toFixed(3)}, ${e.lngLat.lng.toFixed(3)}`;
+    if (Date.now() - lastCursorCheck < 70 || map.isMoving()) return;
+    lastCursorCheck = Date.now();
+    const layers = ["cam-single", "cam-clusters", "air-dots", "vessel-points", "sat-dots", "quake-circles"]
+      .filter(id => map.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
+    try {
+      map.getCanvas().style.cursor = layers.length && map.queryRenderedFeatures(e.point, { layers }).length
+        ? "pointer" : "grab";
+    } catch { map.getCanvas().style.cursor = "grab"; }
   });
+  let lastCursorCheck = 0;
+  map.on("dragstart", () => { map.getCanvas().style.cursor = "grabbing"; });
+  map.on("dragend", () => { map.getCanvas().style.cursor = "grab"; });
   ["mousedown", "touchstart", "wheel"].forEach(ev => map.on(ev, () => { idleAt = Date.now(); }));
 
-  // silky idle globe spin: continuous rAF rotation with gentle speed ramp
-  let spinLast = performance.now();
-  (function spin(now) {
-    const dt = Math.min(0.05, (now - spinLast) / 1000);
-    spinLast = now;
-    const idleFor = (Date.now() - idleAt) / 1000;
-    if (idleFor > 25 && map.getZoom() < 3 && el.modal.classList.contains("hidden") && !wallOpen) {
-      const ramp = Math.min(1, (idleFor - 25) / 3); // ease up to full drift
-      map.jumpTo({ bearing: map.getBearing() + 1.2 * ramp * dt });
-    }
-    requestAnimationFrame(spin);
-  })(performance.now());
+  // The globe rests between interactions so panning and zooming retain GPU headroom.
 }
 
 async function startCameraListFallback(error) {

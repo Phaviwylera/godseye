@@ -177,6 +177,8 @@
     </span>
   </div>
   <div class="btn-group">
+    <button id="btn-zoom-in" type="button" title="Zoom in" aria-label="Zoom in">＋</button>
+    <button id="btn-zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
     <button id="btn-terrain" class="active">3D TERRAIN</button>
     <button id="btn-buildings" type="button" aria-pressed="true" title="Show building heights at zoom 15 and closer">3D BUILDINGS</button>
     <button id="btn-sync">⟳ SYNC</button>
@@ -185,6 +187,11 @@
     <button id="btn-context-view" type="button" aria-pressed="false" title="Save this view and open global context (G)">◎ GLOBAL VIEW</button>
   </div>
 </div>
+
+<section id="contacts-panel" class="hidden" aria-label="Map contacts">
+  <header><strong id="contacts-title">CONTACTS</strong><button id="contacts-close" type="button" aria-label="Close contacts">✕</button></header>
+  <div id="contacts-list"></div>
+</section>
 
 <!-- compass reset -->
 <button id="compass" class="level" title="Reset north and flatten tilt" aria-label="Reset map orientation">
@@ -328,6 +335,7 @@
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
 <script src="js/satellites.js"></script>
+<script src="js/contacts.js"></script>
 <script src="js/vessels.js"></script>
 <script src="js/intel.js"></script>
 <script src="js/players.js"></script>

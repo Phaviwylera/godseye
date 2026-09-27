@@ -9,8 +9,9 @@ const Intel = (() => {
     night: false, iss: false, radar: false,
     issTimer: null, nightTimer: null, radarTimer: null,
     issTrail: [], issFollow: false, radarFrames: [], radarIdx: 0, radarPlaying: false,
-    air: false, airTimer: null, airMoveTimer: null, airLoading: false, airHandlersBound: false,
+    air: false, airTimer: null, airMoveTimer: null, airLoading: false, airHandlersBound: false, airMoveBound: false,
     airTrack: null, airFollow: false, airCockpit: false, airSavedCamera: null, airFeatures: [],
+    airHistory: new Map(),
     airScope: "nearby",
     quakes: false, quakesTimer: null, quakesLoading: false,
   };
@@ -354,13 +355,14 @@ const Intel = (() => {
     const c = document.createElement("canvas"); c.width = c.height = 48;
     const g = c.getContext("2d");
     g.translate(24, 24); // nose points north; icon-rotate applies the reported heading
-    g.fillStyle = "#031018"; g.strokeStyle = "#41efc2"; g.lineWidth = 2.2;
+    g.fillStyle = "#9cf8e8"; g.strokeStyle = "#062d32"; g.lineWidth = 2.2;
     g.shadowColor = "#41efc2"; g.shadowBlur = 6;
     g.beginPath();
     g.moveTo(0, -14); g.lineTo(7, 4); g.lineTo(13, 10); g.lineTo(7, 8);
     g.lineTo(5, 14); g.lineTo(0, 11); g.lineTo(-5, 14); g.lineTo(-7, 8);
     g.lineTo(-13, 10); g.lineTo(-7, 4); g.closePath();
     g.fill(); g.stroke();
+    g.fillStyle = "#08383b"; g.fillRect(-2, -4, 4, 11);
     return g.getImageData(0, 0, 48, 48);
   }
 
@@ -377,6 +379,10 @@ const Intel = (() => {
         }] : [],
       });
     }
+    map.getSource("air-track-points")?.setData({ type: "FeatureCollection", features: points.length < 2 ? [] : [
+      { type: "Feature", properties: { label: "FIRST OBSERVED" }, geometry: { type: "Point", coordinates: points[0].coordinates } },
+      { type: "Feature", properties: { label: "LATEST" }, geometry: { type: "Point", coordinates: points.at(-1).coordinates } },
+    ] });
   }
 
   function updateAirChip(count) {
@@ -385,18 +391,14 @@ const Intel = (() => {
     if (!state.airTrack) {
       chip.textContent = `✈ ${count} AIRCRAFT · ${state.airScope === "regions" ? "4 REGIONS" : "NEARBY"}`;
       chip.title = state.airScope === "regions"
-        ? "Sampled aircraft near Chennai, Singapore, London and New York. Click to zoom to aircraft near Chennai."
-        : "Aircraft near the map center. Click to zoom to Chennai, or pan to another airport.";
+        ? "Sampled aircraft near Chennai, Singapore, London and New York. Click to browse the current aircraft."
+        : "Aircraft near the map center. Click to browse the current aircraft.";
       return;
     }
     const ago = Math.max(0, Math.round((Date.now() - state.airTrack.lastSeen) / 1000));
     const freshness = ago < 30 ? "LIVE" : `SEEN ${Math.floor(ago / 60)}m AGO`;
     chip.textContent = `✈ ${state.airTrack.callsign} · ${freshness} · ${state.airCockpit ? "COCKPIT" : state.airFollow ? "FOLLOW ON" : "FOLLOW OFF"}`;
-    chip.title = state.airCockpit
-      ? "Click to leave cockpit view and restore the previous map view."
-      : state.airFollow
-        ? "Click to stop following this aircraft; its trail remains visible."
-        : "Click to follow this aircraft. Its trail remains visible either way.";
+    chip.title = "Click to browse aircraft. Select a plane on the map to inspect its observed trail.";
   }
 
   function positionAirCockpit(coordinates, heading, duration) {
@@ -451,7 +453,7 @@ const Intel = (() => {
         hex: record.hex,
         callsign: record.callsign,
         track: record.track,
-        points: [{ coordinates: record.coordinates, time: Date.now() }],
+        points: [...(state.airHistory.get(record.hex) || [{ coordinates: record.coordinates, time: Date.now() }])],
         lastSeen: Date.now(),
       };
       state.airFollow = false;
@@ -494,6 +496,9 @@ const Intel = (() => {
     if (!map.getSource("air-track")) {
       map.addSource("air-track", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     }
+    if (!map.getSource("air-track-points")) {
+      map.addSource("air-track-points", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
     if (!map.hasImage("plane")) map.addImage("plane", planeIcon(), { pixelRatio: 2 });
     if (!map.getLayer("air-track-line")) {
       map.addLayer({
@@ -506,14 +511,12 @@ const Intel = (() => {
         },
       });
     }
-    if (!map.getLayer("air-pin-halo")) {
+    if (!map.getLayer("air-track-labels")) {
       map.addLayer({
-        id: "air-pin-halo", type: "circle", source: "air",
-        paint: {
-          "circle-radius": ["case", ["get", "tracked"], 10, 7],
-          "circle-color": "#062328", "circle-opacity": 0.94,
-          "circle-stroke-color": "#41efc2", "circle-stroke-width": 2,
-        },
+        id: "air-track-labels", type: "symbol", source: "air-track-points",
+        layout: { "text-field": ["get", "label"], "text-size": 10,
+          "text-offset": [0, 1.5], "text-allow-overlap": true },
+        paint: { "text-color": "#a9f9eb", "text-halo-color": "#041c22", "text-halo-width": 2 },
       });
     }
     if (!map.getLayer("air-dots")) {
@@ -521,8 +524,8 @@ const Intel = (() => {
         id: "air-dots", type: "symbol", source: "air",
         layout: {
           "icon-image": "plane",
-          "icon-size": ["case", ["get", "tracked"], 1.5,
-            ["interpolate", ["linear"], ["zoom"], 3, 1.15, 8, 0.95, 12, 1.05]],
+          "icon-size": ["case", ["get", "tracked"], 1.65,
+            ["interpolate", ["linear"], ["zoom"], 3, 1.35, 8, 1.15, 12, 1.25]],
           "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true, "icon-padding": 1,
         },
@@ -530,7 +533,7 @@ const Intel = (() => {
     }
     if (!state.airHandlersBound) {
       state.airHandlersBound = true;
-      map.on("click", "air-pin-halo", (event) => {
+      map.on("click", "air-dots", (event) => {
         const feature = event.features && event.features[0];
         if (!feature) return;
         const properties = feature.properties || {};
@@ -577,8 +580,8 @@ const Intel = (() => {
           .setDOMContent(content)
           .addTo(map);
       });
-      map.on("mouseenter", "air-pin-halo", () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", "air-pin-halo", () => { map.getCanvas().style.cursor = ""; });
+      map.on("mouseenter", "air-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "air-dots", () => { map.getCanvas().style.cursor = "grab"; });
     }
     setAirTrackData();
   }
@@ -589,6 +592,44 @@ const Intel = (() => {
       chip.textContent = "✈ AIR FEED UNAVAILABLE";
       chip.title = String(error && error.message || error);
     }
+  }
+
+  function rememberAircraft(features) {
+    const now = Date.now(), cutoff = now - 60 * 60 * 1000;
+    for (const feature of features) {
+      const hex = feature.properties.hex;
+      if (!hex) continue;
+      const points = (state.airHistory.get(hex) || []).filter(p => p.time >= cutoff);
+      const coordinates = feature.geometry.coordinates;
+      const last = points.at(-1);
+      if (!last || last.coordinates[0] !== coordinates[0] || last.coordinates[1] !== coordinates[1]) {
+        points.push({ coordinates, time: now });
+      }
+      state.airHistory.set(hex, points.slice(-120));
+    }
+    for (const [hex, points] of state.airHistory) {
+      if (!points.length || points.at(-1).time < cutoff) state.airHistory.delete(hex);
+    }
+  }
+
+  function openAirList() {
+    if (!state.air) return;
+    const center = map.getCenter();
+    const contacts = [...state.airFeatures].sort((a, b) =>
+      Math.abs(a.geometry.coordinates[0] - center.lng) + Math.abs(a.geometry.coordinates[1] - center.lat) -
+      Math.abs(b.geometry.coordinates[0] - center.lng) - Math.abs(b.geometry.coordinates[1] - center.lat));
+    Contacts.open(`${contacts.length} AIRCRAFT · ${state.airScope === "regions" ? "4 REGIONS" : "NEARBY"}`,
+      contacts.map(feature => ({
+        label: feature.properties.callsign,
+        detail: `${feature.properties.alt} ft · ${feature.properties.gs} kt · ${feature.properties.hex}`,
+        feature,
+      })), row => {
+        const feature = row.feature;
+        selectAirTrack({ hex: feature.properties.hex, callsign: feature.properties.callsign,
+          coordinates: feature.geometry.coordinates, track: feature.properties.track });
+        map.easeTo({ center: feature.geometry.coordinates, zoom: Math.max(map.getZoom(), 7),
+          duration: 650, essential: true });
+      });
   }
 
   async function fetchAirData() {
@@ -630,6 +671,7 @@ const Intel = (() => {
       },
       geometry: { type: "Point", coordinates: [a.lon, a.lat] },
     }));
+    rememberAircraft(features);
     state.airFeatures = features;
     src.setData({ type: "FeatureCollection", features });
     if (state.airTrack) {
@@ -637,14 +679,7 @@ const Intel = (() => {
       if (tracked) {
         const coordinates = tracked.geometry.coordinates;
         const now = Date.now();
-        const last = state.airTrack.points[state.airTrack.points.length - 1];
-        if (!last || last.coordinates[0] !== coordinates[0] || last.coordinates[1] !== coordinates[1]) {
-          state.airTrack.points.push({ coordinates, time: now });
-          const cutoff = now - 60 * 60 * 1000;
-          state.airTrack.points = state.airTrack.points
-            .filter(point => point.time >= cutoff)
-            .slice(-360);
-        }
+        state.airTrack.points = [...(state.airHistory.get(state.airTrack.hex) || [])];
         state.airTrack.callsign = tracked.properties.callsign;
         state.airTrack.track = Number(tracked.properties.track);
         state.airTrack.lastSeen = now;
@@ -683,26 +718,30 @@ const Intel = (() => {
     if (state.air) {
       addAirLayers();
       map.setLayoutProperty("air-dots", "visibility", "visible");
-      map.setLayoutProperty("air-pin-halo", "visibility", "visible");
       map.setLayoutProperty("air-track-line", "visibility", "visible");
+      map.setLayoutProperty("air-track-labels", "visibility", "visible");
       if (chip) chip.classList.remove("hidden");
       airTick();
       state.airTimer = setInterval(airTick, 30000);
       state.airMoveTimer = null;
-      map.on("moveend", () => {
-        if (!state.air) return;
-        clearTimeout(state.airMoveTimer);
-        state.airMoveTimer = setTimeout(airTick, 800);
-      });
+      if (!state.airMoveBound) {
+        state.airMoveBound = true;
+        map.on("moveend", () => {
+          if (!state.air) return;
+          clearTimeout(state.airMoveTimer);
+          state.airMoveTimer = setTimeout(airTick, 800);
+        });
+      }
     } else {
       clearInterval(state.airTimer);
       clearTimeout(state.airMoveTimer);
       if (state.airCockpit) leaveAirCockpit();
       state.airFollow = false;
       if (chip) chip.classList.add("hidden");
+      Contacts.close();
       if (map.getLayer("air-dots")) map.setLayoutProperty("air-dots", "visibility", "none");
-      if (map.getLayer("air-pin-halo")) map.setLayoutProperty("air-pin-halo", "visibility", "none");
       if (map.getLayer("air-track-line")) map.setLayoutProperty("air-track-line", "visibility", "none");
+      if (map.getLayer("air-track-labels")) map.setLayoutProperty("air-track-labels", "visibility", "none");
     }
     return state.air;
   }
@@ -795,7 +834,7 @@ const Intel = (() => {
           .addTo(map);
       });
       map.on("mouseenter", "quake-circles", () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", "quake-circles", () => { map.getCanvas().style.cursor = ""; });
+      map.on("mouseleave", "quake-circles", () => { map.getCanvas().style.cursor = "grab"; });
     } else {
       map.setLayoutProperty("quake-circles", "visibility", "visible");
     }
@@ -840,6 +879,6 @@ const Intel = (() => {
     window.GE_CAMS = window.GE_CAMS || {};
   }
 
-  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
+  return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, openAirList, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
            get state() { return state; } };
 })();

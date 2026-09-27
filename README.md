@@ -85,16 +85,20 @@ a second distinct position arrives.
 
 Each camera carries its attribution line from the publishing agency — keep it.
 
-Enable **AIR** to view aircraft. At world zoom AIR samples four regions
+Enable **AIR** to view aircraft icons. Click the aircraft count to open a
+selectable contact list. At world zoom AIR samples four regions
 (Chennai, Singapore, London and New York); zoom in to search around the map
 center. The four-region sample is not a complete worldwide aircraft feed.
-Plane markers use a bright teal halo and a heading-aligned aircraft icon;
-click the aircraft count to zoom to the Chennai sample.
-Select an aircraft to draw its recent track (up to one hour of sightings);
-use the popup actions to clear it or enter
-cockpit view. Cockpit view follows the aircraft from an oblique camera angle and
-restores the previous map view when exited. The aircraft status chip toggles
-camera follow while a track is selected.
+Plane markers use heading-aligned aircraft icons; click a contact in the list
+to zoom to it.
+Select an aircraft to draw its recent track (up to one hour of sightings).
+FIRST OBSERVED and LATEST mark the sampled track endpoints; the live feed does
+not provide a verified flight origin or destination. Use the map's + and −
+controls or a trackpad to zoom; a camera cluster opens its member list and
+zooms in to reveal camera icons. Terrain activates at close zoom to keep the
+globe responsive. Use the popup actions to clear a track or enter cockpit view.
+Cockpit view follows the aircraft from an oblique camera angle and restores
+the previous map view when exited.
 
 Cycle the visual sensor looks with the **SENSOR** control or select them with
 `1`–`5` (`0` restores natural color). FLIR is a stylized color filter, not a
