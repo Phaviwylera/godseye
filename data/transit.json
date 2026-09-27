@@ -1,0 +1,311 @@
+{
+  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept.",
+  "updated": "2026-09-28",
+  "feeds": [
+    {
+      "id": "st-rail",
+      "adapter": "oba",
+      "strategy": "routes",
+      "mode": "rail",
+      "network": "Link light rail · Sounder · T Line",
+      "operator": "Sound Transit",
+      "city": "Seattle",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Sound Transit / OneBusAway",
+      "page": "https://www.soundtransit.org",
+      "cors": true,
+      "center": [
+        -122.3321,
+        47.6062
+      ],
+      "zoom": 10,
+      "base": "https://api.pugetsound.onebusaway.org/api/where",
+      "key": "TEST",
+      "agencies": [
+        "40",
+        "96"
+      ],
+      "modes": [
+        0,
+        1,
+        2
+      ],
+      "note": "Rail routes only (GTFS route types 0/1/2). OneBusAway's public TEST key is documented for API exploration."
+    },
+    {
+      "id": "st-streetcar",
+      "adapter": "oba",
+      "strategy": "agency",
+      "mode": "tram",
+      "network": "Seattle Streetcar",
+      "operator": "City of Seattle",
+      "city": "Seattle",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Seattle Streetcar / OneBusAway",
+      "page": "https://www.seattle.gov/transportation/getting-around/transit/streetcar",
+      "cors": true,
+      "center": [
+        -122.3207,
+        47.5987
+      ],
+      "zoom": 13,
+      "base": "https://api.pugetsound.onebusaway.org/api/where",
+      "key": "TEST",
+      "agencies": [
+        "23"
+      ],
+      "modes": [
+        0
+      ],
+      "note": "One vehicles-for-agency call per refresh; the whole fleet is small enough to poll directly."
+    },
+    {
+      "id": "ps-bus",
+      "adapter": "oba",
+      "strategy": "agency",
+      "mode": "bus",
+      "network": "Community Transit · Pierce Transit · Everett Transit",
+      "operator": "Puget Sound agencies",
+      "city": "Seattle",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Community Transit, Pierce Transit & Everett Transit / OneBusAway",
+      "page": "https://www.communitytransit.org",
+      "cors": true,
+      "center": [
+        -122.2,
+        47.75
+      ],
+      "zoom": 10,
+      "base": "https://api.pugetsound.onebusaway.org/api/where",
+      "key": "TEST",
+      "agencies": [
+        "29",
+        "3",
+        "97"
+      ],
+      "modes": [
+        3
+      ],
+      "maxAgeSec": 600,
+      "note": "King County Metro is deliberately excluded: its vehicles-for-agency payload is over a megabyte per poll, which is too heavy to refresh every minute."
+    },
+    {
+      "id": "tfl",
+      "adapter": "tfl",
+      "mode": "rail",
+      "network": "Underground · DLR · Elizabeth line · Overground · Tram",
+      "operator": "Transport for London",
+      "city": "London",
+      "country": "GB",
+      "kind": "arrivals",
+      "attribution": "Transport for London — Unified API",
+      "page": "https://api-portal.tfl.gov.uk/",
+      "cors": true,
+      "center": [
+        -0.1276,
+        51.5072
+      ],
+      "zoom": 10,
+      "base": "https://api.tfl.gov.uk",
+      "modes": [
+        "tube",
+        "dlr",
+        "elizabeth-line",
+        "overground",
+        "tram"
+      ],
+      "lines": [
+        {
+          "id": "bakerloo",
+          "name": "Bakerloo",
+          "color": "#B36305"
+        },
+        {
+          "id": "central",
+          "name": "Central",
+          "color": "#E32017"
+        },
+        {
+          "id": "circle",
+          "name": "Circle",
+          "color": "#FFD300"
+        },
+        {
+          "id": "district",
+          "name": "District",
+          "color": "#00782A"
+        },
+        {
+          "id": "hammersmith-city",
+          "name": "Hammersmith & City",
+          "color": "#F3A9BB"
+        },
+        {
+          "id": "jubilee",
+          "name": "Jubilee",
+          "color": "#A0A5A9"
+        },
+        {
+          "id": "metropolitan",
+          "name": "Metropolitan",
+          "color": "#9B0056"
+        },
+        {
+          "id": "northern",
+          "name": "Northern",
+          "color": "#000000"
+        },
+        {
+          "id": "piccadilly",
+          "name": "Piccadilly",
+          "color": "#003688"
+        },
+        {
+          "id": "victoria",
+          "name": "Victoria",
+          "color": "#0098D4"
+        },
+        {
+          "id": "waterloo-city",
+          "name": "Waterloo & City",
+          "color": "#95CDBA"
+        },
+        {
+          "id": "dlr",
+          "name": "DLR",
+          "color": "#00AFAD"
+        },
+        {
+          "id": "elizabeth-line",
+          "name": "Elizabeth line",
+          "color": "#6950A1"
+        },
+        {
+          "id": "overground",
+          "name": "London Overground",
+          "color": "#EE7C0E"
+        },
+        {
+          "id": "tram",
+          "name": "London Trams",
+          "color": "#84B817"
+        }
+      ],
+      "note": "Line colours are Transport for London's official brand colours, stored here so the layer needs no extra request to colour a line. Arrivals are de-duplicated by vehicle id; a train is placed at the station it is next due at."
+    },
+    {
+      "id": "bart",
+      "adapter": "bart",
+      "mode": "rail",
+      "network": "Bay Area Rapid Transit",
+      "operator": "BART",
+      "city": "San Francisco",
+      "country": "US",
+      "kind": "arrivals",
+      "attribution": "BART (public demo key)",
+      "page": "https://www.bart.gov/schedules/developers",
+      "cors": true,
+      "center": [
+        -122.2712,
+        37.7749
+      ],
+      "zoom": 10,
+      "base": "https://api.bart.gov/api",
+      "key": "MW9S-E7SL-26DU-VV8V",
+      "maxMinutes": 5,
+      "note": "BART's ETD feed publishes per-station departure predictions with no vehicle ids, so one marker is one departure due within 5 minutes, not one unique train. Uses the demo key BART publishes in its own API documentation. CORS on this host is not guaranteed: the layer tries the browser first and falls back to the /api/fetch relay."
+    },
+    {
+      "id": "ttc",
+      "adapter": "umo",
+      "mode": "bus",
+      "network": "TTC buses & streetcars",
+      "operator": "Toronto Transit Commission",
+      "city": "Toronto",
+      "country": "CA",
+      "kind": "positions",
+      "attribution": "Toronto Transit Commission via Umo IQ",
+      "page": "https://www.ttc.ca",
+      "cors": true,
+      "center": [
+        -79.3832,
+        43.6532
+      ],
+      "zoom": 11,
+      "base": "https://retro.umoiq.com/service/publicJSONFeed",
+      "agency": "ttc",
+      "maxAgeSec": 180,
+      "tramPrefix": "5",
+      "note": "Route tags 5xx are TTC streetcars, drawn as trams; everything else is drawn as a bus. CORS on this host is not guaranteed: the layer tries the browser first and falls back to the /api/fetch relay."
+    },
+    {
+      "id": "stl",
+      "adapter": "umo",
+      "mode": "bus",
+      "network": "Société de transport de Laval",
+      "operator": "STL",
+      "city": "Laval",
+      "country": "CA",
+      "kind": "positions",
+      "attribution": "STL via Umo IQ",
+      "page": "https://www.stl.laval.qc.ca",
+      "cors": true,
+      "center": [
+        -73.7124,
+        45.6066
+      ],
+      "zoom": 11,
+      "base": "https://retro.umoiq.com/service/publicJSONFeed",
+      "agency": "stl",
+      "maxAgeSec": 180,
+      "note": "CORS on this host is not guaranteed: the layer tries the browser first and falls back to the /api/fetch relay."
+    },
+    {
+      "id": "omnitrans",
+      "adapter": "umo",
+      "mode": "bus",
+      "network": "Omnitrans",
+      "operator": "Omnitrans",
+      "city": "San Bernardino",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Omnitrans via Umo IQ",
+      "page": "https://www.omnitrans.org",
+      "cors": true,
+      "center": [
+        -117.2898,
+        34.1083
+      ],
+      "zoom": 11,
+      "base": "https://retro.umoiq.com/service/publicJSONFeed",
+      "agency": "omnitrans",
+      "maxAgeSec": 180,
+      "note": "CORS on this host is not guaranteed: the layer tries the browser first and falls back to the /api/fetch relay."
+    },
+    {
+      "id": "portland-sc",
+      "adapter": "umo",
+      "mode": "tram",
+      "network": "Portland Streetcar",
+      "operator": "Portland Streetcar",
+      "city": "Portland",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Portland Streetcar via Umo IQ",
+      "page": "https://portlandstreetcar.org",
+      "cors": true,
+      "center": [
+        -122.6812,
+        45.5231
+      ],
+      "zoom": 13,
+      "base": "https://retro.umoiq.com/service/publicJSONFeed",
+      "agency": "portland-sc",
+      "maxAgeSec": 180,
+      "note": "CORS on this host is not guaranteed: the layer tries the browser first and falls back to the /api/fetch relay."
+    }
+  ]
+}
