@@ -35,6 +35,11 @@ const Vessels = (() => {
     map.getSource('vessel-waypoints')?.setData({ type: 'FeatureCollection',
       features: track.slice(0, -1).map(p => ({ type: 'Feature', properties: { observed: p[2] },
         geometry: { type: 'Point', coordinates: p.slice(0, 2) } })) });
+    map.getSource('vessel-endpoints')?.setData({ type: 'FeatureCollection',
+      features: track.length < 2 ? [] : [
+        { type: 'Feature', properties: { label: 'FIRST OBSERVED' }, geometry: { type: 'Point', coordinates: track[0].slice(0, 2) } },
+        { type: 'Feature', properties: { label: 'LATEST' }, geometry: { type: 'Point', coordinates: track.at(-1).slice(0, 2) } },
+      ] });
   }
   function showVessels() {
     map.getSource('vessels')?.setData({ type: 'FeatureCollection', features: latest.map(p => ({
@@ -47,7 +52,7 @@ const Vessels = (() => {
   function restore() {
     if (!enabled || !map) return;
     if (!map.hasImage('ge-ship')) map.addImage('ge-ship', shipIcon(), { pixelRatio: 2 });
-    for (const source of ['vessels', 'vessel-trail', 'vessel-waypoints']) {
+    for (const source of ['vessels', 'vessel-trail', 'vessel-waypoints', 'vessel-endpoints']) {
       if (!map.getSource(source)) map.addSource(source, { type: 'geojson', data: empty() });
     }
     if (!map.getLayer('vessel-trail-line')) map.addLayer({
@@ -59,6 +64,12 @@ const Vessels = (() => {
       id: 'vessel-waypoint-dots', type: 'circle', source: 'vessel-waypoints',
       paint: { 'circle-radius': 3, 'circle-color': '#9afbe9',
         'circle-stroke-color': '#06232a', 'circle-stroke-width': 1 },
+    });
+    if (!map.getLayer('vessel-endpoint-labels')) map.addLayer({
+      id: 'vessel-endpoint-labels', type: 'symbol', source: 'vessel-endpoints',
+      layout: { 'text-field': ['get', 'label'], 'text-size': 10, 'text-offset': [0, 1.8],
+        'text-allow-overlap': true },
+      paint: { 'text-color': '#a9f9eb', 'text-halo-color': '#041c22', 'text-halo-width': 2 },
     });
     if (!map.getLayer('vessel-points')) map.addLayer({
       id: 'vessel-points', type: 'symbol', source: 'vessels',
@@ -83,12 +94,12 @@ const Vessels = (() => {
       const detail = document.createElement('div');
       detail.textContent = `MMSI ${p.mmsi} · ${p.speed == null ? 'speed unknown' : `${p.speed} kn`} · observed ${new Date(p.received).toLocaleTimeString()}`;
       const note = document.createElement('div');
-      note.textContent = count > 1 ? `${count} observed trail positions in the last 30 minutes` : 'Trail begins after a second distinct AIS position is observed';
+      note.textContent = count > 1 ? `${count} observed trail positions in the last 30 minutes · first and latest are sample endpoints, not the full voyage` : 'Trail begins after a second distinct AIS position is observed';
       box.append(title, detail, note);
       new maplibregl.Popup({ maxWidth: '320px' }).setLngLat(item.geometry.coordinates).setDOMContent(box).addTo(map);
     });
     map.on('mouseenter', 'vessel-points', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'vessel-points', () => { map.getCanvas().style.cursor = ''; });
+    map.on('mouseleave', 'vessel-points', () => { map.getCanvas().style.cursor = 'grab'; });
   }
   async function refresh() {
     if (!enabled) return;
@@ -120,15 +131,32 @@ const Vessels = (() => {
     } else {
       requestId++; clearInterval(timer); selected = null; latest = [];
       chip()?.classList.add('hidden');
-      for (const layer of ['vessel-points', 'vessel-waypoint-dots', 'vessel-trail-line']) {
+      Contacts.close();
+      for (const layer of ['vessel-points', 'vessel-endpoint-labels', 'vessel-waypoint-dots', 'vessel-trail-line']) {
         if (map.getLayer(layer)) map.removeLayer(layer);
       }
-      for (const source of ['vessels', 'vessel-waypoints', 'vessel-trail']) {
+      for (const source of ['vessels', 'vessel-endpoints', 'vessel-waypoints', 'vessel-trail']) {
         if (map.getSource(source)) map.removeSource(source);
       }
     }
     return enabled;
   }
+  function openList() {
+    if (!enabled) return;
+    const center = map.getCenter();
+    const rows = [...latest].sort((a, b) =>
+      Math.abs(a.lon - center.lng) + Math.abs(a.lat - center.lat) -
+      Math.abs(b.lon - center.lng) - Math.abs(b.lat - center.lat));
+    Contacts.open(`${latest.length} VESSELS · RECENT AIS`, rows.map(v => ({
+      label: v.name, detail: `MMSI ${v.mmsi} · ${v.speed == null ? 'speed unknown' : `${v.speed} kn`} · ${v.track?.length || 0} observed positions`, vessel: v,
+    })), row => {
+      const vessel = row.vessel;
+      selected = vessel.mmsi;
+      showTrack();
+      map.easeTo({ center: [vessel.lon, vessel.lat], zoom: Math.max(map.getZoom(), 9),
+        duration: 650, essential: true });
+    });
+  }
   function init(instance) { map = instance; }
-  return { init, toggle, restore, refresh };
+  return { init, toggle, restore, refresh, openList };
 })();

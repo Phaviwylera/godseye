@@ -943,9 +943,7 @@ button, input, select { font: inherit; }
 @keyframes mapScan { to { transform: translateY(700%); } }
 body[data-map-style="streets"] .map-grid { opacity: .06; }
 body[data-map-style="satellite"] .map-vignette { box-shadow: inset 0 0 185px 35px rgba(0, 5, 9, .46); }
-.maplibregl-canvas { filter: saturate(.80) contrast(1.07) brightness(.87); transition: filter .5s ease; }
-body[data-map-style="satellite"] .maplibregl-canvas { filter: saturate(.67) contrast(1.13) brightness(.78) hue-rotate(3deg); }
-body[data-map-style="streets"] .maplibregl-canvas { filter: saturate(.75) contrast(1.04) brightness(.91); }
+.maplibregl-canvas { filter: none; }
 #map-atmosphere::after { content:""; position:absolute; inset:0; opacity:0; pointer-events:none; }
 body[data-sensor-mode="crt"] .maplibregl-canvas { filter: grayscale(.28) sepia(.82) hue-rotate(82deg) saturate(1.8) contrast(1.35) brightness(.86); }
 body[data-sensor-mode="crt"] #map-atmosphere::after {
@@ -1237,3 +1235,26 @@ body[data-sensor-mode="snow"] .maplibregl-canvas { filter: grayscale(.9) invert(
 @media (max-width:1100px) and (min-width:761px){#fab{display:block}}
 @media (max-width:760px){#tour-pill{bottom:78px;max-width:95vw}}
 @media (prefers-reduced-motion:reduce){#tour-pill,.tour-dot{animation:none}}
+
+/* Map contact browser and dependable keyboard/touchpad controls. */
+#contacts-panel { position:fixed; z-index:28; right:255px; top:145px; width:min(330px,calc(100vw - 290px));
+  max-height:min(58vh,520px); display:flex; flex-direction:column; background:rgba(3,12,18,.96);
+  border:1px solid rgba(139,233,250,.35); box-shadow:0 16px 45px rgba(0,0,0,.5); color:#bceff7; }
+#contacts-panel.hidden { display:none; }
+#contacts-panel header { display:flex; justify-content:space-between; align-items:center; padding:10px 12px;
+  border-bottom:1px solid rgba(139,233,250,.2); font-size:10px; letter-spacing:.13em; }
+#contacts-close { border:0; background:transparent; color:#9de9f1; cursor:pointer; font-size:15px; }
+#contacts-list { overflow-y:auto; overscroll-behavior:contain; }
+.contact-row { display:flex; flex-direction:column; gap:4px; text-align:left; width:100%; padding:10px 12px;
+  color:#bedde4; background:transparent; border:0; border-bottom:1px solid rgba(139,233,250,.09); cursor:pointer; }
+.contact-row:hover, .contact-row:focus-visible { background:rgba(65,239,194,.12); outline:none; }
+.contact-row strong { font-size:11px; font-weight:500; }
+.contact-row small { font-size:9px; color:#84abb5; }
+.contact-note { padding:14px 12px; color:#8aa9b2; font-size:10px; line-height:1.5; }
+#btn-zoom-in, #btn-zoom-out { color:#a7eaf0; font-size:15px; min-width:32px; }
+#air-chip, #vessel-chip { cursor:pointer; }
+#map .maplibregl-canvas { cursor:grab; }
+#map .maplibregl-canvas:active { cursor:grabbing; }
+@media(max-width:760px) {
+  #contacts-panel { right:10px; left:10px; top:auto; bottom:90px; width:auto; max-height:50vh; }
+}
