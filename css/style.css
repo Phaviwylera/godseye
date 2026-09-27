@@ -322,12 +322,12 @@ body.map-unavailable #controls { display:none; }
 
 /* ---- intel layers ---- */
 #intel-row { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-#iss-chip, #metro-chip {
+#iss-chip, #transit-chip {
   font-size: 10px; letter-spacing: .15em; color: var(--cyan);
   border: 1px solid var(--cyan-dim); padding: 5px 10px; cursor: pointer;
   background: var(--panel);
 }
-#metro-chip { color: #9afbe9; border-color: rgba(154, 251, 233, .28); }
+#transit-chip { color: #9afbe9; border-color: rgba(154, 251, 233, .28); }
 #radar-ctl {
   display: flex; align-items: center; gap: 8px; background: var(--panel);
   border: 1px solid var(--line); padding: 5px 10px;
@@ -409,10 +409,10 @@ body.map-unavailable #controls { display:none; }
   visibility: hidden; pointer-events: none;
   transition: opacity .35s var(--ease-apple), transform .45s var(--ease-apple), visibility 0s .45s; }
 
-#radar-ctl, #iss-chip, #air-chip, #quake-chip, #metro-chip, #m-scrub-live, #scrub-wrap {
+#radar-ctl, #iss-chip, #air-chip, #quake-chip, #transit-chip, #m-scrub-live, #scrub-wrap {
   transition: opacity var(--t-med) var(--ease-apple), transform .5s var(--ease-spring), visibility 0s;
 }
-#radar-ctl.hidden, #iss-chip.hidden, #air-chip.hidden, #quake-chip.hidden, #metro-chip.hidden, #m-scrub-live.hidden, #scrub-wrap.hidden {
+#radar-ctl.hidden, #iss-chip.hidden, #air-chip.hidden, #quake-chip.hidden, #transit-chip.hidden, #m-scrub-live.hidden, #scrub-wrap.hidden {
   display: flex !important; opacity: 0; transform: translateY(8px);
   visibility: hidden; pointer-events: none;
   transition: opacity .3s var(--ease-apple), transform .35s var(--ease-apple), visibility 0s .35s;
@@ -1253,7 +1253,7 @@ body[data-sensor-mode="snow"] .maplibregl-canvas { filter: grayscale(.9) invert(
 .contact-row small { font-size:9px; color:#84abb5; }
 .contact-note { padding:14px 12px; color:#8aa9b2; font-size:10px; line-height:1.5; }
 #btn-zoom-in, #btn-zoom-out { color:#a7eaf0; font-size:15px; min-width:32px; }
-#air-chip, #vessel-chip, #metro-chip { cursor:pointer; }
+#air-chip, #vessel-chip, #transit-chip { cursor:pointer; }
 #map .maplibregl-canvas { cursor:grab; }
 #map .maplibregl-canvas:active { cursor:grabbing; }
 @media(max-width:760px) {

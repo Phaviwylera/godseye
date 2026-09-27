@@ -52,36 +52,55 @@ Ships use a teal vessel symbol; selecting one shows only its actually observed p
 from the last 30 minutes as a dashed trail and waypoint dots. A trail appears after
 a second distinct position arrives.
 
-The **METRO** layer draws the live metro / urban-rail networks that their own operators
-publish openly for riders: coloured line geometry, station dots (zoom 10.5+) and every
-train the feed currently reports. Click a train for its line, destination, next stop and
-ETA; click a station for the next trains due there; click the chip for a contact list.
-Data comes from `data/metro.json` and is fetched live — nothing is bundled or simulated.
+The **TRANSIT** layer draws the live bus, tram, metro and light-rail networks that their
+own operators publish openly for riders: coloured rail line geometry, station dots
+(zoom 10.5+) and every vehicle the feed currently reports. Click a vehicle for its route,
+destination, next stop, ETA, speed and delay; click a rail station for the next trains due
+there; click the chip for a sortable contact list. Data comes from `data/transit.json` and
+is fetched live — nothing is bundled or simulated.
 
-| id | network | adapter | provides |
-|----|---------|---------|----------|
-| `st-link` | Seattle — Sound Transit Link light rail, T Line, Sounder | OneBusAway REST (public `TEST` key) | **live GPS train positions** |
-| `tfl` | London — Underground, DLR, Elizabeth line, Overground, Trams | TfL Unified API (keyless) | live arrival predictions per train |
-| `bart` | San Francisco — BART | BART API (public demo key) | live per-station departures |
+| id | network | adapter | mode | provides |
+|----|---------|---------|------|----------|
+| `st-rail` | Seattle — Sound Transit Link, T Line, Sounder | OneBusAway (public `TEST` key) | 🚆 rail | **live GPS train positions** |
+| `st-streetcar` | Seattle Streetcar | OneBusAway | 🚊 tram | live GPS tram positions |
+| `ps-bus` | Seattle — Community Transit, Pierce Transit, Everett Transit | OneBusAway | 🚌 bus | live GPS bus positions |
+| `tfl` | London — Underground, DLR, Elizabeth line, Overground, Trams | TfL Unified API (keyless) | 🚆 rail | live predictions per train + line status |
+| `bart` | San Francisco — BART | BART API (public demo key) | 🚆 rail | live per-station departures |
+| `ttc` | Toronto — TTC buses & streetcars | Umo IQ (keyless) | 🚌/🚊 | live GPS bus + tram positions |
+| `stl` | Laval — Société de transport de Laval | Umo IQ | 🚌 bus | live GPS bus positions |
+| `omnitrans` | San Bernardino — Omnitrans | Umo IQ | 🚌 bus | live GPS bus positions |
+| `portland-sc` | Portland Streetcar | Umo IQ | 🚊 tram | live GPS tram positions |
 
 Two kinds of feed are supported and labelled differently in every popup:
 
-* **positions** — the operator publishes live vehicle coordinates (Sound Transit via
-  OneBusAway). Trains are drawn where they actually are, rotated to their heading, and a
-  selected train shows the positions observed for it in the last 30 minutes.
+* **positions** — the operator publishes live vehicle coordinates (OneBusAway networks,
+  Umo IQ networks). Vehicles are drawn where they actually are, rotated to their heading,
+  and selecting one shows the positions observed for it in the last 30 minutes. Umo
+  vehicles that stop reporting are dropped rather than left frozen on the map.
 * **arrivals** — the operator publishes arrival predictions but no vehicle coordinates
-  (TfL, BART). Each train is drawn at the station it is next due at; TfL trains are
+  (TfL, BART). Each vehicle is drawn at the stop it is next due at; TfL trains are
   de-duplicated by vehicle id so one train appears once, and BART — which publishes no
   vehicle ids at all — is sampled to the departures due within five minutes, so one
   marker is one departure rather than one unique train.
 
-Line geometry and stations load once per session; only train positions are polled, every
-60 seconds. A network whose feed fails is reported as unavailable in the chip and never
-back-filled with guesses. Keep each operator's attribution, which is shown in the
-chip tooltip and in every train popup. To add a network, append a feed to
-`data/metro.json` and, if it is not OneBusAway / TfL / BART, a parser + adapter in
-`js/metro.js` — the parsers are pure functions and are unit-tested in
-`tests/metro.test.mjs`.
+Rail line geometry and stations load once per session; only vehicle positions are polled,
+every 60 seconds. Markers fade as their last report ages, so a stale vehicle reads as
+stale. Past 2,500 vehicles the layer draws the ones nearest the view and says so in the
+chip tooltip. A network whose feed fails is reported as unavailable in the chip tooltip
+and never back-filled with guesses.
+
+Colours follow the operator's own brand colour where the feed publishes one (TfL, BART,
+Sound Transit); where it does not, markers use the app palette — cyan for rail, teal for
+trams, amber for buses. Keep each operator's attribution, which is shown in the chip
+tooltip and in every vehicle popup. To add a network, append a feed to
+`data/transit.json` and, if it is not OneBusAway / TfL / BART / Umo, a parser + adapter
+in `js/transit.js` — the parsers are pure functions and are unit-tested in
+`tests/transit.test.mjs`.
+
+Not included, and why: MTA, WMATA, CTA, TfNSW, TransLink, LTA Singapore, Taipei, Seoul
+and Tokyo all require a registered API key; Amtrak's live map returns an encrypted
+payload; Chennai's CMRL publishes no real-time feed at all. King County Metro is left out
+on purpose — its `vehicles-for-agency` payload is over a megabyte per poll.
 
 ## ✨ Features
 
@@ -97,6 +116,7 @@ chip tooltip and in every train popup. To add a network, append a feed to
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
  ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, a dedicated tracked-aircraft pin, follow mode and an oblique cockpit view |
+ 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 9 public operator feeds |
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |

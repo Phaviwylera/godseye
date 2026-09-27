@@ -1,34 +1,38 @@
-/* METRO — live metro / urban-rail networks: line geometry, stations and trains.
+/* TRANSIT — live metro, light rail, tram and bus networks.
  *
- * Every network here is a feed the operator publishes openly for riders.
- * Two kinds of feed are supported and they are labelled differently in the UI:
+ * Every network here is a feed the operator publishes openly for riders. Two kinds
+ * of feed are supported and they are labelled differently in the UI:
  *
- *   positions — live vehicle coordinates (OneBusAway: Sound Transit Link light rail)
- *   arrivals  — live arrival predictions with no vehicle coordinates; a train is
- *               drawn at the station it is next due at (TfL, BART)
+ *   positions — live vehicle coordinates (OneBusAway, Umo IQ)
+ *   arrivals  — live arrival predictions with no vehicle coordinates; the vehicle is
+ *               drawn at the stop it is next due at (TfL, BART)
  *
- * Line geometry and station positions are fetched once per session; only the
- * train positions are polled. Nothing is fabricated: a network whose feed fails
- * is reported as unavailable rather than filled in with guesses.
+ * Rail line geometry and stations load once per session; only vehicle positions are
+ * polled. Nothing is fabricated: a network whose feed fails is reported as
+ * unavailable rather than filled in with guesses.
  */
-const Metro = (() => {
+const Transit = (() => {
   let map = null;
   let enabled = false;
   let timer = null;
   let bound = false;
   let requestId = 0;
   let registry = [];
-  let trains = [];
+  let vehicles = [];
   let lines = [];
   let stations = [];
   let selected = null;
-  const history = new Map();      // train key -> [[lon, lat, ms], ...]
+  let capped = 0;
+  const history = new Map();      // vehicle key -> [[lon, lat, ms], ...]
   const staticDone = new Set();   // feeds whose lines + stations are loaded
 
   const REFRESH_MS = 60000;
   const HISTORY_MS = 30 * 60 * 1000;
-  const chip = () => document.getElementById('metro-chip');
-  const button = () => document.getElementById('btn-metro');
+  const MAX_FEATURES = 2500;
+  const DEFAULT_COLOR = { rail: '#8be9fa', tram: '#41efc2', bus: '#d9b56d' };
+
+  const chip = () => document.getElementById('transit-chip');
+  const button = () => document.getElementById('btn-transit');
   const empty = () => ({ type: 'FeatureCollection', features: [] });
 
   /* ---------------------------------------------------------------- helpers */
@@ -57,6 +61,16 @@ const Metro = (() => {
     const lift = (v) => Math.min(255, Math.round(v + (255 - v) * 0.6));
     r = lift(r); g = lift(g); b = lift(b);
     return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+
+  function modeFor(feed, fallback) {
+    return feed && feed.mode ? feed.mode : (fallback || 'bus');
+  }
+
+  function colorFor(feed, value) {
+    const hex = normColor(value);
+    if (hex !== '#7ee0ff') return hex;
+    return DEFAULT_COLOR[modeFor(feed)] || DEFAULT_COLOR.bus;
   }
 
   function tidyStopName(name) {
@@ -114,11 +128,13 @@ const Metro = (() => {
     return out;
   }
 
-  function toFeatureCollection(items) {
-    return { type: 'FeatureCollection', features: items };
-  }
+  /* ------------------------------------------------------- OBA (Puget Sound) */
 
-  /* ------------------------------------------------------- OBA (Sound Transit) */
+  function modeFromRouteType(type) {
+    if (type === 3) return 'bus';
+    if (type === 0) return 'tram';
+    return 'rail';
+  }
 
   function parseObaRoutes(payload, feed) {
     const modes = new Set((feed && feed.modes) || [0, 1, 2]);
@@ -129,6 +145,7 @@ const Metro = (() => {
         name: String(route.nullSafeShortName || route.shortName || route.longName || route.id),
         description: String(route.description || route.longName || ''),
         color: normColor(route.color),
+        type: Number(route.type),
       }));
   }
 
@@ -151,40 +168,73 @@ const Metro = (() => {
     return { lines: coords, stations: stops, routeId: route && route.id };
   }
 
+  function obaTrain(item, feed, route, trip, stop, now) {
+    const status = item.status || item.tripStatus;
+    if (!status) return null;
+    const pos = status.position || status.lastKnownLocation || item.location;
+    if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lon)) return null;
+    const vehicleId = String(status.vehicleId || item.vehicleId || '');
+    const observed = Number(status.lastUpdateTime || status.lastLocationUpdateTime) || now;
+    return {
+      key: `${feed.id}:${route.id}:${vehicleId || item.tripId}`,
+      feed: feed.id,
+      network: feed.network,
+      operator: feed.operator,
+      city: feed.city,
+      kind: 'positions',
+      // A feed's declared mode wins: Sound Transit's Link is GTFS type 0 (light rail) but
+      // is a metro train, so it must not be drawn as a tram.
+      mode: route.type === 3 ? 'bus' : modeFor(feed, modeFromRouteType(route.type)),
+      lineId: route.id,
+      lineName: route.name,
+      color: readable(route.color),
+      lon: pos.lon,
+      lat: pos.lat,
+      heading: Number.isFinite(status.orientation) ? Number(status.orientation) : 0,
+      speed: null,
+      dest: (trip && trip.tripHeadsign) || route.description || '',
+      nextStop: stop ? tidyStopName(stop.name) : '',
+      etaSec: Number.isFinite(status.nextStopTimeOffset) ? Math.round(status.nextStopTimeOffset) : null,
+      delaySec: Number.isFinite(status.scheduleDeviation) ? Math.round(status.scheduleDeviation) : null,
+      vehicle: vehicleId,
+      observed,
+      attribution: feed.attribution,
+    };
+  }
+
+  /* trips-for-route: one call per rail route, used where the network is small. */
   function parseObaTrips(payload, feed, route) {
     const references = (payload && payload.data && payload.data.references) || {};
     const trips = new Map(asArray(references.trips).map((t) => [String(t.id), t]));
     const stops = new Map(asArray(references.stops).map((s) => [String(s.id), s]));
     const out = [];
+    const now = Date.now();
     for (const item of asArray(payload && payload.data && payload.data.list)) {
-      const status = item && item.status;
-      if (!status) continue;
-      const pos = status.position || status.lastKnownLocation;
-      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lon)) continue;
       const trip = trips.get(String(item.tripId));
-      const stop = stops.get(String(status.nextStop || status.closestStop));
-      const vehicleId = String(status.vehicleId || item.tripId || '');
-      out.push({
-        key: `${feed.id}:${route.id}:${vehicleId}`,
-        feed: feed.id,
-        network: feed.network,
-        operator: feed.operator,
-        city: feed.city,
-        kind: 'positions',
-        lineId: route.id,
-        lineName: route.name,
-        color: route.color,
-        lon: pos.lon,
-        lat: pos.lat,
-        heading: Number.isFinite(status.orientation) ? Number(status.orientation) : 0,
-        dest: (trip && trip.tripHeadsign) || route.description || '',
-        nextStop: stop ? tidyStopName(stop.name) : '',
-        etaSec: Number.isFinite(status.nextStopTimeOffset) ? Math.round(status.nextStopTimeOffset) : null,
-        delaySec: Number.isFinite(status.scheduleDeviation) ? Math.round(status.scheduleDeviation) : null,
-        vehicle: vehicleId,
-        observed: Number(status.lastUpdateTime || status.lastLocationUpdateTime) || Date.now(),
-        attribution: feed.attribution,
-      });
+      const status = item.status || item.tripStatus;
+      const stop = stops.get(String((status && (status.nextStop || status.closestStop)) || ''));
+      const vehicle = obaTrain(item, feed, route, trip, stop, now);
+      if (vehicle) out.push(vehicle);
+    }
+    return out;
+  }
+
+  /* vehicles-for-agency: one call per agency, used for bus fleets. */
+  function parseObaVehicles(payload, feed, routes) {
+    const references = (payload && payload.data && payload.data.references) || {};
+    const trips = new Map(asArray(references.trips).map((t) => [String(t.id), t]));
+    const stops = new Map(asArray(references.stops).map((s) => [String(s.id), s]));
+    const out = [];
+    const now = Date.now();
+    for (const item of asArray(payload && payload.data && payload.data.list)) {
+      const trip = trips.get(String(item.tripId));
+      const routeId = (trip && String(trip.routeId)) || String(item.tripId || '').split('_').slice(0, 2).join('_');
+      const route = routes.get(routeId);
+      if (!route) continue;                       // not a route this feed tracks
+      const status = item.tripStatus || item.status;
+      const stop = stops.get(String((status && (status.nextStop || status.closestStop)) || ''));
+      const vehicle = obaTrain(item, feed, route, trip, stop, now);
+      if (vehicle) out.push(vehicle);
     }
     return out;
   }
@@ -232,6 +282,7 @@ const Metro = (() => {
     const stops = stopIndex || new Map();
     const meta = lineMeta || new Map();
     const best = new Map();
+    const now = Date.now();
     for (const item of asArray(payload)) {
       const stopId = String((item && item.naptanId) || '');
       const stop = stops.get(stopId);
@@ -251,12 +302,14 @@ const Metro = (() => {
         operator: feed.operator,
         city: feed.city,
         kind: 'arrivals',
+        mode: lineId === 'tram' ? 'tram' : modeFor(feed),
         lineId,
         lineName: (line && line.name) || String((item && item.lineName) || lineId),
-        color: (line && line.color) || '#7ee0ff',
+        color: (line && line.color) || DEFAULT_COLOR[modeFor(feed)],
         lon: stop.lon,
         lat: stop.lat,
         heading: 0,
+        speed: null,
         dest: tidyStopName(item && item.destinationName),
         nextStop: stop.name,
         etaSec,
@@ -264,7 +317,7 @@ const Metro = (() => {
         vehicle,
         platform: String((item && item.platformName) || ''),
         where: String((item && item.currentLocation) || ''),
-        observed: Date.parse((item && item.timestamp) || '') || Date.now(),
+        observed: Date.parse((item && item.timestamp) || '') || now,
         attribution: feed.attribution,
       });
     }
@@ -331,12 +384,14 @@ const Metro = (() => {
             operator: feed.operator,
             city: feed.city,
             kind: 'arrivals',
+            mode: modeFor(feed),
             lineId: (route && route.number) || String((estimate && estimate.color) || ''),
             lineName: route ? route.name : String((estimate && estimate.color) || 'BART'),
             color: normColor(estimate && estimate.hexcolor),
             lon: here.lon,
             lat: here.lat,
             heading: 0,
+            speed: null,
             dest: destination,
             nextStop: here.name,
             etaSec: Math.round(minutes * 60),
@@ -349,6 +404,61 @@ const Metro = (() => {
           });
         }
       }
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------- Umo IQ (NextBus) */
+
+  function parseUmoRoutes(payload) {
+    const out = new Map();
+    for (const route of asArray(payload && payload.route)) {
+      const tag = String(route.tag || '');
+      if (tag) out.set(tag, String(route.title || tag));
+    }
+    return out;
+  }
+
+  function parseUmoVehicles(payload, feed, routeNames, maxAgeSec) {
+    const names = routeNames || new Map();
+    const out = [];
+    const now = Date.now();
+    for (const item of asArray(payload && payload.vehicle)) {
+      if (item.lat == null || item.lon == null) continue;     // Number(null) is 0, not NaN
+      const lat = Number(item.lat);
+      const lon = Number(item.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+      const age = Number(item.secsSinceReport);
+      if (!Number.isFinite(age)) continue;
+      if (Number.isFinite(maxAgeSec) && age > maxAgeSec) continue;      // a bus that stopped reporting is gone
+      const routeTag = String(item.routeTag || '');
+      const tram = feed.tramPrefix && routeTag.length === 3 && routeTag.startsWith(feed.tramPrefix);
+      const mode = tram ? 'tram' : modeFor(feed);
+      const speed = Number(item.speedKmHr);
+      out.push({
+        key: `${feed.id}:${item.id || routeTag}:${lon}:${lat}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'positions',
+        mode,
+        lineId: routeTag,
+        lineName: names.get(routeTag) || (routeTag ? `Route ${routeTag}` : feed.network),
+        color: DEFAULT_COLOR[mode] || DEFAULT_COLOR.bus,
+        lon,
+        lat,
+        heading: Number(item.heading) || 0,
+        speed: Number.isFinite(speed) ? Math.round(speed) : null,
+        dest: String(item.dirTag || '').replace(/^[^_]*_[^_]*_/, '') || '',
+        nextStop: '',
+        etaSec: null,
+        delaySec: null,
+        vehicle: String(item.id || ''),
+        observed: now - age * 1000,
+        attribution: feed.attribution,
+      });
     }
     return out;
   }
@@ -369,7 +479,7 @@ const Metro = (() => {
 
   async function loadRegistry() {
     if (registry.length) return registry;
-    const response = await fetch('data/metro.json', { cache: 'no-store' });
+    const response = await fetch('data/transit.json', { cache: 'no-store' });
     if (!response.ok) throw new Error('registry unavailable');
     const json = await response.json();
     registry = asArray(json.feeds).map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null }, feed));
@@ -385,13 +495,15 @@ const Metro = (() => {
       if (feed.adapter === 'oba') await obaStatic(feed);
       else if (feed.adapter === 'tfl') await tflStatic(feed);
       else if (feed.adapter === 'bart') await bartStatic(feed);
+      else if (feed.adapter === 'umo') await umoStatic(feed);
     } catch (e) {
       staticDone.delete(feed.id);   // let the next tick retry instead of leaving the network half-drawn
       throw e;
     }
   }
 
-  async function obaStatic(feed) {
+  async function obaRoutes(feed) {
+    if (feed._routes && feed._routes.length) return feed._routes;
     const routes = [];
     for (const agency of feed.agencies || []) {
       const data = await getJson(
@@ -399,7 +511,14 @@ const Metro = (() => {
       for (const route of parseObaRoutes(data, feed)) routes.push(route);
     }
     feed._routes = routes;
-    for (const route of routes) {
+    feed._routeIndex = new Map(routes.map((route) => [route.id, route]));
+    return routes;
+  }
+
+  async function obaStatic(feed) {
+    await obaRoutes(feed);
+    if (feed.strategy === 'agency') return;        // bus fleets: no line geometry to draw
+    for (const route of feed._routes) {
       let parsed = null;
       try {
         const data = await getJson(
@@ -407,7 +526,9 @@ const Metro = (() => {
         parsed = parseObaStops(data, feed, route);
       } catch (e) { parsed = null; }
       const coords = (parsed && parsed.lines) || [];
-      if (coords.length) lines.push({ feed: feed.id, id: route.id, name: route.name, color: readable(route.color), coords });
+      if (coords.length) {
+        lines.push({ feed: feed.id, id: route.id, name: route.name, color: readable(route.color), coords });
+      }
       for (const stop of (parsed && parsed.stations) || []) {
         feed._stops.set(stop.id, stop);
         pushStation(feed, stop, route.id, route.name, readable(route.color));
@@ -461,13 +582,23 @@ const Metro = (() => {
           `${feed.base}/route.aspx?cmd=routeinfo&route=${encodeURIComponent(route.number)}&key=${encodeURIComponent(feed.key)}&json=y`,
           feed.cors);
         const coords = parseBartRouteInfo(info, feed, route, feed._stops);
-        if (coords) lines.push({ feed: feed.id, id: route.number, name: route.name || `Route ${route.number}`, color: readable(route.color), coords: [coords] });
+        if (coords) {
+          lines.push({ feed: feed.id, id: route.number, name: route.name || `Route ${route.number}`,
+            color: readable(route.color), coords: [coords] });
+        }
       } catch (e) { /* skip this route's geometry */ }
     }
     for (const station of stationList) {
       pushStation(feed, { id: station.abbr, name: station.name, lon: station.lon, lat: station.lat },
-        '', feed.network, '#7ee0ff');
+        '', feed.network, DEFAULT_COLOR.rail);
     }
+  }
+
+  async function umoStatic(feed) {
+    try {
+      const data = await getJson(`${feed.base}?command=routeList&a=${encodeURIComponent(feed.agency)}`, feed.cors);
+      feed._routeNames = parseUmoRoutes(data);
+    } catch (e) { feed._routeNames = new Map(); }
   }
 
   function pushStation(feed, stop, lineId, lineName, colour) {
@@ -483,15 +614,26 @@ const Metro = (() => {
 
   async function refreshFeed(feed) {
     if (feed.adapter === 'oba') {
+      const routes = feed._routes || [];
       const out = [];
-      for (const route of feed._routes || []) {
-        try {
-          const data = await getJson(
-            `${feed.base}/trips-for-route/${encodeURIComponent(route.id)}.json?key=${encodeURIComponent(feed.key)}`, feed.cors);
-          for (const train of parseObaTrips(data, feed, route)) out.push(train);
-        } catch (e) { /* one route failing must not hide the others */ }
+      if (feed.strategy === 'agency') {
+        for (const agency of feed.agencies || []) {
+          try {
+            const data = await getJson(
+              `${feed.base}/vehicles-for-agency/${encodeURIComponent(agency)}.json?key=${encodeURIComponent(feed.key)}`, feed.cors);
+            for (const vehicle of parseObaVehicles(data, feed, feed._routeIndex)) out.push(vehicle);
+          } catch (e) { /* one agency failing must not hide the others */ }
+        }
+      } else {
+        for (const route of routes) {
+          try {
+            const data = await getJson(
+              `${feed.base}/trips-for-route/${encodeURIComponent(route.id)}.json?key=${encodeURIComponent(feed.key)}`, feed.cors);
+            for (const vehicle of parseObaTrips(data, feed, route)) out.push(vehicle);
+          } catch (e) { /* one route failing must not hide the others */ }
+        }
       }
-      if (!out.length) throw new Error('no rail trips');
+      if (!out.length) throw new Error('no vehicles reported');
       return out;
     }
     if (feed.adapter === 'tfl') {
@@ -505,43 +647,51 @@ const Metro = (() => {
         `${feed.base}/etd.aspx?cmd=etd&orig=ALL&key=${encodeURIComponent(feed.key)}&json=y`, feed.cors);
       return parseBartEtd(data, feed, feed._stops, feed._routeByColor, feed.maxMinutes);
     }
+    if (feed.adapter === 'umo') {
+      const data = await getJson(
+        `${feed.base}?command=vehicleLocations&a=${encodeURIComponent(feed.agency)}&t=0`, feed.cors);
+      return parseUmoVehicles(data, feed, feed._routeNames, feed.maxAgeSec);
+    }
     return [];
   }
 
   async function refresh() {
     if (!enabled) return;
     const id = ++requestId;
-    status('◇ METRO CONNECTING…');
+    status('◇ TRANSIT CONNECTING…');
     await loadRegistry().catch(() => []);
     const results = await Promise.all(registry.map(async (feed) => {
       try {
         await loadStatic(feed);
         const items = await refreshFeed(feed);
         feed._error = null;
+        feed._count = items.length;
         return { feed, items };
       } catch (e) {
         feed._error = String((e && e.message) || e || 'unavailable');
+        feed._count = 0;
         return { feed, items: [] };
       }
     }));
     if (!enabled || id !== requestId) return;
-    trains = results.reduce((all, result) => all.concat(result.items), []);
+    vehicles = results.reduce((all, result) => all.concat(result.items), []);
     const stamp = Date.now();
-    for (const train of trains) {
-      const trail = (history.get(train.key) || []).filter((point) => stamp - point[2] < HISTORY_MS);
+    for (const vehicle of vehicles) {
+      if (vehicle.kind !== 'positions') continue;
+      const trail = (history.get(vehicle.key) || []).filter((point) => stamp - point[2] < HISTORY_MS);
       const last = trail[trail.length - 1];
-      if (!last || last[0] !== train.lon || last[1] !== train.lat) trail.push([train.lon, train.lat, stamp]);
-      history.set(train.key, trail);
+      if (!last || last[0] !== vehicle.lon || last[1] !== vehicle.lat) trail.push([vehicle.lon, vehicle.lat, stamp]);
+      history.set(vehicle.key, trail);
     }
     for (const key of [...history.keys()]) {
-      if (!trains.some((train) => train.key === key)) history.delete(key);
+      if (!vehicles.some((vehicle) => vehicle.key === key)) history.delete(key);
     }
     render();
   }
 
   /* ------------------------------------------------------------- rendering */
 
-  function trainIcon(colour) {
+  function drawRail(colour) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 40;
     const ctx = canvas.getContext('2d');
@@ -569,15 +719,56 @@ const Metro = (() => {
     return ctx.getImageData(0, 0, 40, 40);
   }
 
-  function iconId(colour) {
-    return 'ge-metro-' + normColor(colour).slice(1);
+  function drawRoad(colour, tram) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 40;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(20, 20);
+    ctx.shadowColor = colour;
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#04121a';
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 2.2;
+    const w = tram ? 6 : 7;
+    const h = tram ? 15 : 13;
+    ctx.beginPath();
+    ctx.moveTo(-w, -h + 3);
+    ctx.quadraticCurveTo(-w, -h, -w + 3, -h);
+    ctx.lineTo(w - 3, -h);
+    ctx.quadraticCurveTo(w, -h, w, -h + 3);
+    ctx.lineTo(w, h - 2);
+    ctx.quadraticCurveTo(w, h, w - 3, h);
+    ctx.lineTo(-w + 3, h);
+    ctx.quadraticCurveTo(-w, h, -w, h - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = colour;
+    ctx.fillRect(-w + 2.5, -h + 4, (w - 2.5) * 2, 4);
+    ctx.fillRect(-w + 2.5, 1, (w - 2.5) * 2, 3.5);
+    if (tram) {                       // a tram carries a pole; a bus does not
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -h);
+      ctx.lineTo(3, -h - 5);
+      ctx.stroke();
+    }
+    return ctx.getImageData(0, 0, 40, 40);
+  }
+
+  function iconId(mode, colour) {
+    return 'ge-transit-' + mode + '-' + normColor(colour).slice(1);
   }
 
   /* Sprites live on the style, so they must be re-added after every style change. */
-  function ensureIcon(colour) {
+  function ensureIcon(mode, colour) {
     const hex = normColor(colour);
-    const id = iconId(hex);
-    if (map && !map.hasImage(id)) map.addImage(id, trainIcon(hex), { pixelRatio: 2 });
+    const id = iconId(mode, hex);
+    if (map && !map.hasImage(id)) {
+      map.addImage(id, mode === 'rail' ? drawRail(hex) : drawRoad(hex, mode === 'tram'), { pixelRatio: 2 });
+    }
     return id;
   }
 
@@ -607,15 +798,31 @@ const Metro = (() => {
     }));
   }
 
-  function trainFeatures() {
-    return trains.map((train) => ({
+  /* Keep the map honest but responsive: past the cap, draw the vehicles nearest the view. */
+  function drawnVehicles() {
+    if (vehicles.length <= MAX_FEATURES) {
+      capped = 0;
+      return vehicles;
+    }
+    const center = map ? map.getCenter() : { lng: 0, lat: 0 };
+    capped = vehicles.length;
+    return [...vehicles].sort((a, b) =>
+      (Math.abs(a.lon - center.lng) + Math.abs(a.lat - center.lat))
+      - (Math.abs(b.lon - center.lng) + Math.abs(b.lat - center.lat))).slice(0, MAX_FEATURES);
+  }
+
+  function vehicleFeatures() {
+    const now = Date.now();
+    return drawnVehicles().map((vehicle) => ({
       type: 'Feature',
       properties: {
-        key: train.key, feed: train.feed, line: train.lineName, color: train.color,
-        icon: iconId(train.color),
-        heading: Number.isFinite(train.heading) ? train.heading : 0, dest: train.dest,
+        key: vehicle.key, feed: vehicle.feed, line: vehicle.lineName, color: vehicle.color,
+        mode: vehicle.mode, icon: iconId(vehicle.mode, vehicle.color),
+        heading: Number.isFinite(vehicle.heading) ? vehicle.heading : 0,
+        age: Math.max(0, Math.round((now - vehicle.observed) / 1000)),
+        dest: vehicle.dest,
       },
-      geometry: { type: 'Point', coordinates: [train.lon, train.lat] },
+      geometry: { type: 'Point', coordinates: [vehicle.lon, vehicle.lat] },
     }));
   }
 
@@ -631,11 +838,11 @@ const Metro = (() => {
 
   function paint() {
     if (!map) return;
-    for (const train of trains) ensureIcon(train.color);
-    map.getSource('metro-lines')?.setData(toFeatureCollection(lineFeatures()));
-    map.getSource('metro-stations')?.setData(toFeatureCollection(stationFeatures()));
-    map.getSource('metro-trains')?.setData(toFeatureCollection(trainFeatures()));
-    map.getSource('metro-trail')?.setData(toFeatureCollection(trailFeatures()));
+    for (const vehicle of drawnVehicles()) ensureIcon(vehicle.mode, vehicle.color);
+    map.getSource('transit-lines')?.setData({ type: 'FeatureCollection', features: lineFeatures() });
+    map.getSource('transit-stations')?.setData({ type: 'FeatureCollection', features: stationFeatures() });
+    map.getSource('transit-vehicles')?.setData({ type: 'FeatureCollection', features: vehicleFeatures() });
+    map.getSource('transit-trail')?.setData({ type: 'FeatureCollection', features: trailFeatures() });
   }
 
   function status(text) {
@@ -645,72 +852,92 @@ const Metro = (() => {
     node.classList.toggle('hidden', !enabled);
   }
 
+  function countBy(predicate) {
+    return vehicles.filter(predicate).length;
+  }
+
   function render() {
     restore();
-    const ok = registry.filter((feed) => !feed._error && trains.some((train) => train.feed === feed.id));
-    const parts = ok.map((feed) => {
-      const count = trains.filter((train) => train.feed === feed.id).length;
-      return `${feed.city} ${count}`;
-    });
+    const ok = registry.filter((feed) => !feed._error && (feed._count || 0) > 0);
     const lineCount = new Set(lines.map((line) => line.id)).size;
-    if (!trains.length) {
-      status('◇ METRO FEEDS UNAVAILABLE');
+    if (!vehicles.length) {
+      status('◇ TRANSIT FEEDS UNAVAILABLE');
       if (chip()) {
-        chip().title = registry.map((feed) => `${feed.city}: ${feed._error || 'no trains reported'}`).join(' · ')
-          || 'No metro feed responded.';
+        chip().title = registry.map((feed) => `${feed.city}: ${feed._error || 'no vehicles reported'}`).join(' · ')
+          || 'No transit feed responded.';
       }
       return;
     }
-    status(`◇ ${trains.length} TRAINS · ${parts.join(' · ')}`);
-    if (chip()) {
-      chip().title = `${trains.length} live trains across ${ok.length}/${registry.length} networks · ${lineCount} lines\n`
-        + registry.map((feed) => `${feed.city} — ${feed.attribution}`).join('\n')
-        + '\nNetworks marked arrivals show the station a train is next due at, not a GPS position.';
+    const trains = countBy((v) => v.mode !== 'bus');
+    const buses = countBy((v) => v.mode === 'bus');
+    status(`◇ ${vehicles.length} VEHICLES · ${ok.length}/${registry.length} NETWORKS`);
+    if (!chip()) return;
+    const rows = registry.map((feed) => {
+      const count = feed._count || 0;
+      const detail = feed._error ? `unavailable (${feed._error})` : `${count} live`;
+      return `${feed.city} — ${feed.network}: ${detail}`;
+    });
+    const notes = [];
+    if (capped) notes.push(`Drawing the ${MAX_FEATURES} vehicles nearest the view of ${capped} reported.`);
+    const tfl = registry.find((feed) => feed.adapter === 'tfl' && feed._status);
+    if (tfl) {
+      const bad = [...tfl._status.entries()]
+        .filter(([, value]) => Number.isFinite(value.severity) && value.severity < 10)
+        .map(([id, value]) => `${id}: ${value.status}`)
+        .slice(0, 4);
+      if (bad.length) notes.push(`TfL service: ${bad.join(' · ')}`);
     }
+    notes.push(`${trains} rail/tram · ${buses} bus · ${lineCount} lines`);
+    notes.push('Networks marked arrivals show the stop a vehicle is next due at, not a GPS position.');
+    notes.push(...registry.map((feed) => `${feed.city} data: ${feed.attribution}`));
+    chip().title = rows.concat(notes).join('\n');
   }
 
   function restore() {
     if (!enabled || !map) return;
-    for (const source of ['metro-lines', 'metro-stations', 'metro-trains', 'metro-trail']) {
+    for (const source of ['transit-lines', 'transit-stations', 'transit-vehicles', 'transit-trail']) {
       if (!map.getSource(source)) map.addSource(source, { type: 'geojson', data: empty() });
     }
-    if (!map.getLayer('metro-line-casing')) map.addLayer({
-      id: 'metro-line-casing', type: 'line', source: 'metro-lines',
+    if (!map.getLayer('transit-line-casing')) map.addLayer({
+      id: 'transit-line-casing', type: 'line', source: 'transit-lines',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#04121a', 'line-width': 5.5, 'line-opacity': 0.75 },
     });
-    if (!map.getLayer('metro-lines')) map.addLayer({
-      id: 'metro-lines', type: 'line', source: 'metro-lines',
+    if (!map.getLayer('transit-lines')) map.addLayer({
+      id: 'transit-lines', type: 'line', source: 'transit-lines',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': ['get', 'color'], 'line-width': 2.4, 'line-opacity': 0.95 },
     });
-    if (!map.getLayer('metro-trail')) map.addLayer({
-      id: 'metro-trail', type: 'line', source: 'metro-trail',
+    if (!map.getLayer('transit-trail')) map.addLayer({
+      id: 'transit-trail', type: 'line', source: 'transit-trail',
       paint: { 'line-color': '#9afbe9', 'line-width': 2, 'line-opacity': 0.8, 'line-dasharray': [2, 2] },
     });
-    if (!map.getLayer('metro-stations')) map.addLayer({
-      id: 'metro-stations', type: 'circle', source: 'metro-stations', minzoom: 10.5,
+    if (!map.getLayer('transit-stations')) map.addLayer({
+      id: 'transit-stations', type: 'circle', source: 'transit-stations', minzoom: 10.5,
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 10.5, 1.6, 14, 3.4],
         'circle-color': '#0a1f2a', 'circle-stroke-color': '#8fe9ff', 'circle-stroke-width': 1.1,
       },
     });
-    if (!map.getLayer('metro-station-labels')) map.addLayer({
-      id: 'metro-station-labels', type: 'symbol', source: 'metro-stations', minzoom: 13,
+    if (!map.getLayer('transit-station-labels')) map.addLayer({
+      id: 'transit-station-labels', type: 'symbol', source: 'transit-stations', minzoom: 13,
       layout: {
         'text-field': ['get', 'name'], 'text-size': 10, 'text-offset': [0, 1.1],
         'text-allow-overlap': false, 'text-font': ['Open Sans Regular'],
       },
       paint: { 'text-color': '#bfe9f7', 'text-halo-color': '#04121a', 'text-halo-width': 1.8 },
     });
-    if (!map.getLayer('metro-trains')) map.addLayer({
-      id: 'metro-trains', type: 'symbol', source: 'metro-trains',
+    if (!map.getLayer('transit-vehicles')) map.addLayer({
+      id: 'transit-vehicles', type: 'symbol', source: 'transit-vehicles',
       layout: {
         'icon-image': ['get', 'icon'],
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 11, 0.85, 15, 1.15],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.32, 9, 0.6, 12, 0.9, 15, 1.2],
         'icon-rotate': ['get', 'heading'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,
+      },
+      paint: {
+        'icon-opacity': ['interpolate', ['linear'], ['get', 'age'], 0, 1, 180, 0.75, 600, 0.4],
       },
     });
     paint();
@@ -719,38 +946,50 @@ const Metro = (() => {
 
   /* --------------------------------------------------------- interaction */
 
-  function etaText(train) {
-    if (train.etaSec == null) return 'no prediction';
-    if (train.etaSec <= 20) return 'arriving now';
-    if (train.etaSec < 60) return `${train.etaSec}s`;
-    return `${Math.round(train.etaSec / 60)} min`;
+  function etaText(vehicle) {
+    if (vehicle.etaSec == null) return '';
+    if (vehicle.etaSec <= 20) return 'arriving now';
+    if (vehicle.etaSec < 60) return `${vehicle.etaSec}s`;
+    return `${Math.round(vehicle.etaSec / 60)} min`;
   }
 
-  function popupFor(train) {
+  function ageText(vehicle) {
+    const seconds = Math.max(0, Math.round((Date.now() - vehicle.observed) / 1000));
+    if (seconds < 45) return 'just now';
+    if (seconds < 90) return '1 min ago';
+    return `${Math.round(seconds / 60)} min ago`;
+  }
+
+  function popupFor(vehicle) {
     const box = document.createElement('div');
     const title = document.createElement('strong');
-    title.textContent = `${train.lineName} → ${train.dest || '—'}`;
+    title.textContent = `${vehicle.lineName}${vehicle.dest ? ` → ${vehicle.dest}` : ''}`;
     const detail = document.createElement('div');
-    detail.textContent = train.nextStop
-      ? `${train.nextStop} · ${etaText(train)}${train.platform ? ` · ${train.platform}` : ''}`
-      : etaText(train);
+    const bits = [];
+    if (vehicle.nextStop) bits.push(vehicle.nextStop);
+    const eta = etaText(vehicle);
+    if (eta) bits.push(eta);
+    if (vehicle.platform) bits.push(vehicle.platform);
+    if (vehicle.speed != null) bits.push(`${vehicle.speed} km/h`);
+    bits.push(ageText(vehicle));
+    detail.textContent = bits.join(' · ');
     const meta = document.createElement('div');
-    meta.textContent = `${train.operator} · ${train.city} · ${train.vehicle ? `unit ${train.vehicle} · ` : ''}`
-      + `updated ${new Date(train.observed).toLocaleTimeString()}`
-      + (train.delaySec ? ` · ${train.delaySec > 0 ? '+' : ''}${Math.round(train.delaySec / 60)} min vs schedule` : '');
+    meta.textContent = `${vehicle.operator} · ${vehicle.city}`
+      + (vehicle.vehicle ? ` · unit ${vehicle.vehicle}` : '')
+      + (vehicle.delaySec ? ` · ${vehicle.delaySec > 0 ? '+' : ''}${Math.round(vehicle.delaySec / 60)} min vs schedule` : '');
     box.append(title, detail, meta);
-    if (train.where) {
+    if (vehicle.where) {
       const where = document.createElement('div');
-      where.textContent = train.where;
+      where.textContent = vehicle.where;
       box.append(where);
     }
     const note = document.createElement('div');
-    note.textContent = train.kind === 'positions'
-      ? 'Live GPS position reported by the operator feed.'
-      : 'Drawn at the station this train is next due at — this feed publishes arrival predictions, not vehicle coordinates.';
+    note.textContent = vehicle.kind === 'positions'
+      ? 'Live position reported by the operator feed.'
+      : 'Drawn at the stop this vehicle is next due at — this feed publishes arrival predictions, not vehicle coordinates.';
     box.append(note);
     const credit = document.createElement('div');
-    credit.textContent = train.attribution;
+    credit.textContent = vehicle.attribution;
     box.append(credit);
     return box;
   }
@@ -760,19 +999,19 @@ const Metro = (() => {
     const title = document.createElement('strong');
     title.textContent = station.name;
     box.append(title);
-    const due = trains
-      .filter((train) => train.feed === station.feed && train.nextStop === station.name)
+    const due = vehicles
+      .filter((vehicle) => vehicle.feed === station.feed && vehicle.nextStop === station.name)
       .sort((a, b) => (a.etaSec == null ? 1e9 : a.etaSec) - (b.etaSec == null ? 1e9 : b.etaSec))
       .slice(0, 4);
     if (due.length) {
-      for (const train of due) {
+      for (const vehicle of due) {
         const row = document.createElement('div');
-        row.textContent = `${train.lineName} → ${train.dest || '—'} · ${etaText(train)}`;
+        row.textContent = `${vehicle.lineName} → ${vehicle.dest || '—'} · ${etaText(vehicle) || 'due'}`;
         box.append(row);
       }
     } else {
       const none = document.createElement('div');
-      none.textContent = station.lineName ? station.lineName : 'No trains due in the current sample.';
+      none.textContent = station.lineName ? station.lineName : 'Nothing due in the current sample.';
       box.append(none);
     }
     const credit = document.createElement('div');
@@ -784,19 +1023,19 @@ const Metro = (() => {
   function bind() {
     if (bound || !map) return;
     bound = true;
-    map.on('click', 'metro-trains', (event) => {
+    map.on('click', 'transit-vehicles', (event) => {
       const feature = event.features && event.features[0];
       if (!feature) return;
-      const train = trains.find((item) => item.key === feature.properties.key);
-      if (!train) return;
-      selected = train.key;
+      const vehicle = vehicles.find((item) => item.key === feature.properties.key);
+      if (!vehicle) return;
+      selected = vehicle.key;
       paint();
       new maplibregl.Popup({ maxWidth: '320px' })
         .setLngLat(feature.geometry.coordinates)
-        .setDOMContent(popupFor(train))
+        .setDOMContent(popupFor(vehicle))
         .addTo(map);
     });
-    map.on('click', 'metro-stations', (event) => {
+    map.on('click', 'transit-stations', (event) => {
       const feature = event.features && event.features[0];
       if (!feature) return;
       const station = stations.find((item) => item.feed === feature.properties.feed && item.id === feature.properties.id);
@@ -806,7 +1045,7 @@ const Metro = (() => {
         .setDOMContent(stationPopup(station))
         .addTo(map);
     });
-    for (const layer of ['metro-trains', 'metro-stations']) {
+    for (const layer of ['transit-vehicles', 'transit-stations']) {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = 'grab'; });
     }
@@ -819,13 +1058,13 @@ const Metro = (() => {
     button()?.classList.toggle('active', enabled);
     button()?.setAttribute('aria-pressed', String(enabled));
     if (enabled) {
-      status('◇ METRO CONNECTING…');
+      status('◇ TRANSIT CONNECTING…');
       try {
         await loadRegistry();
       } catch (e) {
         enabled = false;
         button()?.classList.remove('active');
-        status('◇ METRO REGISTRY UNAVAILABLE');
+        status('◇ TRANSIT REGISTRY UNAVAILABLE');
         return false;
       }
       restore();
@@ -836,14 +1075,16 @@ const Metro = (() => {
       clearInterval(timer);
       timer = null;
       selected = null;
-      trains = [];
+      vehicles = [];
+      capped = 0;
       history.clear();
       chip()?.classList.add('hidden');
       Contacts.close();
-      for (const layer of ['metro-trains', 'metro-station-labels', 'metro-stations', 'metro-trail', 'metro-lines', 'metro-line-casing']) {
+      for (const layer of ['transit-vehicles', 'transit-station-labels', 'transit-stations',
+        'transit-trail', 'transit-lines', 'transit-line-casing']) {
         if (map && map.getLayer(layer)) map.removeLayer(layer);
       }
-      for (const source of ['metro-trains', 'metro-stations', 'metro-lines', 'metro-trail']) {
+      for (const source of ['transit-vehicles', 'transit-stations', 'transit-lines', 'transit-trail']) {
         if (map && map.getSource(source)) map.removeSource(source);
       }
     }
@@ -853,18 +1094,19 @@ const Metro = (() => {
   function openList() {
     if (!enabled) return;
     const center = map.getCenter();
-    const rows = [...trains].sort((a, b) =>
+    const rows = [...vehicles].sort((a, b) =>
       (Math.abs(a.lon - center.lng) + Math.abs(a.lat - center.lat))
       - (Math.abs(b.lon - center.lng) + Math.abs(b.lat - center.lat)));
-    Contacts.open(`${trains.length} TRAINS · LIVE METRO`, rows.map((train) => ({
-      label: `${train.lineName} → ${train.dest || '—'}`,
-      detail: `${train.city} · ${train.nextStop || 'en route'}${train.nextStop ? ` · ${etaText(train)}` : ''} · ${train.operator}`,
-      train,
+    Contacts.open(`${vehicles.length} VEHICLES · LIVE TRANSIT`, rows.map((vehicle) => ({
+      label: `${vehicle.lineName}${vehicle.dest ? ` → ${vehicle.dest}` : ''}`,
+      detail: `${vehicle.city} · ${vehicle.mode}${vehicle.nextStop ? ` · ${vehicle.nextStop}` : ''}`
+        + `${etaText(vehicle) ? ` · ${etaText(vehicle)}` : ''} · ${vehicle.operator}`,
+      vehicle,
     })), (row) => {
-      const train = row.train;
-      selected = train.key;
+      const vehicle = row.vehicle;
+      selected = vehicle.key;
       paint();
-      map.easeTo({ center: [train.lon, train.lat], zoom: Math.max(map.getZoom(), 11), duration: 650, essential: true });
+      map.easeTo({ center: [vehicle.lon, vehicle.lat], zoom: Math.max(map.getZoom(), 12), duration: 650, essential: true });
     });
   }
 
@@ -872,10 +1114,10 @@ const Metro = (() => {
 
   return {
     init, toggle, restore, refresh, openList,
-    decodePolyline, parseLineStrings, readable, normColor, tidyStopName,
-    parseObaRoutes, parseObaStops, parseObaTrips,
+    decodePolyline, parseLineStrings, readable, normColor, tidyStopName, etaText, ageText,
+    parseObaRoutes, parseObaStops, parseObaTrips, parseObaVehicles, modeFromRouteType,
     parseTflSequence, parseTflStatus, parseTflArrivals,
     parseBartStations, parseBartRoutes, parseBartRouteInfo, parseBartEtd,
-    etaText,
+    parseUmoRoutes, parseUmoVehicles,
   };
 })();
