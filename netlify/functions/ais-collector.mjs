@@ -32,6 +32,34 @@ export function parseVessel(data, received = Date.now()) {
     received: new Date(received).toISOString() };
 }
 
+export function attachObservedTracks(vessels, previous, now = Date.now()) {
+  const prior = previous?.history || {};
+  const cutoff = now - 30 * 60 * 1000;
+  const history = {};
+  for (const [mmsi, track] of Object.entries(prior)) {
+    const recent = track.filter(p => Array.isArray(p) && p.length === 3 &&
+      Number.isFinite(Date.parse(p[2])) && Date.parse(p[2]) >= cutoff).slice(-23);
+    if (recent.length) history[mmsi] = recent;
+  }
+  const observed = vessels.map(vessel => {
+    const points = (history[vessel.mmsi] || [])
+      .filter(p => Array.isArray(p) && p.length === 3 && Number.isFinite(Date.parse(p[2])) && Date.parse(p[2]) >= cutoff)
+      .slice(-23);
+    const last = points.at(-1);
+    // Keep only positions actually observed by AIS; repeated stationary reports add no route.
+    if (!last || Math.abs(last[0] - vessel.lon) + Math.abs(last[1] - vessel.lat) > 0.0002) {
+      points.push([vessel.lon, vessel.lat, vessel.received]);
+    }
+    history[vessel.mmsi] = points;
+    return { ...vessel, track: points };
+  });
+  // Bound stored history even when a corridor sees many transient ships.
+  const recentEntries = Object.entries(history)
+    .sort((a, b) => Date.parse(b[1].at(-1)[2]) - Date.parse(a[1].at(-1)[2]))
+    .slice(0, 2000);
+  return { vessels: observed, history: Object.fromEntries(recentEntries) };
+}
+
 export async function collect(key, durationMs = 18000, connect = (url, options) => new WebSocket(url, options)) {
   return new Promise((resolve, reject) => {
     const vessels = new Map();
@@ -68,8 +96,11 @@ export default async () => {
   if (!key) { console.warn('AISSTREAM_API_KEY is not configured'); return; }
   try {
     const vessels = await collect(key);
-    const snapshot = { observed: new Date().toISOString(), vessels };
-    await getStore({ name: 'ais-vessels', consistency: 'strong' }).setJSON('latest', snapshot);
+    const store = getStore({ name: 'ais-vessels', consistency: 'strong' });
+    const previous = await store.get('latest', { type: 'json' });
+    const snapshot = { observed: new Date().toISOString(),
+      ...attachObservedTracks(vessels, previous) };
+    await store.setJSON('latest', snapshot);
     console.log(`Stored ${vessels.length} AIS vessel observations`);
   } catch (error) {
     console.error('AIS collector failed:', error.message);

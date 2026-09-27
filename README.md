@@ -48,6 +48,9 @@ coverage, not continuous global vessel tracking. Set `AISSTREAM_API_KEY` in the
 Netlify project environment variables with **Functions** scope (Production context),
 then redeploy; never place the key in `netlify.toml` or client code. Until configured,
 the layer displays “AIS UNAVAILABLE” rather than fabricated vessel positions.
+Ships use a teal vessel symbol; selecting one shows only its actually observed positions
+from the last 30 minutes as a dashed trail and waypoint dots. A trail appears after
+a second distinct position arrives.
 
 ## ✨ Features
 
