@@ -65,7 +65,7 @@ a second distinct position arrives.
  📺 **One-click playback** | HLS live video (hls.js), auto-refreshing snapshots, agency portals |
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
- ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, follow mode and an oblique cockpit view |
+ ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, a dedicated tracked-aircraft pin, follow mode and an oblique cockpit view |
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
@@ -91,9 +91,11 @@ selectable contact list. At world zoom AIR samples four regions
 center. The four-region sample is not a complete worldwide aircraft feed.
 Plane markers use heading-aligned aircraft icons; click a contact in the list
 to zoom to it.
-Select an aircraft to draw its recent track (up to one hour of sightings).
-FIRST OBSERVED and LATEST mark the sampled track endpoints; the live feed does
-not provide a verified flight origin or destination. Use the map's + and −
+Select an aircraft for the ships-style inspection view: a large teal pin marks
+and rotates with the latest observed position, every distinct sample in the last
+hour becomes a waypoint dot, and a dashed line links them into the recent trail.
+FIRST OBSERVED and LATEST label the sampled endpoints; the live feed does not
+provide a verified flight origin or destination. Use the map's + and −
 controls or a trackpad to zoom; a camera cluster opens its member list and
 zooms in to reveal camera icons. Terrain activates at close zoom to keep the
 globe responsive. Use the popup actions to clear a track or enter cockpit view.
