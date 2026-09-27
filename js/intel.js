@@ -13,6 +13,7 @@ const Intel = (() => {
     airTrack: null, airFollow: false, airCockpit: false, airSavedCamera: null, airFeatures: [],
     airHistory: new Map(),
     airScope: "nearby",
+    airPopup: null,
     quakes: false, quakesTimer: null, quakesLoading: false,
   };
 
@@ -637,6 +638,18 @@ const Intel = (() => {
         };
         paintNote();
         content.appendChild(note);
+        // Live telemetry strip: altitude (bright) and speed (dim) over the
+        // last hour, redrawn on every feed refresh while the popup is open.
+        const strip = document.createElement("canvas");
+        strip.width = 264; strip.height = 56;
+        strip.style.width = "100%"; strip.style.margin = "6px 0 2px";
+        strip.style.borderBottom = "1px solid rgba(65, 239, 194, 0.25)";
+        content.appendChild(strip);
+        const readout = document.createElement("div");
+        readout.style.fontVariantNumeric = "tabular-nums";
+        readout.style.opacity = "0.9";
+        content.appendChild(readout);
+        state.airPopup = { hex: record.hex, canvas: strip, readout };
         const action = document.createElement("button");
         action.type = "button";
         action.textContent = tracking ? "STOP TRACKING" : "TRACK AIRCRAFT";
@@ -658,7 +671,9 @@ const Intel = (() => {
         new maplibregl.Popup({ closeButton: true, maxWidth: "320px" })
           .setLngLat(record.coordinates)
           .setDOMContent(content)
+          .on("close", () => { if (state.airPopup && state.airPopup.hex === record.hex) state.airPopup = null; })
           .addTo(map);
+        paintAirTelemetry();
       });
       map.on("mouseenter", "air-dots", () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", "air-dots", () => { map.getCanvas().style.cursor = "grab"; });
@@ -674,6 +689,131 @@ const Intel = (() => {
     }
   }
 
+  /** Major airports (IATA, name, lat, lon) for the nearest-field readout. */
+  const AIRPORTS = [
+    ["MAA", "Chennai", 12.994, 80.171], ["DEL", "Delhi", 28.56, 77.1], ["BOM", "Mumbai", 19.09, 72.87],
+    ["BLR", "Bengaluru", 13.2, 77.71], ["HYD", "Hyderabad", 17.24, 78.43], ["CCU", "Kolkata", 22.65, 88.45],
+    ["GOI", "Goa", 15.38, 73.83], ["CMB", "Colombo", 7.18, 79.88], ["KTM", "Kathmandu", 27.7, 85.36],
+    ["DAC", "Dhaka", 23.84, 90.4], ["MLE", "Male", 4.19, 73.53], ["SIN", "Singapore", 1.36, 103.99],
+    ["BKK", "Bangkok", 13.69, 100.75], ["KUL", "Kuala Lumpur", 2.75, 101.71], ["CGK", "Jakarta", -6.13, 106.66],
+    ["MNL", "Manila", 14.51, 121.02], ["HKG", "Hong Kong", 22.31, 113.91], ["PEK", "Beijing", 40.08, 116.58],
+    ["PVG", "Shanghai", 31.14, 121.81], ["HND", "Tokyo Haneda", 35.55, 139.78], ["NRT", "Tokyo Narita", 35.77, 140.39],
+    ["ICN", "Seoul", 37.46, 126.44], ["DXB", "Dubai", 25.25, 55.36], ["AUH", "Abu Dhabi", 24.43, 54.65],
+    ["DOH", "Doha", 25.27, 51.61], ["RUH", "Riyadh", 24.96, 46.7], ["JED", "Jeddah", 21.68, 39.16],
+    ["TLV", "Tel Aviv", 32.01, 34.89], ["CAI", "Cairo", 30.11, 31.41], ["NBO", "Nairobi", -1.32, 36.93],
+    ["ADD", "Addis Ababa", 8.98, 38.8], ["JNB", "Johannesburg", -26.14, 28.25], ["CPT", "Cape Town", -33.97, 18.6],
+    ["LOS", "Lagos", 6.58, 3.32], ["IST", "Istanbul", 41.26, 28.74], ["SVO", "Moscow", 55.97, 37.41],
+    ["FRA", "Frankfurt", 50.03, 8.56], ["CDG", "Paris", 49.01, 2.55], ["AMS", "Amsterdam", 52.31, 4.76],
+    ["MAD", "Madrid", 40.47, -3.57], ["BCN", "Barcelona", 41.3, 2.08], ["FCO", "Rome", 41.8, 12.25],
+    ["MUC", "Munich", 48.35, 11.79], ["ZRH", "Zurich", 47.46, 8.55], ["VIE", "Vienna", 48.11, 16.57],
+    ["CPH", "Copenhagen", 55.62, 12.66], ["OSL", "Oslo", 60.19, 11.1], ["ARN", "Stockholm", 59.65, 17.92],
+    ["HEL", "Helsinki", 60.32, 24.96], ["WAW", "Warsaw", 52.17, 20.97], ["LIS", "Lisbon", 38.77, -9.13],
+    ["DUB", "Dublin", 53.43, -6.24], ["MAN", "Manchester", 53.35, -2.28], ["EDI", "Edinburgh", 55.95, -3.37],
+    ["LHR", "London Heathrow", 51.47, -0.45], ["LGW", "London Gatwick", 51.15, -0.19],
+    ["JFK", "New York JFK", 40.64, -73.78], ["EWR", "Newark", 40.69, -74.17], ["LGA", "New York LaGuardia", 40.78, -73.87],
+    ["LAX", "Los Angeles", 33.94, -118.41], ["SFO", "San Francisco", 37.62, -122.38], ["SEA", "Seattle", 47.45, -122.31],
+    ["ORD", "Chicago", 41.97, -87.91], ["DFW", "Dallas", 32.9, -97.04], ["ATL", "Atlanta", 33.64, -84.43],
+    ["MIA", "Miami", 25.79, -80.29], ["YYZ", "Toronto", 43.68, -79.63], ["YVR", "Vancouver", 49.19, -123.18],
+    ["HNL", "Honolulu", 21.32, -157.92], ["ANC", "Anchorage", 61.17, -149.99], ["MEX", "Mexico City", 19.44, -99.07],
+    ["BOG", "Bogota", 4.7, -74.15], ["GRU", "Sao Paulo", -23.44, -46.47], ["EZE", "Buenos Aires", -34.82, -58.54],
+    ["SCL", "Santiago", -33.39, -70.79], ["SYD", "Sydney", -33.95, 151.18], ["MEL", "Melbourne", -37.67, 144.84],
+    ["BNE", "Brisbane", -27.38, 153.12], ["AKL", "Auckland", -37.01, 174.79],
+  ];
+
+  function haversineKm(lon1, lat1, lon2, lat2) {
+    const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(s));
+  }
+
+  /** Closest bundled airport to a position: {code, name, km}. */
+  function nearestAirport(lon, lat) {
+    let best = null;
+    for (const [code, name, alat, alon] of AIRPORTS) {
+      const km = haversineKm(lon, lat, alon, alat);
+      if (!best || km < best.km) best = { code, name, km };
+    }
+    return best;
+  }
+
+  /** Altitude/ground-speed series from track points; non-numeric samples become null. */
+  function airTelemetrySeries(points) {
+    return {
+      alt: points.map(p => liveAlt(p.alt)),
+      gs: points.map(p => (Number.isFinite(Number(p.gs)) ? Number(p.gs) : null)),
+    };
+  }
+
+  function formatAlt(value) {
+    if (value == null) return "?";
+    return Math.round(value).toLocaleString("en-US");
+  }
+
+  /** Repaint the live telemetry strip in the open tracked-aircraft popup, if any. */
+  function paintAirTelemetry() {
+    const ui = state.airPopup;
+    if (!ui || !state.airTrack || state.airTrack.hex !== ui.hex) return;
+    const canvas = ui.canvas, g = canvas.getContext && canvas.getContext("2d");
+    if (!g) return;
+    const series = airTelemetrySeries(state.airTrack.points);
+    const width = canvas.width || 264, height = canvas.height || 56;
+    canvas.width = width; // resets the bitmap, also clears
+    const pad = 4, plotH = height - 12;
+    const plot = (values, lo, hi) => {
+      const span = Math.max(hi - lo, 1);
+      let pen = false;
+      g.beginPath();
+      values.forEach((v, i) => {
+        if (v == null) { pen = false; return; }
+        const x = pad + i * (width - pad * 2) / Math.max(values.length - 1, 1);
+        const y = 4 + plotH - (v - lo) / span * plotH;
+        if (pen) g.lineTo(x, y); else { g.moveTo(x, y); pen = true; }
+      });
+      g.stroke();
+    };
+    g.lineWidth = 1.6;
+    g.strokeStyle = "#41efc2"; // altitude
+    if (series.alt.some(v => v != null)) {
+      const finite = series.alt.filter(v => v != null);
+      const lo = Math.min(...finite), hi = Math.max(...finite);
+      plot(series.alt, lo - 200, hi + 200);
+      const lastIdx = series.alt.reduce((acc, v, i) => v != null ? i : acc, -1);
+      if (lastIdx >= 0) {
+        const span = Math.max(hi - lo, 400);
+        const x = pad + lastIdx * (width - pad * 2) / Math.max(series.alt.length - 1, 1);
+        const y = 4 + plotH - (series.alt[lastIdx] - (lo - 200)) / (span + 400) * plotH;
+        g.beginPath(); g.arc(x, y, 2.4, 0, 7); g.fillStyle = "#a9f9eb"; g.fill();
+      }
+    }
+    g.strokeStyle = "#5f8fa8"; // ground speed
+    if (series.gs.some(v => v != null)) {
+      const finite = series.gs.filter(v => v != null);
+      plot(series.gs, Math.min(...finite) - 20, Math.max(...finite) + 20);
+    }
+    if (ui.readout) {
+      const feature = state.airFeatures.find(f => f.properties.hex === ui.hex);
+      const live = feature ? feature.properties : null;
+      const last = [...state.airTrack.points].reverse().find(p => p.alt != null || p.gs != null) || {};
+      const alt = live ? live.alt : last.alt;
+      const gs = live ? live.gs : last.gs;
+      const vs = live && live.vs != null ? Number(live.vs) : null;
+      const vsText = vs != null && Number.isFinite(vs) && vs !== 0 ? ` · V/S ${vs > 0 ? "+" : ""}${Math.round(vs / 10) * 10} FPM` : "";
+      const near = feature ? nearestAirport(feature.geometry.coordinates[0], feature.geometry.coordinates[1]) : null;
+      const nearText = near ? ` · ${near.code} ${Math.round(near.km)} KM` : "";
+      ui.readout.textContent =
+        `ALT ${formatAlt(alt)} FT · GS ${gs != null ? Math.round(Number(gs)) : "?"} KT${vsText}${nearText}`;
+    }
+  }
+
+  /** Current altitude as a number ("ground" counts as 0). */
+  function liveAlt(alt) {
+    if (alt == null) return null;
+    const n = Number(alt);
+    if (Number.isFinite(n)) return n;
+    return String(alt).trim().toLowerCase() === "ground" ? 0 : null;
+  }
+
+
   function rememberAircraft(features) {
     const now = Date.now(), cutoff = now - 60 * 60 * 1000;
     for (const feature of features) {
@@ -683,7 +823,16 @@ const Intel = (() => {
       const coordinates = feature.geometry.coordinates;
       const last = points.at(-1);
       if (!last || last.coordinates[0] !== coordinates[0] || last.coordinates[1] !== coordinates[1]) {
-        points.push({ coordinates, time: now });
+        // Telemetry samples ride along with each waypoint so the popup strip
+        // can chart the altitude and speed trend of the last hour.
+        points.push({
+          coordinates, time: now,
+          alt: liveAlt(feature.properties.alt),
+          gs: Number.isFinite(Number(feature.properties.gs)) ? Number(feature.properties.gs) : null,
+        });
+      } else if (last.alt == null && feature.properties.alt != null) {
+        last.alt = liveAlt(feature.properties.alt);
+        last.gs = Number.isFinite(Number(feature.properties.gs)) ? Number(feature.properties.gs) : null;
       }
       state.airHistory.set(hex, points.slice(-120));
     }
@@ -746,6 +895,8 @@ const Intel = (() => {
         track: a.track != null ? a.track : (a.true_heading != null ? a.true_heading : 0),
         alt: a.altt || a.alt_baro || a.alt || "?",
         gs: Math.round(a.gs || 0),
+        vs: Number.isFinite(Number(a.baro_rate)) ? Math.round(Number(a.baro_rate))
+          : Number.isFinite(Number(a.vert_rate)) ? Math.round(Number(a.vert_rate)) : null,
         type: a.t || "",
         tracked: !!state.airTrack && String(a.hex || "").trim().toLowerCase() === state.airTrack.hex,
       },
@@ -964,5 +1115,6 @@ const Intel = (() => {
   }
 
   return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, selectAirTrack, openAirList, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
+    airTelemetrySeries, nearestAirport, paintAirTelemetry,
            get state() { return state; } };
 })();

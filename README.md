@@ -95,7 +95,10 @@ Select an aircraft for the ships-style inspection view: a large teal pin marks
 and rotates with the latest observed position, every distinct sample in the last
 hour becomes a waypoint dot, and a dashed line links them into the recent trail.
 FIRST OBSERVED and LATEST label the sampled endpoints; the live feed does not
-provide a verified flight origin or destination. Use the map's + and −
+provide a verified flight origin or destination. The inspection popup also shows
+a live telemetry strip — altitude (bright) and ground speed (dim) over the last
+hour, plus altitude, ground speed, vertical speed and distance to the nearest
+bundled airport. Use the map's + and −
 controls or a trackpad to zoom; a camera cluster opens its member list and
 zooms in to reveal camera icons. Terrain activates at close zoom to keep the
 globe responsive. Use the popup actions to clear a track or enter cockpit view.
