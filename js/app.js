@@ -325,6 +325,8 @@ function refreshSource() {
 
 function statusOf(c) {
   /* unified feed status: live | down | checking | unknown */
+  // A portal's page may respond, but that is not evidence that video plays here.
+  if (c.stype === "embed") return "unknown";
   if (archivedImageDate(c)) return "unknown";
   if (c._playing) return "live";
   if (c._checking) return "checking";
@@ -673,6 +675,13 @@ async function probeViewportStatus() {
 function setModalStatus(c) {
   const st = statusOf(c);
   const archived = archivedImageDate(c);
+  if (c.stype === "embed") {
+    el.mStatus.textContent = "PUBLISHER-HOSTED VIEW";
+    el.mStatus.dataset.state = "unknown";
+    el.mChecked.textContent = "IN-APP PLAYBACK UNAVAILABLE";
+    el.mChecked.title = "This catalog entry is a publisher page URL, not a playable stream URL.";
+    return;
+  }
   const label = {
     live: c._playing ? (c.stype === "image" || c.stype === "dynamic" || c.stype === "mjpeg" ? "FRAME RECEIVED" : "PLAYING NOW") : "FEED RESPONDS",
     down: "SIGNAL DOWN",
