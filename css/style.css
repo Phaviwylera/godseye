@@ -1359,3 +1359,10 @@ body[data-sensor-mode="snow"] .maplibregl-canvas { filter: grayscale(.9) invert(
 @media (max-width: 760px) {
   #zoomctl { display: none; }
 }
+
+/* Coverage and saved-position panels use the existing Map tools drawer. */
+#coverage-report { font:11px/1.6 var(--mono); color:#aac8d0; overflow-wrap:anywhere; padding-bottom:12px; }
+#coverage-report a { color:#86e8ef; }
+#saved-view-form label, #saved-view-status { font:11px/1.5 var(--mono); color:#aac8d0; }
+#saved-view-name { box-sizing:border-box; width:100%; margin:8px 0; padding:12px; color:#cff5ff; border:1px solid #31535f; border-radius:4px; background:#081a23; }
+#map-tools-panel details > summary { cursor:pointer; padding:12px 0; font:11px var(--mono); color:#aac8d0; }

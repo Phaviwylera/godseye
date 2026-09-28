@@ -1283,17 +1283,17 @@ const Transit = (() => {
     for (const entity of pbAll(message, 2)) {
       const position = pbSub(entity, 4);                        // FeedEntity.vehicle
       if (!position) continue;
-      const pos = pbSub(position, 3);                           // VehiclePosition.position
+      const pos = pbSub(position, 2);                           // VehiclePosition.position (GTFS-RT proto)
       if (!pos) continue;
       const lat = Number(pbNum(pos, 1));
       const lon = Number(pbNum(pos, 2));
       if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue;
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
-      const seconds = Number(pbNum(position, 8)) || Number(fallback) / 1000;
+      const seconds = Number(pbNum(position, 5)) || Number(fallback) / 1000;
       const observed = seconds * 1000;
       if (!Number.isFinite(observed) || now - observed > maxAge) continue;
       const trip = pbSub(position, 1) || [];
-      const descriptor = pbSub(position, 2) || [];
+      const descriptor = pbSub(position, 8) || [];
       const bearing = Number(pbNum(pos, 3));
       const speed = Number(pbNum(pos, 5));
       /* GTFS-RT field map: TripDescriptor.route_id is field 5 — field 2 is the trip's

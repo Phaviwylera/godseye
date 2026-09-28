@@ -105,3 +105,33 @@ test('the INFRA control, chip, scripts and straits data exist in the UI', () => 
     assert.ok(names.includes(expected), 'missing strait: ' + expected);
   }
 });
+
+
+test('cable click anchors to click location and retains cable metadata after toggling', async () => {
+  const handlers = [], sources = new Map(), layers = new Set();
+  let popupLocation, popupHtml;
+  const chip = { classList: { add() {}, remove() {} } };
+  const instance = runInNewContext(infraSrc + '\nInfra;', {
+    document: { getElementById: () => chip },
+    fetch: async () => ({ ok: true, json: async () => ({ records: [], features: [] }) }),
+    maplibregl: { Popup: class {
+      setLngLat(value) { popupLocation = value; return this; }
+      setHTML(value) { popupHtml = value; return this; }
+      addTo() { return this; }
+    } },
+  });
+  const map = {
+    getSource: id => sources.get(id), addSource: id => sources.set(id, { setData() {} }),
+    removeSource: id => sources.delete(id), getLayer: id => layers.has(id),
+    addLayer: layer => layers.add(layer.id), removeLayer: id => layers.delete(id),
+    on: (event, id, fn) => handlers.push({event,id,fn}),
+  };
+  instance.init(map);
+  await instance.toggle(); await instance.toggle(); await instance.toggle();
+  const clicks = handlers.filter(x => x.event === 'click' && x.id === 'infra-cables');
+  assert.equal(clicks.length, 1);
+  const location = { lng: 20, lat: 30 };
+  clicks[0].fn({ lngLat: location, features: [{ properties: { name: 'Atlantic-1' }, geometry: { type: 'LineString', coordinates: [[0,1],[2,3]] } }] });
+  assert.equal(popupLocation, location);
+  assert.match(popupHtml, /Atlantic-1/);
+});

@@ -11,6 +11,7 @@
  */
 const Infra = (() => {
   let map = null;
+  let handlersBound = false;
   const state = { on: false, power: null, ports: null, cables: null, pending: { power: false, ports: false, cables: false } };
 
   /* ------------------------------------------------------------------ pure -- */
@@ -143,6 +144,8 @@ const Infra = (() => {
         "circle-color": "#65e4d2", "circle-stroke-color": "rgba(4,28,34,.9)",
         "circle-stroke-width": 1, "circle-opacity": 0.95 },
     });
+    if (handlersBound) return;
+    handlersBound = true;
     for (const id of Object.keys(CARDS)) {
       map.on("click", id, (e) => {
         const f = e.features && e.features[0];
@@ -195,6 +198,7 @@ const Infra = (() => {
     }
     state.on = true;
     await refresh();
+    if (!state.on) return false;
     addLayers();
     if (map.getSource("infra-power")) map.getSource("infra-power").setData({ type: "FeatureCollection", features: state.power || [] });
     if (map.getSource("infra-ports")) map.getSource("infra-ports").setData({ type: "FeatureCollection", features: state.ports || [] });

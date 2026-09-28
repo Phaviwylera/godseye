@@ -289,10 +289,10 @@ function vehiclePosition({ lat, lon, bearing = 0, speed = 0, at, routeId = '10',
     // TripDescriptor: trip_id (1), start_time (2), start_date (3), route_id (5) — the real
     // field layout; start_time at 2 is there to fail any parser that re-reads it as the route.
     ...len(1, [...text(1, 'trip-1'), ...text(2, '11:28:25'), ...text(3, '20260928'), ...text(5, routeId)]),
-    ...len(2, [...text(1, id), ...text(2, label)]),                  // VehicleDescriptor
-    ...len(3, [...f32(1, lat), ...f32(2, lon), ...f32(3, bearing), ...f32(5, speed)]),
+    ...len(8, [...text(1, id), ...text(2, label)]),                  // VehicleDescriptor
+    ...len(2, [...f32(1, lat), ...f32(2, lon), ...f32(3, bearing), ...f32(5, speed)]),
     ...(stopId ? text(7, stopId) : []),                              // stop_id
-    ...num(8, Math.round(at / 1000)),                                // seconds since epoch
+    ...num(5, Math.round(at / 1000)),                                // seconds since epoch
     ...num(11, 42),                                                  // occupancy_percentage: never a stop label
   ]);
 }
@@ -341,8 +341,8 @@ test('fleet labels are trimmed and a route-less bus falls back to the feed badge
   const bare = new Uint8Array([...len(1, num(3, Math.round(NOW / 1000))),
     ...len(2, [...text(1, 'e1'), ...len(4, [
       ...len(1, [...text(1, 'job-7755')]),
-      ...len(3, [...f32(1, 28.62), ...f32(2, 77.21)]),
-      ...num(8, Math.round((NOW - 9000) / 1000)),
+      ...len(2, [...f32(1, 28.62), ...f32(2, 77.21)]),
+      ...num(5, Math.round((NOW - 9000) / 1000)),
     ])])]);
   [bus] = Transit.parseGtfsrtFeed(bare, f, NOW);
   assert.equal(bus.lineId, '');

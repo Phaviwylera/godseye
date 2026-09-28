@@ -237,6 +237,18 @@
       </div>
     </section>
 
+    <details class="tools-group"><summary>Saved map positions</summary>
+      <form id="saved-view-form">
+        <label for="saved-view-name">Name this map position</label>
+        <input id="saved-view-name" maxlength="60" required placeholder="Chennai harbour" />
+        <div class="btn-group"><button type="submit">Save position</button></div>
+      </form>
+      <p id="saved-view-status" role="status">Saved only on this browser; up to 12 positions.</p>
+      <div id="saved-view-list"></div>
+    </details>
+    <details class="tools-group" id="coverage-section"><summary>Camera coverage & sources</summary>
+      <div id="coverage-report" aria-live="polite">Expand to load catalogue coverage.</div>
+    </details>
     <section class="tools-group" aria-labelledby="tg-status">
       <h4 id="tg-status"><span>STATUS</span><i>live read-outs — click a chip to open its list</i></h4>
       <div id="intel-row">
@@ -471,6 +483,8 @@
 <script src="js/countries.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
+<script src="js/map-tools.js"></script>
+<script src="js/saved-views.js"></script>
 <script>
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
