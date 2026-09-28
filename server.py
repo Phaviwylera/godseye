@@ -116,6 +116,11 @@ CACHE_MAX_ENTRIES = 64
 CACHE_MAX_BYTES = 512 * 1024
 WINDOW_MAX_SEC = 900
 
+# /api/fires: one FIRMS world sweep per process for 15 minutes (the feed itself
+# only updates as the satellite overpasses; the rest is cache).
+FIRMS_TTL = 900.0
+FIRMS_CACHE = {}
+
 # The browser calls one bounded endpoint for Seoul's sixteen documented public sample
 # lines. Keeping the line list and base URL server-owned avoids a batch endpoint that
 # could otherwise be repurposed into an arbitrary multi-fetch relay.
@@ -275,6 +280,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self._seoul_batch_ok():
                 return self._json({"error": "rate limit — slow down"}, 429)
             return self.do_seoul_batch()
+        if path == "/api/fires":
+            return self.do_fires()
         if path == "/api/fetch":
             query = parse_qs(parsed.query)
             return self.do_fetch(
@@ -418,6 +425,39 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
+
+    def do_fires(self):
+        """NASA FIRMS fire hotspots (world, last day) as CSV.
+
+        The free MAP_KEY stays server-side (FIRMS_MAP_KEY env, or
+        tools/_cache/firms-key.txt) — the browser sees only the CSV, never the
+        key. Without a key the layer degrades to a labelled "KEY PENDING"
+        state (501) instead of a fabricated feed."""
+        key = (os.environ.get("FIRMS_MAP_KEY") or "").strip()
+        if not key:
+            key_path = os.path.join(ROOT, "tools", "_cache", "firms-key.txt")
+            if os.path.isfile(key_path):
+                with open(key_path, "r", encoding="utf-8") as f:
+                    key = f.read().strip()
+        if not key:
+            return self._json({"error": "firms-key-pending",
+                               "hint": "free key: https://firms.modaps.eosdis.nasa.gov/api — set FIRMS_MAP_KEY or write tools/_cache/firms-key.txt"}, 501)
+        now = time.time()
+        hit = FIRMS_CACHE.get("entry")
+        if hit and now - hit["at"] < FIRMS_TTL:
+            return self._bytes(hit["data"], hit["ctype"], {"X-Cache": "HIT"})
+        url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_NOAA21_NRT/world/1"
+        try:
+            ctype, data = self._upstream(url)
+        except Exception as e:                         # noqa: BLE001 - a relay failure is never cached
+            return self._json({"error": str(e)}, 502)
+        if not data or len(data) > 16 * 1024 * 1024:
+            return self._json({"error": "source-too-large"}, 502)
+        if "csv" not in (ctype or ""):
+            head = data[:80].decode("utf-8", "replace")
+            return self._json({"error": "firms-upstream-error", "detail": head}, 502)
+        FIRMS_CACHE["entry"] = {"at": now, "ctype": ctype, "data": data}
+        return self._bytes(data, ctype, {"X-Cache": "MISS"})
 
     def do_fetch(self, url, window=0, encoding=""):
         if not url or not valid_url(url) or len(url) > 2000:

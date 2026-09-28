@@ -171,6 +171,8 @@
     <button id="btn-transit" type="button" aria-pressed="false" title="Live buses, trams and metro trains from public operator feeds">⊞ TRANSIT</button>
     <button id="btn-airports" type="button" aria-pressed="false" title="Every aerodrome, heliport and seaplane base on the public-domain registry, tiered in by zoom">◇ AIRPORTS</button>
     <button id="btn-quakes" title="Latest 24 hours of USGS earthquakes">◇ QUAKES</button>
+    <button id="btn-events" title="Active NWS storm warnings, NASA FIRMS fire hotspots and named volcanoes">⌁ EVENTS</button>
+    <button id="btn-markets" title="Live Polymarket prediction markets by 24 h volume, pinned where place-bound">⊙ MARKETS</button>
   </div>
   <div id="intel-row">
     <span id="air-chip" class="hidden">AIR</span>
@@ -180,6 +182,8 @@
     <span id="iss-chip" class="hidden">ISS</span>
     <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
     <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
+    <span id="events-chip" class="hidden" aria-live="polite">EVENTS</span>
+    <span id="markets-chip" class="hidden" aria-live="polite">MARKETS</span>
     <span id="radar-ctl" class="hidden">
       <button id="radar-play">⏸</button>
       <input id="radar-slider" type="range" min="0" max="0" value="0" />
@@ -297,6 +301,8 @@
     <button data-do="#btn-transit">⊞ TRANSIT</button>
     <button data-do="#btn-airports">◇ AIRPORTS</button>
     <button data-do="#btn-quakes">◇ QUAKES</button>
+    <button data-do="#btn-events">⌁ EVENTS</button>
+    <button data-do="#btn-markets">⊙ MARKETS</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
     <button data-do="#btn-terrain">3D</button>
@@ -350,6 +356,8 @@
 <script src="js/transit.js"></script>
 <script src="js/airports.js"></script>
 <script src="js/intel.js"></script>
+<script src="js/events.js"></script>
+<script src="js/markets.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
 <script>

@@ -1,6 +1,18 @@
 # GODSEYE × ARGOS ATLAS — capability gap & build plan
 
-Date: 2026-09-28 · Status: analysis complete, phases pending
+Date: 2026-09-28 · Status: Phase 1 in progress
+
+Progress (2026-09-28):
+- ✅ **MARKETS layer shipped** — `js/markets.js` + `data/markets-geo.json`, live Polymarket
+  data, momentum flag, place pins, chip/list/popups, unit tests, offline-shell precache.
+- ✅ **EVENTS layer shipped** — `js/events.js`: NWS storm alerts (live, keyless) +
+  volcano points (pending first `refresh-infra` snapshot) + FIRMS fires (code complete;
+  needs the free `FIRMS_MAP_KEY` — Netlify env / `FIRMS_MAP_KEY` env / `tools/_cache/firms-key.txt`).
+- ✅ **`tools/build_infra.py` + `refresh-infra` workflow** — OSM volcanoes/power/ports
+  (Overpass, 4 quadrants, sanity floors) + open CABLE submarine cables; data files land
+  on the first CI run.
+- Next up: POWER/PORTS/CABLES map layers reading the new snapshots, then Phase 2
+  (global air + sea + OFAC, GDELT intel + country cards).
 
 ARGOS ATLAS (argosatlas.com) is a 12-section "world, live" OSINT map. Godseye
 already shares its core idea — one 3D globe, open public feeds, attributed

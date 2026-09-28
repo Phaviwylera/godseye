@@ -1310,6 +1310,8 @@ function wireUI() {
       Vessels.restore();
       Transit.restore();
       Airports.restore();
+      Events.restore();
+      Markets.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1401,6 +1403,28 @@ function wireUI() {
   };
   $("#btn-airports").onclick = (e) => { e.target.classList.toggle("active", Airports.toggle()); fxBlip(); };
   $("#airport-chip").onclick = () => Airports.openList();
+  $("#btn-events").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Events.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("events feed unavailable", error);
+    }
+  };
+  $("#events-chip").onclick = () => Events.openList();
+  $("#btn-markets").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Markets.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("markets feed unavailable", error);
+      el.syncMsg.textContent = "◇ prediction market feed unavailable — try again shortly";
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 6000);
+    }
+  };
+  $("#markets-chip").onclick = () => Markets.openList();
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
@@ -1626,6 +1650,8 @@ function tickClock() {
     Vessels.init(map);
     Transit.init(map);
     Airports.init(map);
+    Events.init(map);
+    Markets.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

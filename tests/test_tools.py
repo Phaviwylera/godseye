@@ -416,5 +416,99 @@ class TestContract(unittest.TestCase):
         self.assertEqual(mf.get("short_name"), "God's Eye")
 
 
+class TestBuildInfra(unittest.TestCase):
+    """Static infrastructure datasets (OSM volcanoes/plants/harbours, open cable map)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.infra = load_module("build_infra", os.path.join(ROOT, "tools", "build_infra.py"))
+
+    OVERPASS_XML = """<?xml version="1.0" encoding="UTF-8"?>
+    <osm version="0.6">
+      <node id="1" lat="12.3" lon="-1.2"><tag k="natural" v="volcano"/><tag k="name" v="Test Volcano"/><tag k="ele" v="2500"/></node>
+      <node id="2" lat="0" lon="0"><tag k="natural" v="volcano"/><tag k="name" v="Null Island"/></node>
+      <way id="3"><nd ref="1"/><nd ref="2"/>
+        <center lat="45.5" lon="13.5"/>
+        <tag k="power" v="plant"/><tag k="name" v="Solar Farm"/><tag k="power:generates" v="electricity"/>
+      </way>
+      <way id="4"><center lat="51.5" lon="-0.1"/>
+        <tag k="place" v="harbour"/><tag k="name" v="Test Harbour"/>
+      </way>
+      <way id="5"><center lat="51.6" lon="-0.2"/>
+        <tag k="harbour" v="yes"/><tag k="name" v="Test Harbour"/>
+      </way>
+      <relation id="6"></relation>
+    </osm>"""
+
+    def test_parse_overpass_extracts_positions_and_tags(self):
+        rows = self.infra.parse_overpass(self.OVERPASS_XML)
+        by_id = {r[0]: r for r in rows}
+        self.assertIn("1", by_id)
+        self.assertEqual(by_id["1"][2], -1.2)   # lon
+        self.assertEqual(by_id["1"][3], 12.3)   # lat
+        self.assertEqual(by_id["3"][2], 13.5)   # way uses its center
+        self.assertEqual(by_id["3"][4]["power"], "plant")
+        self.assertNotIn("2", by_id)            # (0,0) refused
+        self.assertNotIn("6", by_id)            # no position at all
+
+    def test_volcano_records_requires_natural_volcano_and_name(self):
+        rows = self.infra.parse_overpass(self.OVERPASS_XML)
+        recs = self.infra.volcano_records(rows)
+        self.assertEqual(recs, [[-1.2, 12.3, "Test Volcano", 2500]])
+
+    def test_power_records_requires_power_plant_and_name(self):
+        rows = self.infra.parse_overpass(self.OVERPASS_XML)
+        recs = self.infra.power_records(rows)
+        self.assertEqual(recs, [[13.5, 45.5, "Solar Farm", "other"]])
+
+    def test_power_kind_maps_real_osm_generator_tags(self):
+        self.assertEqual(self.infra.power_kind({"generator:source": "nuclear"}), "nuclear")
+        self.assertEqual(self.infra.power_kind({"generator:source": "fuel:oil"}), "oil")
+        self.assertEqual(self.infra.power_kind({"generator:source": "fuel:coal"}), "coal")
+        self.assertEqual(self.infra.power_kind({"generator:source": "fuel:natural_gas"}), "gas")
+        self.assertEqual(self.infra.power_kind({"generator:source": "water"}), "hydro")
+        self.assertEqual(self.infra.power_kind({"generator:solar": "yes"}), "solar")
+        self.assertEqual(self.infra.power_kind({"generator:wind": "yes"}), "wind")
+        self.assertEqual(self.infra.power_kind({"generator:source": "unknown-tech"}), "other")
+        self.assertEqual(self.infra.power_kind({"power:generates": "electricity"}), "other")
+        self.assertEqual(self.infra.power_kind({}), "other")
+
+    def test_port_records_dedupes_same_position_and_name(self):
+        rows = self.infra.parse_overpass(self.OVERPASS_XML)
+        recs = self.infra.port_records(rows)
+        # same name but different positions: both kept (they are different harbours)
+        self.assertEqual(recs, [[-0.1, 51.5, "Test Harbour"], [-0.2, 51.6, "Test Harbour"]])
+
+    def test_slim_cables_keeps_named_routes_and_drops_z(self):
+        doc = {"features": [
+            {"type": "Feature", "properties": {"Name": "Atlantic-1", "length": "6500 km",
+             "rfs": "2019", "owners": "X"},
+             "geometry": {"type": "LineString", "coordinates": [[-50, 30, 9], [-40, 40, 9]]}},
+            {"type": "Feature", "properties": {"Name": "", "length": "1 km"},
+             "geometry": {"type": "LineString", "coordinates": [[0, 0, 0]]}},
+        ]}
+        slim = self.infra.slim_cables(doc)
+        self.assertEqual(len(slim["features"]), 1)
+        f = slim["features"][0]
+        self.assertEqual(f["properties"]["name"], "Atlantic-1")
+        self.assertEqual(f["geometry"]["coordinates"], [[-50, 30], [-40, 40]])
+
+    def test_validate_cables_enforces_floor(self):
+        self.infra.validate_cables({"features": [{"type": "Feature"}] * self.infra.CABLE_FLOOR})
+        with self.assertRaises(ValueError):
+            self.infra.validate_cables({"features": [{"type": "Feature"}]})
+
+    def test_write_records_refuses_partial_downloads(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                self.infra._write_records("volcanoes", [[0, 0, "x", 0]], tmp, "src")
+            path = self.infra._write_records("volcanoes",
+                                             [[1, 2, "a", 0]] * self.infra.FLOORS["volcanoes"], tmp, "src")
+            self.assertTrue(path.exists())
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(doc["count"], self.infra.FLOORS["volcanoes"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

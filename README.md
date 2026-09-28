@@ -236,6 +236,37 @@ absent for the same reason Delhi Metro trains are: no positions are published (O
 not guess. Louisville TARC and Connecticut CTtransit were evaluated for the registry and
 rejected because their published GTFS-Realtime endpoints no longer answer.
 
+## 📡 MARKETS & EVENTS layers
+
+Two more "world, live" layers, built only on keyless or operator-owned public feeds,
+with the same standing rule as the rest of the app: **real data only, source cited,
+no invented positions.**
+
+**⊙ MARKETS** (`js/markets.js`) — live [Polymarket](https://polymarket.com/) prediction
+markets from the public Gamma API, ranked by 24 h volume. A deliberately simple, clearly
+labelled momentum flag marks markets whose price moved ≥5 points in a week while 24 h
+volume is ≥$100k — information, not advice. Markets tied to a real place (elections,
+a capital, a conflict) are pinned on the globe from `data/markets-geo.json`, a curated
+recurring-topic table; everything else stays in the list. Refreshes every 10 minutes
+through the relay so all visitors share one upstream call per window.
+
+**⌁ EVENTS** (`js/events.js`) — three sources, each drawn only where reported:
+* **storms** — NOAA/NWS active weather alerts (US), Severe/Extreme storm events only
+  (tornado, hurricane, flood, winter, dust…), keyless JSON, 10-minute refresh.
+* **fires** — NASA FIRMS satellite fire hotspots (VIIRS NOAA-21, last day). The free
+  MAP_KEY stays server-side: set `FIRMS_MAP_KEY` in the Netlify project env (and as an
+  env var or `tools/_cache/firms-key.txt` when running `python3 server.py`). Without it
+  the layer degrades to a labelled `FIRES · KEY PENDING` state instead of a fake feed.
+* **volcanoes** — every named volcano in OpenStreetMap, built by `tools/build_infra.py`
+  into `data/volcanoes.json` (the `refresh-infra` action runs it weekly). Until the first
+  snapshot ships, the chip reads `VOLC · PENDING BUILD`.
+
+`tools/build_infra.py` also builds `data/power.json`, `data/ports.json` (OSM named
+power-plant / harbour features) and `data/cables.geojson` (the open "CABLE" submarine-cable
+dataset, 2019 vintage, labelled as historical) for the upcoming POWER/PORTS/CABLES map
+layers. Every dataset has a sanity floor, so a partial download fails loudly instead of
+shipping a half-world.
+
 ## ✨ Features
 
 | | |
@@ -254,6 +285,9 @@ rejected because their published GTFS-Realtime endpoints no longer answer.
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
+ ⚡ **EVENTS layer** | active NWS storm warnings (US), NASA FIRMS satellite fire hotspots and every named OpenStreetMap volcano, drawn only where the source actually reported |
+ ⊙ **MARKETS layer** | live Polymarket prediction markets ranked by 24 h volume, a transparent momentum flag, and a place pin for every market bound to a real location (Polymarket Gamma API, keyless) |
+ 🔌 **Infrastructure snapshots** | `tools/build_infra.py` builds the named-volcano / power-plant / harbour (OSM) and open submarine-cable datasets behind the new layers; the `refresh-infra` action refreshes them weekly |
 
 ## 🗺️ Camera sources (all publicly published by agencies)
 
@@ -315,6 +349,7 @@ The server also provides:
 
 * `refresh-dataset` — rebuilds `data/cameras.geojson` from every source **nightly** and pushes (Netlify auto-redeploys)
 * `check-liveness` — probes every direct-media feed **weekly**, writes `data/liveness.json` → LIVE / DOWN badges in the UI
+* `refresh-infra` — **weekly** rebuild of the OSM volcano / power-plant / harbour snapshots and the open submarine-cable map (`tools/build_infra.py`)
 
 ## 🧱 Rebuild the dataset
 

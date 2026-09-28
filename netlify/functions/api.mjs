@@ -221,6 +221,45 @@ async function cacheSet(url, entry) {
   }
 }
 
+/* NASA FIRMS fire hotspots (world, last day). The free MAP_KEY stays inside
+ * the Function (env FIRMS_MAP_KEY) exactly like the OpenSky credentials: the
+ * browser only ever sees the CSV, never the key. One upstream call per
+ * instance per 15 minutes. Without the key the route answers 501 and the
+ * client shows a labelled "FIRES · KEY PENDING" state instead of a feed. */
+const FIRMS_TTL_MS = 15 * 60 * 1000;
+let firmsCache = null; // { at, ctype, buf }
+
+async function firesRoute() {
+  const key = String(process.env.FIRMS_MAP_KEY || "").trim();
+  if (firmsCache && Date.now() - firmsCache.at < FIRMS_TTL_MS) {
+    return { statusCode: 200, headers: { ...CORS, "Content-Type": firmsCache.ctype,
+      "Cache-Control": "no-store", "X-Cache": "HIT" }, body: firmsCache.buf.toString("utf8") };
+  }
+  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/VIIRS_NOAA21_NRT/world/1`;
+  let upstream;
+  try {
+    upstream = await fetchUpstream(url);
+  } catch (e) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: String(e) }) };
+  }
+  if (upstream.failure) {
+    return { statusCode: upstream.failure.statusCode,
+      headers: { ...CORS, "Content-Type": "application/json", "X-Cache": "SKIP" },
+      body: upstream.failure.body };
+  }
+  const { ctype, buf } = upstream;
+  if (buf.length > 16 * 1024 * 1024) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: "source-too-large" }) };
+  }
+  if (!ctype.includes("csv") && !ctype.includes("text")) {
+    return { statusCode: 502, headers: { ...CORS, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "firms-upstream-error", detail: buf.toString("utf8", 0, 80) }) };
+  }
+  firmsCache = { at: Date.now(), ctype, buf };
+  return { statusCode: 200, headers: { ...CORS, "Content-Type": ctype,
+    "Cache-Control": "no-store", "X-Cache": "MISS" }, body: buf.toString("utf8") };
+}
+
 /* OpenSky has required OAuth2 client credentials since 2026-03-18. Credentials
  * are read only in the Function and are attached exclusively to its API host;
  * neither browser code nor responses can expose them. Anonymous calls still work. */
@@ -373,6 +412,14 @@ export async function handler(event) {
 
   const params = event.queryStringParameters || {};
   const path = event.path || "";
+  if (path.includes('/fires')) {
+    if (!process.env.FIRMS_MAP_KEY) {
+      return { statusCode: 501, headers: CORS,
+        body: JSON.stringify({ error: "firms-key-pending",
+          hint: "free key at https://firms.modaps.eosdis.nasa.gov/api -> Netlify env FIRMS_MAP_KEY" }) };
+    }
+    return firesRoute();
+  }
   if (path.includes('/transit/seoul')) {
     if (!seoulBatchRateOK(ip)) {
       return { statusCode: 429, headers: CORS, body: JSON.stringify({ error: 'rate limit — slow down' }) };
