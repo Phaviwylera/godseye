@@ -120,6 +120,16 @@ test('Digitraffic trains are placed at the station they actually reached, with t
 
 /* --------------------------------------------------- transport.opendata.ch -- */
 
+test('the bundled Digitraffic table is a substantial local station index', () => {
+  const f = feed('fi-rail');
+  const snapshot = JSON.parse(readFileSync(new URL('../data/fi-stations.json', import.meta.url), 'utf8'));
+  const table = Transit.digitrafficStations(snapshot);
+  assert.ok(table.size >= 100, 'the published snapshot is large enough to replace a per-session metadata fetch');
+  assert.equal(table.get('HKI').name, 'Helsinki asema');
+  assert.equal(f.stations, 'data/fi-stations.json');
+  assert.equal(Object.hasOwn(f, 'stationsSource'), false, 'the browser has no remote station-table fallback');
+});
+
 test('Swiss boards keep only the next few departures and drop the ones already gone', () => {
   const f = feed('ch-rail');
   const station = { id: '8503000', name: 'Zürich HB', coordinate: { type: 'WGS84', x: 8.5402, y: 47.3782 } };
@@ -191,6 +201,78 @@ test('iRail liveboards keep live departures and drop cancelled and departed ones
   assert.equal(train.etaSec, 300 + 180);
   assert.equal(train.platform, 'platform 12');
   assert.equal(train.mode, 'rail');
+});
+
+/* ---------------------------------------------------- static rail geometry -- */
+
+test('MBTA rail shapes and stops retain only configured rail lines and valid station dots', () => {
+  const f = feed('mbta');
+  const parsed = Transit.parseMbtaStatic({ data: [
+    { attributes: { polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' },
+      relationships: { route: { data: { id: 'Red' } } } },
+    { attributes: { polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' },
+      relationships: { route: { data: { id: '1' } } } }, // bus route: deliberately absent from staticRoutes
+  ] }, { data: [
+    { id: 'place-alfcl', attributes: { name: 'Alewife', longitude: -71.2076, latitude: 42.3954 } },
+    { id: 'bad', attributes: { name: 'Bad coordinate', longitude: 'not-a-number', latitude: 42 } },
+  ] }, f);
+  assert.equal(parsed.lines.length, 1, 'bus geometry is not folded into the rail snapshot');
+  assert.equal(parsed.lines[0].id, 'Red');
+  assert.deepEqual([...parsed.lines[0].coords[0]], [-120.2, 38.5], 'MBTA encoded shape is decoded as lon/lat');
+  assert.equal(parsed.stations.length, 1);
+  assert.equal(parsed.stations[0].name, 'Alewife');
+});
+
+test('Swiss pass lists and Belgian iRail vias form published line segments and station dots', () => {
+  const swiss = Transit.parseOpendataChConnection({ connections: [{
+    from: { station: { id: '8503000', name: 'Zürich HB', coordinate: { x: 8.5402, y: 47.3782 } } },
+    journey: { name: 'IC 1', passList: [{ station: { id: '8507000', name: 'Bern', coordinate: { x: 7.439, y: 46.948 } } }] },
+    to: { station: { id: '8501120', name: 'Lausanne', coordinate: { x: 6.629, y: 46.517 } } },
+  }] }, { id: 'ch-fixture', name: 'Zürich–Lausanne', color: '#005ca9' });
+  assert.deepEqual(JSON.parse(JSON.stringify(swiss.coords)), [[8.5402, 47.3782], [7.439, 46.948], [6.629, 46.517]]);
+  assert.equal(swiss.stations.length, 3);
+  assert.equal(swiss.name, 'Zürich–Lausanne');
+
+  const belgian = Transit.parseIrailConnection({ connection: [{
+    departure: { stationinfo: { id: 'be-brussels', name: 'Brussels-South', locationX: 4.3365, locationY: 50.8357 } },
+    vias: { via: [{ stationinfo: { id: 'be-leuven', name: 'Leuven', locationX: 4.7009, locationY: 50.8823 } }] },
+    arrival: { stationinfo: { id: 'be-liege', name: 'Liège-Guillemins', locationX: 5.5668, locationY: 50.6246 } },
+  }] }, { id: 'be-fixture', name: 'Brussels–Liège', color: '#005ca9' });
+  assert.deepEqual(JSON.parse(JSON.stringify(belgian.coords)), [[4.3365, 50.8357], [4.7009, 50.8823], [5.5668, 50.6246]]);
+  assert.equal(belgian.stations.length, 3);
+  const dots = Transit.parseIrailStations({ station: [
+    { id: 'be-brussels', name: 'Brussels-South', locationX: 4.3365, locationY: 50.8357 },
+    { id: 'bad', name: 'Bad', locationX: 'none', locationY: 50 },
+  ] });
+  assert.equal(dots.length, 1, 'invalid station-list records cannot create a dot at an invented location');
+});
+
+test('the compact static GTFS format supplies GCRTA geometry and station dots', () => {
+  const f = feed('gcrta-bus');
+  const parsed = Transit.parseGtfsStatic({ lines: [
+    { id: '66', name: 'Red Line', color: '#BA0C2F', coords: [[-81.837, 41.411], [-81.694, 41.497]] },
+    { id: '', name: 'Discarded', coords: [[-81, 41], [-80, 42]] },
+  ], stations: [
+    { id: 'airport', name: 'Airport Station', lon: -81.837, lat: 41.411 },
+    { id: 'bad', name: 'Broken station', lon: null, lat: 41 },
+  ] }, f);
+  assert.equal(parsed.lines.length, 1);
+  assert.equal(parsed.lines[0].color, '#ba0c2f');
+  assert.equal(parsed.stations.length, 1);
+  assert.equal(parsed.stations[0].id, 'airport');
+});
+
+test('the geometry registry covers the configured MBTA, Swiss, Belgian and GCRTA rail layers', () => {
+  const mbta = feed('mbta');
+  const swiss = feed('ch-rail');
+  const belgian = feed('be-rail');
+  const gcrta = feed('gcrta-bus');
+  assert.ok(mbta.staticRoutes.length >= 4);
+  assert.ok(swiss.geometry.length >= 4 && swiss.geometry.every((pair) => swiss.stations.includes(pair.from) && swiss.stations.includes(pair.to)));
+  assert.ok(belgian.geometry.length >= 4 && belgian.geometry.every((pair) => belgian.stations.includes(pair.from) && belgian.stations.includes(pair.to)));
+  assert.match(gcrta.static, /^data\/gcrta-static\.json$/);
+  const snapshot = JSON.parse(readFileSync(new URL('../data/gcrta-static.json', import.meta.url), 'utf8'));
+  assert.ok(snapshot.lines.length >= 3 && snapshot.stations.length >= 10, 'the shipped GCRTA snapshot is real map data, not an empty placeholder');
 });
 
 /* ------------------------------------------------------- GTFS-Realtime (pb) -- */

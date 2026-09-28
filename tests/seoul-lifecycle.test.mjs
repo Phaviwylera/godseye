@@ -60,13 +60,13 @@ function makeHarness({ fail = null, now = START } = {}) {
       return json({ feeds: registryFile.feeds.filter((f) => f.id === 'seoul-metro') });
     }
     if (target.startsWith('data/kr-stations.json')) return json(stationFile);
-    if (target.startsWith('/api/fetch')) {
-      const upstream = decodeURIComponent(target.split('url=')[1].split('&')[0]);
-      calls.push({ upstream, at: state.now, window: /window=(\d+)/.exec(target)?.[1] });
-      if (failWith) return json({ errorMessage: { code: failWith, message: '요청 한도 초과' } });
-      const lineId = decodeURIComponent(upstream.slice(upstream.lastIndexOf('/') + 1));
-      if (!LINES.includes(lineId)) return json({ errorMessage: { code: 'ERROR-999' } });
-      return json(linePayload(lineId, state.now - staleMs));
+    if (target === '/api/transit/seoul') {
+      calls.push({ target, at: state.now });
+      const lines = Object.fromEntries(LINES.map((lineId) => [lineId,
+        failWith
+          ? { data: { errorMessage: { code: failWith, message: '요청 한도 초과' } } }
+          : { data: linePayload(lineId, state.now - staleMs) }]));
+      return json({ lines });
     }
     return json({ error: 'unexpected ' + target }, false);
   };
@@ -128,13 +128,11 @@ test('a sweep reads every line once, then the budget keeps it silent while the m
   assert.equal(await h.Transit.toggle(), true);
   await h.settle();
 
-  assert.equal(h.calls.length, LINES.length, 'the first sweep reads all 16 lines exactly once');
+  assert.equal(h.calls.length, 1, 'the first sweep is one bounded browser-to-relay batch call');
   const expected = LINES.length * TRAINS_PER_LINE;
   assert.equal(h.drawn().length, expected, `${expected} trains drawn from the real station table`);
   assert.match(h.chip.textContent, new RegExp(`${expected} VEHICLES · 1/1 NETWORKS`));
-  // The relay is asked to share each line's answer for exactly the per-line budget.
-  assert.equal(new Set(h.calls.map((c) => c.window)).size, 1);
-  assert.equal(h.calls[0].window, String(seoul.budgetSec));
+  assert.equal(h.calls[0].target, '/api/transit/seoul', 'no caller-controlled URL or key reaches the batch endpoint');
 
   // One minute later nothing is due: zero upstream calls, same trains, an age the user can read.
   h.advance(60_000);
@@ -167,7 +165,7 @@ test('the daily cap holds the last good sweep and reports the reason and its age
   const before = h.calls.length;
   await h.Transit.refresh();
 
-  assert.equal(h.calls.length - before, LINES.length, 'all lines are retried together');
+  assert.equal(h.calls.length - before, 1, 'all lines are retried through one function invocation');
   assert.equal(h.drawn().length, expected, 'the fleet does not vanish because the key ran out');
   assert.match(h.chip.title, /held \(daily request limit reached\)/, 'the reason is the operator’s own');
   assert.match(h.chip.title, /25 min ago/, 'and so is the age of what is being shown');
@@ -206,8 +204,8 @@ test('a dead key is not hammered, and it comes back on the first sweep after the
   // 30 minutes of 60 s ticks with a dead key: the backoff must keep this well under budget.
   for (let minute = 0; minute < 30; minute++) { h.advance(60_000); await h.Transit.refresh(); }
   const whileDead = h.calls.length - first;
-  assert.ok(whileDead <= 2 * LINES.length,
-    `${whileDead} requests in 30 minutes of failure is more than the backoff allows`);
+  assert.ok(whileDead <= 2,
+    `${whileDead} batch requests in 30 minutes of failure is more than the backoff allows`);
 
   h.heal();
   h.advance(seoul.pollSec * 1000);
