@@ -20,6 +20,10 @@ The interface has been redesigned around a restrained global-intelligence aesthe
 - camera target-acquisition reticle before the feed opens
 - refined HUD, camera index, video wall, route panel, radar, compass and mobile controls
 - redesigned PWA/app icon to match the interface
+- navigation reorganised around the globe itself: option rows ride under the HUD header, only
+  + / − zoom floats on the map's edge, and tablets/phones keep the one-finger FAB sheet
+- every overlay honours the palette: the weather radar renders in RainViewer's cool
+  Universal Blue scheme at low opacity instead of alarm colours
 
 No build step is required; the visual system is contained in the existing HTML/CSS/JS files and the SVG asset.
 
@@ -85,9 +89,53 @@ table (`data/kr-stations.json`, a CC0 extract of Wikidata) is bundled to place t
 | `ch-rail` | Switzerland — SBB, BLS, PostBus, trams: eight hub departure boards | [transport.opendata.ch](https://transport.opendata.ch/) (keyless) | 🚆/🚊 | live departures with the delay and platform |
 | `be-rail` | Belgium — SNCB/NMBS live boards at five hubs | [iRail](https://api.irail.be/) (keyless, CC0) | 🚆 rail | live departures with delay and platform |
 | `gcrta-bus` | Cleveland — Greater Cleveland RTA buses & rail | GCRTA GTFS-Realtime (keyless) | 🚌 bus | live GPS positions via the GTFS-RT protobuf reader |
+| `delhi-dtc` | Delhi — DTC & cluster buses, every GPS-fitted bus | Open Transit Data, Govt. of NCT of Delhi (registered key in place) | 🚌 bus | **live GPS bus positions every ~10s** |
+| `atlanta-marta` | Atlanta — MARTA buses | MARTA GTFS-Realtime (keyless) | 🚌 bus | live GPS bus positions |
+| `edmonton-ets` | Edmonton — ETS buses & LRT trains | City of Edmonton open data (keyless) | 🚌 bus | live GPS positions for every reporting vehicle |
+| `nl-ovapi` | Netherlands — Qbuzz, RET, GVB, Connexxion, Arriva, EBS, HTM: bus · tram · metro | OVapi national feed (keyless) | 🚌/🚊/🚇 | live GPS for thousands of vehicles in one stream |
+| `my-rapid-kl` | Kuala Lumpur — Rapid KL buses, Klang Valley | data.gov.my open data (keyless) | 🚌 bus | live GPS bus positions |
 
-All ten of the new and existing feeds are read from operator-published endpoints; five of
-them (`mbta`, `fi-rail`, `ch-rail`, `be-rail`, `gcrta-bus`) need no key and no signup at all.
+Nine of the feeds (`mbta`, `fi-rail`, `ch-rail`, `be-rail`, `gcrta-bus`, `atlanta-marta`,
+`edmonton-ets`, `nl-ovapi`, `my-rapid-kl`) need no key and no signup at all: they were each
+verified live before being added to the registry. Two proposed US feeds were checked with
+the same rigour and rejected — Louisville TARC and Connecticut CTtransit now answer only at
+dead or undocumented endpoints, so they are not in the registry rather than in it and
+permanently unavailable.
+
+### Delhi: what is and is not live
+
+`delhi-dtc` is India's only public live transit feed: Delhi's Open Transit Data portal
+publishes real bus GPS (updated roughly every ten seconds) as standard GTFS-Realtime
+VehiclePositions. A registered key is already in place, so Delhi's buses come online at the
+first sweep; parked buses that stop reporting stay for up to thirty minutes and visibly fade
+as their report ages. The key lives in a public file like the Seoul sample key — rotate it
+freely (register at [otd.delhi.gov.in](https://otd.delhi.gov.in) for a fresh one any time).
+If the key is ever reverted to `SIGNUP`, the layer goes back to waiting instead of failing:
+it is shown as pending, never as dead.
+
+The **Delhi Metro publishes no real-time train feed anywhere** — DMRC keeps train positions
+private, and the OTD portal's realtime API covers buses only. Its November 2025 MoU with
+MapmyIndia is a closed commercial channel, not open data. Per this layer's standing rule, no
+train marker is drawn without a real operator position, and a simulated fleet is not an
+option. The registry entry's note records exactly this so the answer survives the next
+request for "live Delhi Metro trains".
+
+## 🛩️ AIRPORTS layer
+
+A third kind of contact joins AIR and TRANSIT: the **static registry itself**. `btn-airports`
+draws **72,500+ aerodromes** — every large and medium airport, small airfield, heliport,
+seaplane base and balloonport in the public-domain [OurAirports](https://ourairports.com/data/)
+dataset — tiered in by zoom so nothing is ever sampled away: destinations from the start,
+regional fields from sub-continental zoom, helipads and water aerodromes only up close.
+Clicking one shows exactly what the registry knows (code, name, municipality, country, type)
+and says plainly that it is a registry position, not live traffic — live aircraft still live
+in the AIR layer.
+
+`tools/build_airports.py` converts the official `airports.csv` into the compact positional
+format the client reads (`data/airports.json`, ~5 MB), refusing bad coordinates and closed
+airfields, and `refresh-airports.yml` re-runs it weekly in CI. Labels, sort order and the
+record layout are contract-tested in `tests/airports.test.mjs` and
+`tests/test_tool_airports.py`.
 
 Three kinds of feed are supported and labelled differently in every popup:
 
@@ -182,7 +230,11 @@ A key registered at data.seoul.go.kr lifted into `base` in place of `sample` rem
 five-trains-per-line cap, and `budgetSec` can then be lowered to whatever the key's own daily
 limit allows — the contract test in `tests/transit.test.mjs` checks the arithmetic. Amtrak's live map returns an encrypted payload; Chennai's CMRL publishes
 no real-time feed at all. King County Metro is left out on purpose — its `vehicles-for-agency`
-payload is over a megabyte per poll.
+payload is over a megabyte per poll. Dutch NS trains and Kuala Lumpur's LRT/MRT lines are
+absent for the same reason Delhi Metro trains are: no positions are published (OVapi
+`trainUpdates` and data.gov.my rail categories carry trip updates only), and this layer does
+not guess. Louisville TARC and Connecticut CTtransit were evaluated for the registry and
+rejected because their published GTFS-Realtime endpoints no longer answer.
 
 ## ✨ Features
 

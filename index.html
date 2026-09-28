@@ -135,6 +135,12 @@
   <p>This browser could not start the 3D globe. Search the public camera list and open feeds from the panel.</p>
 </div>
 
+<!-- zoom: the only controls allowed to float on the map -->
+<div id="zoomctl">
+  <button id="btn-zoom-in" type="button" title="Zoom in" aria-label="Zoom in">＋</button>
+  <button id="btn-zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+</div>
+
 <!-- bottom-right controls -->
 <div id="controls">
   <div class="control-caption">VISUAL LAYERS</div>
@@ -163,12 +169,14 @@
     <button id="btn-air">△ AIR</button>
     <button id="btn-vessels" type="button" aria-pressed="false" title="Recent AIS vessel observations in selected shipping corridors">◇ SHIPS</button>
     <button id="btn-transit" type="button" aria-pressed="false" title="Live buses, trams and metro trains from public operator feeds">⊞ TRANSIT</button>
+    <button id="btn-airports" type="button" aria-pressed="false" title="Every aerodrome, heliport and seaplane base on the public-domain registry, tiered in by zoom">◇ AIRPORTS</button>
     <button id="btn-quakes" title="Latest 24 hours of USGS earthquakes">◇ QUAKES</button>
   </div>
   <div id="intel-row">
     <span id="air-chip" class="hidden">AIR</span>
     <span id="vessel-chip" class="hidden" aria-live="polite">AIS</span>
     <span id="transit-chip" class="hidden" aria-live="polite">TRANSIT</span>
+    <span id="airport-chip" class="hidden" aria-live="polite">AIRPORTS</span>
     <span id="iss-chip" class="hidden">ISS</span>
     <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
     <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
@@ -179,8 +187,6 @@
     </span>
   </div>
   <div class="btn-group">
-    <button id="btn-zoom-in" type="button" title="Zoom in" aria-label="Zoom in">＋</button>
-    <button id="btn-zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
     <button id="btn-terrain" class="active">3D TERRAIN</button>
     <button id="btn-buildings" type="button" aria-pressed="true" title="Show building heights at zoom 15 and closer">3D BUILDINGS</button>
     <button id="btn-sync">⟳ SYNC</button>
@@ -289,6 +295,7 @@
     <button data-do="#btn-air">△ AIR</button>
     <button data-do="#btn-vessels">◇ SHIPS</button>
     <button data-do="#btn-transit">⊞ TRANSIT</button>
+    <button data-do="#btn-airports">◇ AIRPORTS</button>
     <button data-do="#btn-quakes">◇ QUAKES</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
@@ -341,6 +348,7 @@
 <script src="js/contacts.js"></script>
 <script src="js/vessels.js"></script>
 <script src="js/transit.js"></script>
+<script src="js/airports.js"></script>
 <script src="js/intel.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>

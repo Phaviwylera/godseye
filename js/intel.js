@@ -191,7 +191,10 @@ const Intel = (() => {
   function radarTiles() {
     const f = state.radarFrames[state.radarIdx];
     if (!f) return [];
-    return [`${state.radarHost}${f.path}/256/{z}/{x}/{y}/4/1_1.png`];
+    /* RainViewer colour scheme 2 (Universal Blue): cool white-to-blue only, chosen to sit
+     * inside the interface's desaturated cyan/graphite palette — the multi-colour schemes
+     * (4/5/6) throw warm alarms across the whole globe and fight every other layer. */
+    return [`${state.radarHost}${f.path}/256/{z}/{x}/{y}/2/1_1.png`];
   }
 
   function applyRadarFrame() {
@@ -216,7 +219,7 @@ const Intel = (() => {
         map.addSource("radar", { type: "raster", tiles: radarTiles(), tileSize: 256, maxzoom: 12,
           attribution: "Weather radar: RainViewer" });
         map.addLayer({ id: "radar-tiles", type: "raster", source: "radar",
-          paint: { "raster-opacity": 0.65 } });
+          paint: { "raster-opacity": 0.55 } });  // low-intensity overlay: weather informs, it does not blind other layers
       } else {
         map.setLayoutProperty("radar-tiles", "visibility", "visible");
       }

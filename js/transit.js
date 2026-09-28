@@ -72,6 +72,14 @@ const Transit = (() => {
     return feed && feed.mode ? feed.mode : (fallback || 'bus');
   }
 
+  /* Some operators require a free registered key (511ny convention: the registry entry ships
+   * with key=SIGNUP in its URL). While the placeholder sits there the feed is not polled —
+   * an unauthorised request learnt nothing — and the chip says it is waiting for a key
+   * instead of pretending the network failed. Replace SIGNUP with the real key to wake it. */
+  function needsKey(feed) {
+    return /key=SIGNUP/.test(String((feed && feed.base) || ''));
+  }
+
   function colorFor(feed, value) {
     const hex = normColor(value);
     if (hex !== '#7ee0ff') return hex;
@@ -1288,9 +1296,13 @@ const Transit = (() => {
       const descriptor = pbSub(position, 2) || [];
       const bearing = Number(pbNum(pos, 3));
       const speed = Number(pbNum(pos, 5));
-      const routeId = pbStr(trip, 2) || '';
+      /* GTFS-RT field map: TripDescriptor.route_id is field 5 — field 2 is the trip's
+       * start_time and reading it as a route is what put clock strings like "11:28:25"
+       * on bus labels. VehiclePosition.stop_id is field 7 (field 11 is occupancy), and
+       * TripDescriptor.trip_id is an internal job number, not a headsign — never a label. */
+      const routeId = String(pbStr(trip, 5) || '').trim();
       out.push({
-        key: `gtfsrt:${feed.id}:${pbStr(descriptor, 1) || pbStr(trip, 1) || `${lat},${lon}`}`,
+        key: `gtfsrt:${feed.id}:${String(pbStr(descriptor, 1) || pbStr(trip, 1) || `${lat},${lon}`).trim()}`,
         feed: feed.id,
         network: feed.network,
         operator: feed.operator,
@@ -1298,17 +1310,17 @@ const Transit = (() => {
         kind: 'positions',
         mode: feed.mode === 'tram' ? 'tram' : 'bus',
         lineId: routeId,
-        lineName: routeId || feed.network,
+        lineName: routeId || feed.badge || feed.network,
         color: readable(DEFAULT_COLOR.bus),
         lon,
         lat,
         heading: Number.isFinite(bearing) && bearing >= 0 && bearing < 360 ? bearing : 0,
         speed: Number.isFinite(speed) && speed >= 0 ? Math.round(speed * 3.6) : null,   // m/s -> km/h
-        dest: pbStr(trip, 1) || '',
-        nextStop: pbStr(position, 11) || '',
+        dest: '',
+        nextStop: String(pbStr(position, 7) || '').trim(),
         etaSec: null,
         delaySec: null,
-        vehicle: pbStr(descriptor, 2) || pbStr(descriptor, 1) || '',
+        vehicle: String(pbStr(descriptor, 2) || pbStr(descriptor, 1) || '').trim(),
         where: 'Live position from the agency GTFS-Realtime feed.',
         observed,
         attribution: feed.attribution,
@@ -1383,7 +1395,7 @@ const Transit = (() => {
     const json = await response.json();
     registry = asArray(json.feeds)
       .filter((feed) => ADAPTERS.includes(feed.adapter))   // an unknown adapter draws nothing but is not a crash
-      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null }, feed));
+      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null, _pending: needsKey(feed) }, feed));
     return registry;
   }
 
@@ -1579,6 +1591,12 @@ const Transit = (() => {
     status('◇ TRANSIT CONNECTING…');
     await loadRegistry().catch(() => []);
     const results = await Promise.all(registry.map(async (feed) => {
+      if (feed._pending) {
+        /* keyless-pending: draw nothing, poll nothing, and never report a fake failure */
+        feed._error = null;
+        feed._count = 0;
+        return { feed, items: [] };
+      }
       try {
         await loadStatic(feed);
         const items = await refreshFeed(feed);
@@ -1776,21 +1794,26 @@ const Transit = (() => {
 
   function render() {
     restore();
-    const ok = registry.filter((feed) => !feed._error && (feed._count || 0) > 0);
+    const active = registry.filter((feed) => !feed._pending);
+    const pendingRow = (feed) =>
+      `${feed.city} — ${feed.network}: awaiting a free operator key (${feed.signup || feed.page}) — replace key=SIGNUP in data/transit.json`;
+    const ok = active.filter((feed) => !feed._error && (feed._count || 0) > 0);
     const lineCount = new Set(lines.map((line) => line.id)).size;
     if (!vehicles.length) {
       status('◇ TRANSIT FEEDS UNAVAILABLE');
       if (chip()) {
-        chip().title = registry.map((feed) => `${feed.city}: ${feed._error || 'no vehicles reported'}`).join(' · ')
+        chip().title = active.map((feed) => `${feed.city}: ${feed._error || 'no vehicles reported'}`)
+          .concat(registry.filter((feed) => feed._pending).map(pendingRow)).join(' · ')
           || 'No transit feed responded.';
       }
       return;
     }
     const trains = countBy((v) => v.mode !== 'bus');
     const buses = countBy((v) => v.mode === 'bus');
-    status(`◇ ${vehicles.length} VEHICLES · ${ok.length}/${registry.length} NETWORKS`);
+    status(`◇ ${vehicles.length} VEHICLES · ${ok.length}/${active.length} NETWORKS`);
     if (!chip()) return;
     const rows = registry.map((feed) => {
+      if (feed._pending) return pendingRow(feed);
       const count = feed._count || 0;
       const detail = feed._error
         ? `unavailable (${feed._error})`
@@ -1819,6 +1842,9 @@ const Transit = (() => {
     }
     if (registry.some((feed) => feed.sample)) {
       notes.push('Sampled networks carry only what a rate-limited key returns — a slice of the fleet, not all of it.');
+    }
+    if (registry.some((feed) => feed._pending)) {
+      notes.push('Networks marked awaiting a key ship with a SIGNUP placeholder: registration at the operator portal is free, and the key drops straight into data/transit.json.');
     }
     notes.push(...registry.map((feed) => `${feed.city} data: ${feed.attribution}`));
     chip().title = rows.concat(notes).join('\n');
@@ -2063,7 +2089,7 @@ const Transit = (() => {
 
   return {
     init, toggle, restore, refresh, openList,
-    decodePolyline, parseLineStrings, readable, normColor, tidyStopName, etaText, ageText,
+    decodePolyline, parseLineStrings, readable, normColor, tidyStopName, etaText, ageText, needsKey,
     parseObaRoutes, parseObaStops, parseObaTrips, parseObaVehicles, modeFromRouteType,
     parseTflSequence, parseTflStatus, parseTflArrivals,
     parseBartStations, parseBartRoutes, parseBartRouteInfo, parseBartEtd,
