@@ -44,11 +44,15 @@ Positions are SGP4 predictions from [CelesTrak GP JSON orbital elements](https:/
 not live satellite telemetry. `refresh-satellites` updates the small static
 snapshot once daily, and the layer refuses a snapshot older than 72 hours.
 `satellite.js` 6.0.2 is vendored under its MIT license in `vendor/`.
-The **SHIPS** layer displays recent AIS observations from selected corridors near Chennai,
-Singapore, Rotterdam, New York and Los Angeles. A scheduled Netlify Function connects
-to AISStream for 18 seconds every two minutes and stores a shared snapshot in Netlify
-Blobs; the public reader rejects snapshots older than five minutes. This is sampled
-coverage, not continuous global vessel tracking. Set `AISSTREAM_API_KEY` in the
+The **SHIPS** layer displays recent AIS observations from ten corridors: Chennai,
+Singapore, Rotterdam, New York, Los Angeles, plus five chokepoints — the western
+Strait of Malacca, the Strait of Hormuz, the Suez Canal, the Panama Canal and the
+Strait of Gibraltar. The map also marks nine named waterways (Malacca, Hormuz, Suez,
+Panama, Gibraltar, Bosphorus, Bab el-Mandeb, Dover, Torres) as context labels — they
+are drawn, but the collector only listens where it has boxes. A scheduled Netlify
+Function connects to AISStream for 18 seconds every two minutes and stores a shared
+snapshot in Netlify Blobs; the public reader rejects snapshots older than five minutes.
+This is sampled coverage, not continuous global vessel tracking. Set `AISSTREAM_API_KEY` in the
 Netlify project environment variables with **Functions** scope (Production context),
 then redeploy; never place the key in `netlify.toml` or client code.
 
@@ -236,6 +240,95 @@ absent for the same reason Delhi Metro trains are: no positions are published (O
 not guess. Louisville TARC and Connecticut CTtransit were evaluated for the registry and
 rejected because their published GTFS-Realtime endpoints no longer answer.
 
+## 🌍 World layers (ARGOS-parity set)
+
+Six "world" layers, built only on keyless or operator-owned public feeds, with the
+same standing rule as the rest of the app: **real data only, source cited,
+no invented positions.** Every layer degrades to a labelled state
+(`PENDING BUILD`, `KEY PENDING`, `UNAVAILABLE`) instead of a fabricated feed.
+
+**⊙ MARKETS** (`js/markets.js`) — live [Polymarket](https://polymarket.com/) prediction
+markets from the public Gamma API, ranked by 24 h volume. A deliberately simple, clearly
+labelled momentum flag marks markets whose price moved ≥5 points in a week while 24 h
+volume is ≥$100k — information, not advice. Markets tied to a real place (elections,
+a capital, a conflict) are pinned on the globe from `data/markets-geo.json`, a curated
+recurring-topic table; everything else stays in the list. Refreshes every 10 minutes
+through the relay so all visitors share one upstream call per window.
+
+**⌁ EVENTS** (`js/events.js`) — three sources, each drawn only where reported:
+* **storms** — NOAA/NWS active weather alerts (US), Severe/Extreme storm events only
+  (tornado, hurricane, flood, winter, dust…), keyless JSON, 10-minute refresh.
+* **fires** — NASA FIRMS satellite fire hotspots (VIIRS NOAA-21, last day). The free
+  MAP_KEY stays server-side: set `FIRMS_MAP_KEY` in the Netlify project env (and as an
+  env var or `tools/_cache/firms-key.txt` when running `python3 server.py`). Without it
+  the layer degrades to a labelled `FIRES · KEY PENDING` state instead of a fake feed.
+* **volcanoes** — every named volcano in OpenStreetMap, built by `tools/build_infra.py`
+  into `data/volcanoes.json` (the `refresh-infra` action runs it weekly). Until the first
+  snapshot ships, the chip reads `VOLC · PENDING BUILD`.
+
+**⬡ INFRA** (`js/infra.js`) — critical infrastructure as map layers: named power
+plants (coloured by fuel type: solar, wind, hydro, nuclear, coal, gas, oil) and named
+harbours from OpenStreetMap, plus the open "CABLE" submarine-cable routes (2019
+vintage — every popup says so). `tools/build_infra.py` builds `data/power.json`,
+`data/ports.json` and `data/cables.geojson`; `refresh-infra` runs it weekly. Each
+dataset degrades independently to a `PENDING BUILD` chip until its first snapshot.
+
+**◈ NEWS** (`js/news.js`) — geolocated world headlines from the [GDELT DOC 2.0
+API](https://www.gdeltproject.org/data.html#doc): the relay (`/api/gdelt`, in both
+`server.py` and the Netlify function) runs one fixed PointData sweep per 15 minutes —
+an OR of conflict/disaster headline terms, 250 geocoded articles. Severity is a
+transparent headline-keyword score (CASUALTIES / USE OF FORCE / CONFRONTATION /
+DISASTER / GENERAL); the popup links out to the source article — godseye never
+re-hosts article text. If GDELT throttles, the relay keeps the last good sweep.
+
+**☒ CONFLICT** (`js/conflict.js`) — recent [UCDP/PRIO GED](https://ucdp.unic.ch)
+conflict events (last 180 days, geolocated rows only) via `tools/build_conflict.py`
+into `data/conflict.json`; `refresh-conflict` runs it on a Wednesday schedule. Colour
+is a transparent death-count scale; classification is UCDP's, and **no frontlines are
+drawn** — no open, verifiable contact-line dataset exists, and a hand-drawn line would
+be fabrication. If UCDP moves its release file, the tool tells you exactly which URL
+to update (`UCDP_FALLBACK_URLS`) instead of shipping a broken parse.
+
+**▣ COMPANIES** (`js/companies.js`) — headquarters of a curated large-cap sample
+(`data/companies-seed.json`: 66 exchange-listed companies with tickers) geocoded via
+OSM Nominatim by `tools/build_companies.py` into `data/companies.json` (monthly via
+`refresh-companies`, geocode cache in `tools/_cache/`). Quotes are a **link out** to a
+ticker price search — v1 deliberately fetches no prices, and a guessed quote
+deep-link would be fabrication. No coordinates are invented: an unresolvable HQ is
+dropped, and the run refuses to ship under its floor.
+
+**OFAC cross-check** (`js/ofac.js` + `tools/build_ofac.py`) — the US Treasury's public
+[SDN list](https://ofac.treasury.gov/specially-designated-nationals-and-specially-designated-terrorists-list)
+is built weekly (`refresh-ofac`) into `data/ofac.json` (aircraft registrations, vessel
+IMOs and names). The SHIPS and AIR layers flag matches — always labelled with the
+matched field: an IMO or registration match is stated as such, and a vessel **name**
+match carries an explicit `verify IMO — ships share names` caution. A match is a flag
+for human verification, never a verdict, and aircraft are only checked when the feed
+actually supplies a registration.
+
+**⊞ COUNTRIES** (`js/countries.js`) — clickable admin-0 boundaries
+(`tools/build_countries.py` → `data/countries.json`, monthly via `refresh-countries`).
+Clicking a country opens a card with ten keyless [World Bank](https://data.worldbank.org/)
+indicators (GDP, population, inflation, unemployment, life expectancy, internet use,
+military spend, electricity use, under-5 mortality) through the `/api/worldbank`
+relay (both runtimes, 1 h cache). Every figure states its year; missing data says
+"no data" — no interpolation, no invented figures. Territories whose boundary file
+lacks an ISO code say so instead of guessing.
+
+**☄ ISS PASSES** (`js/iss.js`) — next visible passes of the station over the current
+view centre, computed locally with SGP4 from the CelesTrak snapshot the SATELLITES
+layer already ships. The panel states the elements' epoch and warns when they go
+stale; observer = view centre, 50 m a.s.l. No live telemetry is claimed.
+
+**Universal search** — the left-panel search box matches named things on the map
+before the world: vessel names/MMSIs (with their OFAC flag), aircraft callsigns/
+registrations, and open market questions, plus the usual place geocoding. Layers that
+are switched off contribute nothing.
+
+Every one of these builders has a sanity floor (record counts, size guards, shape
+checks), so a partial or error-page download fails loudly instead of shipping a
+half-world.
+
 ## ✨ Features
 
 | | |
@@ -254,6 +347,17 @@ rejected because their published GTFS-Realtime endpoints no longer answer.
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
+ ⚡ **EVENTS layer** | active NWS storm warnings (US), NASA FIRMS satellite fire hotspots and every named OpenStreetMap volcano, drawn only where the source actually reported |
+ ⊙ **MARKETS layer** | live Polymarket prediction markets ranked by 24 h volume, a transparent momentum flag, and a place pin for every market bound to a real location (Polymarket Gamma API, keyless) |
+ ⬡ **INFRA layer** | named power plants (by fuel type) and harbours from OSM + open submarine-cable routes (2019 vintage, labelled historical) |
+ ◈ **NEWS layer** | geolocated world headlines (GDELT DOC 2.0) on a 15-minute relay sweep, severity as a transparent headline-keyword score, links out to source articles |
+ ☒ **CONFLICT layer** | last 180 days of UCDP/PRIO GED conflict events, coloured by reported deaths; no frontlines — none exist in an open verifiable source |
+ ▣ **COMPANIES layer** | HQs of a curated 66-company large-cap sample (Nominatim geocoded); quote link-out, no fetched prices, no invented coordinates |
+ ⊞ **COUNTRY cards** | clickable admin-0 boundaries + ten World Bank indicators per country (latest year per figure, no interpolation), through a 1 h-cached keyless relay |
+ 🚩 **OFAC cross-check** | Treasury SDN list flags on ship (IMO/name) and aircraft (registration) popups, always labelled by matched field, name matches carry a verify-IMO caution |
+ ☄ **ISS passes** | next visible station passes over the view centre, SGP4 from the CelesTrak snapshot, epoch-stated, stale-warned |
+ 🔎 **Universal search** | the search box matches vessels, aircraft and open markets on the map before falling back to place geocoding |
+ 🔌 **Infrastructure snapshots** | `tools/build_infra.py` / `build_conflict.py` / `build_companies.py` / `build_countries.py` / `build_ofac.py` build every static dataset behind these layers; the `refresh-*` actions keep them current |
 
 ## 🗺️ Camera sources (all publicly published by agencies)
 
@@ -315,6 +419,11 @@ The server also provides:
 
 * `refresh-dataset` — rebuilds `data/cameras.geojson` from every source **nightly** and pushes (Netlify auto-redeploys)
 * `check-liveness` — probes every direct-media feed **weekly**, writes `data/liveness.json` → LIVE / DOWN badges in the UI
+* `refresh-infra` — **weekly** rebuild of the OSM volcano / power-plant / harbour snapshots and the open submarine-cable map (`tools/build_infra.py`)
+* `refresh-ofac` — **weekly** rebuild of `data/ofac.json` from the Treasury SDN XML (`tools/build_ofac.py`)
+* `refresh-conflict` — **Wednesday** rebuild of `data/conflict.json` from the UCDP/PRIO GED release (`tools/build_conflict.py`)
+* `refresh-companies` — **monthly** HQ re-geocoding of the curated large-cap sample (`tools/build_companies.py`, Nominatim, cached)
+* `refresh-countries` — **monthly** refresh of admin-0 country boundaries + ISO codes (`tools/build_countries.py`)
 
 ## 🧱 Rebuild the dataset
 

@@ -15,7 +15,7 @@ import os, re, sys, time, json, base64, threading, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, quote, urlencode
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 def _port():
@@ -115,6 +115,20 @@ CACHE_LOCK = threading.Lock()
 CACHE_MAX_ENTRIES = 64
 CACHE_MAX_BYTES = 512 * 1024
 WINDOW_MAX_SEC = 900
+
+# /api/fires: one FIRMS world sweep per process for 15 minutes (the feed itself
+# only updates as the satellite overpasses; the rest is cache).
+FIRMS_TTL = 900.0
+FIRMS_CACHE = {}
+
+# /api/gdelt: one GDELT DOC 2.0 PointData sweep per process for 15 minutes.
+# Keyless; the query is a fixed OR of conflict/disaster headline terms. GDELT
+# allows one request per 5 seconds, so the 15-minute cache is far under.
+GDELT_TTL = 900.0
+GDELT_CACHE = {}
+GDELT_QUERY = ("attack OR airstrike OR bombing OR explosion OR missile OR shelling "
+               "OR arrest OR riot OR protest OR earthquake OR tsunami OR flood OR "
+               "wildfire OR coup OR ceasefire OR election OR conflict")
 
 # The browser calls one bounded endpoint for Seoul's sixteen documented public sample
 # lines. Keeping the line list and base URL server-owned avoids a batch endpoint that
@@ -275,6 +289,13 @@ class Handler(BaseHTTPRequestHandler):
             if not self._seoul_batch_ok():
                 return self._json({"error": "rate limit — slow down"}, 429)
             return self.do_seoul_batch()
+        if path == "/api/fires":
+            return self.do_fires()
+        if path == "/api/gdelt":
+            return self.do_gdelt()
+        if path == "/api/worldbank":
+            query = parse_qs(parsed.query)
+            return self.do_worldbank(query.get("cc", [""])[0])
         if path == "/api/fetch":
             query = parse_qs(parsed.query)
             return self.do_fetch(
@@ -418,6 +439,113 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
+
+    def do_fires(self):
+        """NASA FIRMS fire hotspots (world, last day) as CSV.
+
+        The free MAP_KEY stays server-side (FIRMS_MAP_KEY env, or
+        tools/_cache/firms-key.txt) — the browser sees only the CSV, never the
+        key. Without a key the layer degrades to a labelled "KEY PENDING"
+        state (501) instead of a fabricated feed."""
+        key = (os.environ.get("FIRMS_MAP_KEY") or "").strip()
+        if not key:
+            key_path = os.path.join(ROOT, "tools", "_cache", "firms-key.txt")
+            if os.path.isfile(key_path):
+                with open(key_path, "r", encoding="utf-8") as f:
+                    key = f.read().strip()
+        if not key:
+            return self._json({"error": "firms-key-pending",
+                               "hint": "free key: https://firms.modaps.eosdis.nasa.gov/api — set FIRMS_MAP_KEY or write tools/_cache/firms-key.txt"}, 501)
+        now = time.time()
+        hit = FIRMS_CACHE.get("entry")
+        if hit and now - hit["at"] < FIRMS_TTL:
+            return self._bytes(hit["data"], hit["ctype"], {"X-Cache": "HIT"})
+        url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_NOAA21_NRT/world/1"
+        try:
+            ctype, data = self._upstream(url)
+        except Exception as e:                         # noqa: BLE001 - a relay failure is never cached
+            return self._json({"error": str(e)}, 502)
+        if not data or len(data) > 16 * 1024 * 1024:
+            return self._json({"error": "source-too-large"}, 502)
+        if "csv" not in (ctype or ""):
+            head = data[:80].decode("utf-8", "replace")
+            return self._json({"error": "firms-upstream-error", "detail": head}, 502)
+        FIRMS_CACHE["entry"] = {"at": now, "ctype": ctype, "data": data}
+        return self._bytes(data, ctype, {"X-Cache": "MISS"})
+
+    def do_gdelt(self):
+        """GDELT DOC 2.0 geolocated world news (PointData GeoJSON), 15-min cache.
+
+        Keyless upstream. GDELT signals throttling with a 200 and prose; when
+        that happens we keep the last good sweep (X-Cache: STALE) rather than
+        drawing a feed out of an error page."""
+        now = time.time()
+        hit = GDELT_CACHE.get("entry")
+        if hit and now - hit["at"] < GDELT_TTL:
+            return self._bytes(hit["data"], "application/geo+json", {"X-Cache": "HIT"})
+        q = urlencode({"query": GDELT_QUERY, "mode": "PointData", "format": "GeoJSON",
+                       "timespan": "1440m", "maxrecords": "250"})
+        try:
+            ctype, data = self._upstream("https://api.gdeltproject.org/api/v2/doc/doc?" + q)
+        except Exception as e:                         # noqa: BLE001
+            return self._json({"error": str(e)}, 502)
+        if not data or len(data) > 8 * 1024 * 1024:
+            return self._json({"error": "source-too-large"}, 502)
+        try:
+            doc = json.loads(data)
+            if not isinstance(doc, dict) or not isinstance(doc.get("features"), list):
+                raise ValueError("not a FeatureCollection")
+        except Exception:
+            if hit:
+                return self._bytes(hit["data"], "application/geo+json", {"X-Cache": "STALE"})
+            head = data[:120].decode("utf-8", "replace")
+            return self._json({"error": "gdelt-unavailable", "detail": head}, 502)
+        GDELT_CACHE["entry"] = {"at": now, "data": data}
+        return self._bytes(data, "application/geo+json", {"X-Cache": "MISS"})
+
+    # World Bank country indicators — one keyless call per indicator; fan out.
+    WB_INDICATORS = ("NY.GDP.MKTP.CD", "NY.GDP.PCAP.CD", "SP.POP.TOTL", "FP.CPI.TOTL.ZG",
+                     "SL.UEM.TOTL.ZS", "SP.DYN.LE00.IN", "IT.NET.USER.ZS",
+                     "MS.XPD.TOTL.GD.ZS", "EG.USE.ELEC.KH.PC", "SH.TOT.MRTS")
+    WB_TTL = 3600.0
+    WB_CACHE = {}
+
+    def do_worldbank(self, cc):
+        cc = (cc or "").upper()
+        if len(cc) != 2 or not cc.isalpha():
+            return self._json({"error": "bad country code"}, 400)
+        now = time.time()
+        hit = self.WB_CACHE.get(cc)
+        if hit and now - hit["at"] < self.WB_TTL:
+            return self._json(hit["body"], 200, {"X-Cache": "HIT"})
+
+        def one(ind):
+            url = f"https://api.worldbank.org/v2/country/{cc}/indicator/{ind}?format=json&per_page=1&sort=desc"
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                doc = json.loads(r.read().decode("utf-8"))
+            rows = doc[1] if isinstance(doc, list) and len(doc) > 1 and isinstance(doc[1], list) else []
+            row = next((x for x in rows if isinstance(x, dict) and x.get("value") is not None
+                        and str(x.get("value")).replace(".", "", 1).replace("-", "", 1).isdigit()), None)
+            if not row:
+                return None
+            return {"id": ind, "name": (row.get("indicator") or {}).get("value"),
+                    "value": float(row["value"]), "date": str(row.get("date")),
+                    "country": (row.get("country") or {}).get("value"),
+                    "iso3": row.get("countryiso3code")}
+
+        try:
+            with ThreadPoolExecutor(max_workers=10) as ex:
+                results = [r for r in ex.map(one, self.WB_INDICATORS) if r]
+        except Exception as e:                         # noqa: BLE001
+            return self._json({"error": str(e)}, 502)
+        if not results:
+            return self._json({"error": "worldbank-unavailable"}, 502)
+        body = {"country": results[0].get("country") or cc, "iso2": cc,
+                "iso3": next((r["iso3"] for r in results if r.get("iso3")), None),
+                "indicators": results}
+        self.WB_CACHE[cc] = {"at": now, "body": body}
+        return self._json(body, 200, {"X-Cache": "MISS"})
 
     def do_fetch(self, url, window=0, encoding=""):
         if not url or not valid_url(url) or len(url) > 2000:

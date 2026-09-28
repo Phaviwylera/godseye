@@ -164,6 +164,7 @@
     <button id="btn-night">◐ NIGHT</button>
     <button id="btn-iss">◇ ISS</button>
     <button id="btn-satellites" title="Predicted positions of stations and GPS satellites">◇ SATELLITES</button>
+    <button id="btn-iss-passes" title="Next visible ISS passes over the current view center (SGP4 from the CelesTrak snapshot)">☄ ISS PASSES</button>
     <button id="btn-radar">⌁ RADAR</button>
     <button id="btn-route">⌇ ROUTE</button>
     <button id="btn-air">△ AIR</button>
@@ -171,6 +172,13 @@
     <button id="btn-transit" type="button" aria-pressed="false" title="Live buses, trams and metro trains from public operator feeds">⊞ TRANSIT</button>
     <button id="btn-airports" type="button" aria-pressed="false" title="Every aerodrome, heliport and seaplane base on the public-domain registry, tiered in by zoom">◇ AIRPORTS</button>
     <button id="btn-quakes" title="Latest 24 hours of USGS earthquakes">◇ QUAKES</button>
+    <button id="btn-events" title="Active NWS storm warnings, NASA FIRMS fire hotspots and named volcanoes">⌁ EVENTS</button>
+    <button id="btn-markets" title="Live Polymarket prediction markets by 24 h volume, pinned where place-bound">⊙ MARKETS</button>
+    <button id="btn-infra" title="Named power plants and harbours (OSM) + open submarine-cable routes">⬡ INFRA</button>
+    <button id="btn-news" title="Geolocated world headlines (GDELT DOC 2.0), 15-min refresh, severity by headline keywords">◈ NEWS</button>
+    <button id="btn-conflict" title="UCDP/PRIO GED conflict events, last 180 days, geolocated">☒ CONFLICT</button>
+    <button id="btn-companies" title="HQs of a curated large-cap sample (Nominatim geocoded), quote link-out">▣ COMPANIES</button>
+    <button id="btn-countries" title="Clickable country boundaries + World Bank indicator cards">⊞ COUNTRIES</button>
   </div>
   <div id="intel-row">
     <span id="air-chip" class="hidden">AIR</span>
@@ -180,6 +188,12 @@
     <span id="iss-chip" class="hidden">ISS</span>
     <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
     <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
+    <span id="events-chip" class="hidden" aria-live="polite">EVENTS</span>
+    <span id="markets-chip" class="hidden" aria-live="polite">MARKETS</span>
+    <span id="infra-chip" class="hidden" aria-live="polite">INFRA</span>
+    <span id="news-chip" class="hidden" aria-live="polite">NEWS</span>
+    <span id="conflict-chip" class="hidden" aria-live="polite">CONFLICT</span>
+    <span id="companies-chip" class="hidden" aria-live="polite">COMPANIES</span>
     <span id="radar-ctl" class="hidden">
       <button id="radar-play">⏸</button>
       <input id="radar-slider" type="range" min="0" max="0" value="0" />
@@ -258,6 +272,39 @@
   </div>
 </div>
 
+<!-- country cards -->
+<div id="countries-modal" class="hidden">
+  <div class="iss-box">
+    <div class="modal-head">
+      <span class="modal-kicker">COUNTRY // INDICATORS</span>
+      <div class="modal-title">WORLD BANK CARD</div>
+      <button id="countries-close" title="Close">✕</button>
+    </div>
+    <div class="modal-meta"><span id="countries-meta">—</span></div>
+    <div id="countries-body" class="iss-body"></div>
+    <div class="modal-foot">
+      <span>Latest reported year per indicator · no interpolation</span>
+    </div>
+  </div>
+</div>
+
+<!-- ISS passes -->
+<div id="iss-modal" class="hidden">
+  <div class="iss-box">
+    <div class="modal-head">
+      <span class="modal-kicker">STATION // NEXT PASSES</span>
+      <div class="modal-title">ISS OVER THE VIEW CENTER</div>
+      <button id="iss-close" title="Close">✕</button>
+    </div>
+    <div class="modal-meta"><span id="iss-meta">computing…</span></div>
+    <div id="iss-body" class="iss-body"></div>
+    <div class="modal-foot">
+      <span id="iss-attr">SGP4 from the CelesTrak OMM snapshot · observer = current view center, 50 m a.s.l.</span>
+      <button id="iss-refresh" title="Recompute at the current view center">REFRESH</button>
+    </div>
+  </div>
+</div>
+
 <!-- route corridor sweep -->
 <div id="route" class="hidden">
   <div class="route-head">
@@ -292,11 +339,19 @@
     <button data-do="#btn-night">◐ NIGHT</button>
     <button data-do="#btn-iss">◇ ISS</button>
     <button data-do="#btn-satellites">◇ SATELLITES</button>
+    <button data-do="#btn-iss-passes">☄ ISS PASSES</button>
     <button data-do="#btn-air">△ AIR</button>
     <button data-do="#btn-vessels">◇ SHIPS</button>
     <button data-do="#btn-transit">⊞ TRANSIT</button>
     <button data-do="#btn-airports">◇ AIRPORTS</button>
     <button data-do="#btn-quakes">◇ QUAKES</button>
+    <button data-do="#btn-events">⌁ EVENTS</button>
+    <button data-do="#btn-markets">⊙ MARKETS</button>
+    <button data-do="#btn-infra">⬡ INFRA</button>
+    <button data-do="#btn-news">◈ NEWS</button>
+    <button data-do="#btn-conflict">☒ CONFLICT</button>
+    <button data-do="#btn-companies">▣ COMPANIES</button>
+    <button data-do="#btn-countries">⊞ COUNTRIES</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
     <button data-do="#btn-terrain">3D</button>
@@ -345,11 +400,20 @@
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
 <script src="js/satellites.js"></script>
+<script src="js/iss.js"></script>
 <script src="js/contacts.js"></script>
+<script src="js/ofac.js"></script>
 <script src="js/vessels.js"></script>
 <script src="js/transit.js"></script>
 <script src="js/airports.js"></script>
 <script src="js/intel.js"></script>
+<script src="js/events.js"></script>
+<script src="js/markets.js"></script>
+<script src="js/infra.js"></script>
+<script src="js/news.js"></script>
+<script src="js/conflict.js"></script>
+<script src="js/companies.js"></script>
+<script src="js/countries.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
 <script>

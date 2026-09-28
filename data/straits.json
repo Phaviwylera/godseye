@@ -1,0 +1,15 @@
+{
+  "source": "Curated named waterways — the chokepoints the sea watchers ask for. Context markers only; they are not live sensors.",
+  "generated": "2026-09-28",
+  "waterways": [
+    { "name": "Strait of Malacca", "lon": 101.5, "lat": 3.2, "note": "world's busiest shipping lane" },
+    { "name": "Strait of Hormuz", "lon": 56.5, "lat": 26.6, "note": "≈20% of seaborne oil passes here" },
+    { "name": "Suez Canal", "lon": 32.45, "lat": 30.6, "note": "Mediterranean–Red Sea shortcut" },
+    { "name": "Panama Canal", "lon": -79.8, "lat": 9.15, "note": "Atlantic–Pacific shortcut" },
+    { "name": "Strait of Gibraltar", "lon": -5.6, "lat": 35.9, "note": "Atlantic–Mediterranean gateway" },
+    { "name": "Bosphorus", "lon": 29.0, "lat": 41.15, "note": "Black Sea gateway" },
+    { "name": "Bab el-Mandeb", "lon": 43.8, "lat": 12.55, "note": "Red Sea–Gulf of Aden chokepoint" },
+    { "name": "Dover Strait", "lon": 1.5, "lat": 50.85, "note": "narrowest part of the English Channel" },
+    { "name": "Torres Strait", "lon": 142.5, "lat": -11.0, "note": "Arafura Sea–Coral Sea passage" }
+  ]
+}

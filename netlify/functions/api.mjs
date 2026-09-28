@@ -221,6 +221,150 @@ async function cacheSet(url, entry) {
   }
 }
 
+/* NASA FIRMS fire hotspots (world, last day). The free MAP_KEY stays inside
+ * the Function (env FIRMS_MAP_KEY) exactly like the OpenSky credentials: the
+ * browser only ever sees the CSV, never the key. One upstream call per
+ * instance per 15 minutes. Without the key the route answers 501 and the
+ * client shows a labelled "FIRES · KEY PENDING" state instead of a feed. */
+const FIRMS_TTL_MS = 15 * 60 * 1000;
+let firmsCache = null; // { at, ctype, buf }
+
+/* /gdelt: one GDELT DOC 2.0 PointData sweep per instance per 15 minutes.
+ * Keyless upstream; the query is fixed and small (one OR-of-headlines for
+ * conflict/disaster terms) so the response stays a GeoJSON of geolocated
+ * articles. GDELT's own limit is one request per 5 seconds — a 15-minute
+ * TTL keeps us far under it. */
+const GDELT_TTL_MS = 15 * 60 * 1000;
+const GDELT_QUERY = 'attack OR airstrike OR bombing OR explosion OR missile OR shelling OR arrest OR riot OR protest OR earthquake OR tsunami OR flood OR wildfire OR coup OR ceasefire OR election OR conflict';
+let gdeltCache = null; // { at, buf }
+
+/* /worldbank: ten keyless country indicators in one bounded relay call.
+ * The World Bank API answers one indicator per request, so we fan out
+ * concurrently and merge; one hour of cache per country. */
+const WORLD_BANK_TTL_MS = 60 * 60 * 1000;
+const WORLD_BANK_INDICATORS = [
+  "NY.GDP.MKTP.CD", "NY.GDP.PCAP.CD", "SP.POP.TOTL", "FP.CPI.TOTL.ZG",
+  "SL.UEM.TOTL.ZS", "SP.DYN.LE00.IN", "IT.NET.USER.ZS", "MS.XPD.TOTL.GD.ZS",
+  "EG.USE.ELEC.KH.PC", "SH.TOT.MRTS",
+];
+const worldBankCache = new Map(); // cc -> { at, body }
+
+async function worldbankRoute(cc) {
+  if (!/^[A-Z]{2}$/.test(cc)) {
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "bad country code" }) };
+  }
+  const hit = worldBankCache.get(cc);
+  if (hit && Date.now() - hit.at < WORLD_BANK_TTL_MS) {
+    return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/json",
+      "Cache-Control": "no-store", "X-Cache": "HIT" }, body: hit.body };
+  }
+  const base = `https://api.worldbank.org/v2/country/${cc}/indicator/`;
+  const results = await Promise.all(WORLD_BANK_INDICATORS.map(async (id) => {
+    try {
+      const up = await fetchUpstream(base + id + "?format=json&per_page=1&sort=desc");
+      if (up.failure) return null;
+      const doc = JSON.parse(up.buf.toString("utf8"));
+      const rows = Array.isArray(doc) && Array.isArray(doc[1]) ? doc[1] : [];
+      const row = rows.find(r => Number.isFinite(Number(r.value)));
+      if (!row) return null;
+      return {
+        id,
+        name: row.indicator && row.indicator.value,
+        value: Number(row.value),
+        date: String(row.date),
+        country: row.country && row.country.value,
+        iso3: row.countryiso3code || null,
+      };
+    } catch { return null; }
+  }));
+  const ok = results.filter(Boolean);
+  if (!ok.length) {
+    return { statusCode: 502, headers: CORS,
+      body: JSON.stringify({ error: "worldbank-unavailable" }) };
+  }
+  const body = JSON.stringify({
+    country: ok[0].country || cc,
+    iso2: cc,
+    iso3: ok.find(r => r.iso3).iso3 || null,
+    indicators: ok,
+  });
+  worldBankCache.set(cc, { at: Date.now(), body });
+  return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/json",
+    "Cache-Control": "no-store", "X-Cache": "MISS" }, body };
+}
+
+async function gdeltRoute() {
+  if (gdeltCache && Date.now() - gdeltCache.at < GDELT_TTL_MS) {
+    return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
+      "Cache-Control": "no-store", "X-Cache": "HIT" }, body: gdeltCache.buf };
+  }
+  const url = 'https://api.gdeltproject.org/api/v2/doc/doc?' +
+    new URLSearchParams({
+      query: GDELT_QUERY, mode: "PointData", format: "GeoJSON",
+      timespan: "1440m", maxrecords: "250",
+    }).toString();
+  let upstream;
+  try {
+    upstream = await fetchUpstream(url);
+  } catch (e) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: String(e) }) };
+  }
+  if (upstream.failure) {
+    return { statusCode: upstream.failure.statusCode, headers: { ...CORS, "Content-Type": "application/json", "X-Cache": "SKIP" },
+      body: upstream.failure.body };
+  }
+  const { buf } = upstream;
+  if (buf.length > 8 * 1024 * 1024) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: "source-too-large" }) };
+  }
+  // GDELT signals throttling with 200 + prose; keep the last good sweep then.
+  let doc = null;
+  try { doc = JSON.parse(buf.toString("utf8")); } catch { doc = null; }
+  if (!doc || !Array.isArray(doc.features)) {
+    if (gdeltCache) {
+      return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
+        "Cache-Control": "no-store", "X-Cache": "STALE" }, body: gdeltCache.buf };
+    }
+    return { statusCode: 502, headers: CORS,
+      body: JSON.stringify({ error: "gdelt-unavailable",
+        detail: buf.toString("utf8", 0, 120) }) };
+  }
+  gdeltCache = { at: Date.now(), buf: buf.toString("utf8") };
+  return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
+    "Cache-Control": "no-store", "X-Cache": "MISS" }, body: gdeltCache.buf };
+}
+
+async function firesRoute() {
+  const key = String(process.env.FIRMS_MAP_KEY || "").trim();
+  if (firmsCache && Date.now() - firmsCache.at < FIRMS_TTL_MS) {
+    return { statusCode: 200, headers: { ...CORS, "Content-Type": firmsCache.ctype,
+      "Cache-Control": "no-store", "X-Cache": "HIT" }, body: firmsCache.buf.toString("utf8") };
+  }
+  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/VIIRS_NOAA21_NRT/world/1`;
+  let upstream;
+  try {
+    upstream = await fetchUpstream(url);
+  } catch (e) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: String(e) }) };
+  }
+  if (upstream.failure) {
+    return { statusCode: upstream.failure.statusCode,
+      headers: { ...CORS, "Content-Type": "application/json", "X-Cache": "SKIP" },
+      body: upstream.failure.body };
+  }
+  const { ctype, buf } = upstream;
+  if (buf.length > 16 * 1024 * 1024) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: "source-too-large" }) };
+  }
+  if (!ctype.includes("csv") && !ctype.includes("text")) {
+    return { statusCode: 502, headers: { ...CORS, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "firms-upstream-error", detail: buf.toString("utf8", 0, 80) }) };
+  }
+  firmsCache = { at: Date.now(), ctype, buf };
+  return { statusCode: 200, headers: { ...CORS, "Content-Type": ctype,
+    "Cache-Control": "no-store", "X-Cache": "MISS" }, body: buf.toString("utf8") };
+}
+
 /* OpenSky has required OAuth2 client credentials since 2026-03-18. Credentials
  * are read only in the Function and are attached exclusively to its API host;
  * neither browser code nor responses can expose them. Anonymous calls still work. */
@@ -373,6 +517,20 @@ export async function handler(event) {
 
   const params = event.queryStringParameters || {};
   const path = event.path || "";
+  if (path.includes('/fires')) {
+    if (!process.env.FIRMS_MAP_KEY) {
+      return { statusCode: 501, headers: CORS,
+        body: JSON.stringify({ error: "firms-key-pending",
+          hint: "free key at https://firms.modaps.eosdis.nasa.gov/api -> Netlify env FIRMS_MAP_KEY" }) };
+    }
+    return firesRoute();
+  }
+  if (path.includes('/gdelt')) {
+    return gdeltRoute();
+  }
+  if (path.includes('/worldbank')) {
+    return worldbankRoute(String(params.cc || "").toUpperCase());
+  }
   if (path.includes('/transit/seoul')) {
     if (!seoulBatchRateOK(ip)) {
       return { statusCode: 429, headers: CORS, body: JSON.stringify({ error: 'rate limit — slow down' }) };

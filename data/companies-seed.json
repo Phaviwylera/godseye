@@ -1,0 +1,335 @@
+{
+  "note": "Curated large-cap sample: exchange-listed companies with a stable ticker and a well-known headquarters city. Deliberately not exhaustive. `q` is the exact Nominatim geocode query the build tool runs. The popup links out to a ticker price search rather than a guessed quote deep-link — v1 fetches no prices itself.",
+  "companies": [
+    {
+      "name": "Apple",
+      "ticker": "AAPL",
+      "q": "Cupertino, California, United States"
+    },
+    {
+      "name": "Microsoft",
+      "ticker": "MSFT",
+      "q": "Redmond, Washington, United States"
+    },
+    {
+      "name": "Alphabet",
+      "ticker": "GOOGL",
+      "q": "Mountain View, California, United States"
+    },
+    {
+      "name": "Amazon",
+      "ticker": "AMZN",
+      "q": "Seattle, Washington, United States"
+    },
+    {
+      "name": "NVIDIA",
+      "ticker": "NVDA",
+      "q": "Santa Clara, California, United States"
+    },
+    {
+      "name": "Meta Platforms",
+      "ticker": "META",
+      "q": "Menlo Park, California, United States"
+    },
+    {
+      "name": "Broadcom",
+      "ticker": "AVGO",
+      "q": "Irvine, California, United States"
+    },
+    {
+      "name": "Tesla",
+      "ticker": "TSLA",
+      "q": "Austin, Texas, United States"
+    },
+    {
+      "name": "Walmart",
+      "ticker": "WMT",
+      "q": "Bentonville, Arkansas, United States"
+    },
+    {
+      "name": "JPMorgan Chase",
+      "ticker": "JPM",
+      "q": "New York City, New York, United States"
+    },
+    {
+      "name": "Eli Lilly",
+      "ticker": "LLY",
+      "q": "Indianapolis, Indiana, United States"
+    },
+    {
+      "name": "Berkshire Hathaway",
+      "ticker": "BRK.B",
+      "q": "Omaha, Nebraska, United States"
+    },
+    {
+      "name": "ExxonMobil",
+      "ticker": "XOM",
+      "q": "Spring, Texas, United States"
+    },
+    {
+      "name": "UnitedHealth Group",
+      "ticker": "UNH",
+      "q": "Minnetonka, Minnesota, United States"
+    },
+    {
+      "name": "Johnson & Johnson",
+      "ticker": "JNJ",
+      "q": "New Brunswick, New Jersey, United States"
+    },
+    {
+      "name": "CVS Health",
+      "ticker": "CVS",
+      "q": "Woonsocket, Rhode Island, United States"
+    },
+    {
+      "name": "Visa",
+      "ticker": "V",
+      "q": "Foster City, California, United States"
+    },
+    {
+      "name": "Mastercard",
+      "ticker": "MA",
+      "q": "Purchase, New York, United States"
+    },
+    {
+      "name": "Chevron",
+      "ticker": "CVX",
+      "q": "San Ramon, California, United States"
+    },
+    {
+      "name": "Pfizer",
+      "ticker": "PFE",
+      "q": "New York City, New York, United States"
+    },
+    {
+      "name": "Bank of America",
+      "ticker": "BAC",
+      "q": "Charlotte, North Carolina, United States"
+    },
+    {
+      "name": "Merck",
+      "ticker": "MRK",
+      "q": "Kenilworth, New Jersey, United States"
+    },
+    {
+      "name": "Home Depot",
+      "ticker": "HD",
+      "q": "Atlanta, Georgia, United States"
+    },
+    {
+      "name": "Costco",
+      "ticker": "COST",
+      "q": "Issaquah, Washington, United States"
+    },
+    {
+      "name": "Abbott Laboratories",
+      "ticker": "ABT",
+      "q": "North Chicago, Illinois, United States"
+    },
+    {
+      "name": "Procter & Gamble",
+      "ticker": "PG",
+      "q": "Cincinnati, Ohio, United States"
+    },
+    {
+      "name": "Nike",
+      "ticker": "NKE",
+      "q": "Beaverton, Oregon, United States"
+    },
+    {
+      "name": "Lockheed Martin",
+      "ticker": "LMT",
+      "q": "Bethesda, Maryland, United States"
+    },
+    {
+      "name": "RTX",
+      "ticker": "RTX",
+      "q": "Arlington, Virginia, United States"
+    },
+    {
+      "name": "Boeing",
+      "ticker": "BA",
+      "q": "Arlington, Virginia, United States"
+    },
+    {
+      "name": "Caterpillar",
+      "ticker": "CAT",
+      "q": "Peoria, Illinois, United States"
+    },
+    {
+      "name": "Intel",
+      "ticker": "INTC",
+      "q": "Santa Clara, California, United States"
+    },
+    {
+      "name": "Verizon",
+      "ticker": "VZ",
+      "q": "New York City, New York, United States"
+    },
+    {
+      "name": "American Express",
+      "ticker": "AXP",
+      "q": "New York City, New York, United States"
+    },
+    {
+      "name": "Goldman Sachs",
+      "ticker": "GS",
+      "q": "New York City, New York, United States"
+    },
+    {
+      "name": "Comcast",
+      "ticker": "CMCSA",
+      "q": "Philadelphia, Pennsylvania, United States"
+    },
+    {
+      "name": "Cisco Systems",
+      "ticker": "CSCO",
+      "q": "San Jose, California, United States"
+    },
+    {
+      "name": "AT&T",
+      "ticker": "T",
+      "q": "Dallas, Texas, United States"
+    },
+    {
+      "name": "Coca-Cola",
+      "ticker": "KO",
+      "q": "Atlanta, Georgia, United States"
+    },
+    {
+      "name": "PepsiCo",
+      "ticker": "PEP",
+      "q": "Purchase, New York, United States"
+    },
+    {
+      "name": "Oracle",
+      "ticker": "ORCL",
+      "q": "Redwood Shores, California, United States"
+    },
+    {
+      "name": "Netflix",
+      "ticker": "NFLX",
+      "q": "Los Gatos, California, United States"
+    },
+    {
+      "name": "Walt Disney",
+      "ticker": "DIS",
+      "q": "Burbank, California, United States"
+    },
+    {
+      "name": "Salesforce",
+      "ticker": "CRM",
+      "q": "San Francisco, California, United States"
+    },
+    {
+      "name": "ServiceNow",
+      "ticker": "NOW",
+      "q": "Santa Clara, California, United States"
+    },
+    {
+      "name": "Adobe",
+      "ticker": "ADBE",
+      "q": "San Jose, California, United States"
+    },
+    {
+      "name": "Texas Instruments",
+      "ticker": "TXN",
+      "q": "Dallas, Texas, United States"
+    },
+    {
+      "name": "Qualcomm",
+      "ticker": "QCOM",
+      "q": "San Diego, California, United States"
+    },
+    {
+      "name": "IBM",
+      "ticker": "IBM",
+      "q": "Armonk, New York, United States"
+    },
+    {
+      "name": "Uber",
+      "ticker": "UBER",
+      "q": "San Francisco, California, United States"
+    },
+    {
+      "name": "PayPal",
+      "ticker": "PYPL",
+      "q": "San Jose, California, United States"
+    },
+    {
+      "name": "GE Aerospace",
+      "ticker": "GE",
+      "q": "Cincinnati, Ohio, United States"
+    },
+    {
+      "name": "Southwest Airlines",
+      "ticker": "LUV",
+      "q": "Dallas, Texas, United States"
+    },
+    {
+      "name": "Target",
+      "ticker": "TGT",
+      "q": "Minneapolis, Minnesota, United States"
+    },
+    {
+      "name": "United Airlines",
+      "ticker": "UAL",
+      "q": "Chicago, Illinois, United States"
+    },
+    {
+      "name": "FedEx",
+      "ticker": "FXD",
+      "q": "Memphis, Tennessee, United States"
+    },
+    {
+      "name": "3M",
+      "ticker": "MMM",
+      "q": "Saint Paul, Minnesota, United States"
+    },
+    {
+      "name": "Deere",
+      "ticker": "DE",
+      "q": "Moline, Illinois, United States"
+    },
+    {
+      "name": "ConocoPhillips",
+      "ticker": "COP",
+      "q": "Houston, Texas, United States"
+    },
+    {
+      "name": "TSMC",
+      "ticker": "TSM",
+      "q": "Hsinchu, Taiwan"
+    },
+    {
+      "name": "ASML",
+      "ticker": "ASML",
+      "q": "Veldhoven, Netherlands"
+    },
+    {
+      "name": "Novo Nordisk",
+      "ticker": "NVO",
+      "q": "Bagsvaerd, Denmark"
+    },
+    {
+      "name": "Novartis",
+      "ticker": "NVS",
+      "q": "Basel, Switzerland"
+    },
+    {
+      "name": "Shell",
+      "ticker": "SHEL",
+      "q": "London, United Kingdom"
+    },
+    {
+      "name": "BP",
+      "ticker": "BP",
+      "q": "London, United Kingdom"
+    },
+    {
+      "name": "HSBC",
+      "ticker": "HSBC",
+      "q": "London, United Kingdom"
+    }
+  ]
+}

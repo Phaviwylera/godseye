@@ -1078,24 +1078,77 @@ async function geoSearch(q) {
     return;
   }
   if (q.length < 3) { el.geoResults.style.display = "none"; return; }
+  el.geoResults.replaceChildren();
+  // Universal search: named things on the map (vessels, aircraft, markets) are
+  // matched first, then the world (Nominatim). Layers that are off contribute nothing.
+  const ql = q.trim().toLowerCase();
+  const addRow = (text, lon, lat, zoom, after) => {
+    const row = document.createElement("div");
+    row.textContent = text;
+    row.onclick = () => {
+      if (Number.isFinite(lon) && Number.isFinite(lat)) map.flyTo({ center: [lon, lat], zoom: zoom || 10, duration: 2500, essential: true });
+      if (after) after();
+      el.geoResults.style.display = "none";
+    };
+    el.geoResults.appendChild(row);
+  };
+  let found = 0;
+  try {
+    const vessels = (typeof Vessels !== "undefined" && Vessels.list) ? Vessels.list() : [];
+    for (const v of vessels) {
+      if (found >= 5) break;
+      const name = String(v.name || "");
+      if ((name && name.toLowerCase().includes(ql)) || String(v.mmsi || "").includes(ql)) {
+        found++;
+        addRow(`⚓ ${name || "unreported vessel"} · MMSI ${v.mmsi}${v.ofac ? " · ⚠ OFAC" : ""}`, v.lon, v.lat, 8);
+      }
+    }
+    const st = (typeof Intel !== "undefined" && Intel.state) ? Intel.state : null;
+    if (st && st.air) {
+      for (const f of (st.airFeatures || [])) {
+        if (found >= 8) break;
+        const p = f.properties || {};
+        const hay = `${p.callsign || ""} ${p.reg || ""}`.toLowerCase();
+        if (hay.includes(ql)) {
+          found++;
+          addRow(`✈ ${p.callsign || p.hex} · alt ${Math.round((p.altt || 0) * 3.28084).toLocaleString()} ft${p.reg ? " · " + p.reg : ""}`,
+            f.geometry.coordinates[0], f.geometry.coordinates[1], 7);
+        }
+      }
+    }
+    if (typeof Markets !== "undefined" && Markets._state && Markets._state.on) {
+      for (const m of (Markets._state.markets || [])) {
+        if (found >= 10) break;
+        if (String(m.question || "").toLowerCase().includes(ql)) {
+          found++;
+          const table = Markets._state.geoTable;
+          const place = table ? Markets.geoMatch(m.question, table) : null;
+          addRow(`⊙ ${m.question} · ${Math.round(100 * (m.yes ?? 0))}%`,
+            place ? place.lon : NaN, place ? place.lat : NaN, place ? place.zoom : 10,
+            () => Markets.openList());
+        }
+      }
+    }
+  } catch (e) { /* a layer accessor hiccup must not break geosearch */ }
   try {
     const r = await Sources.fetchJSON(
       "https://nominatim.openstreetmap.org/search?format=json&limit=5&q=" + encodeURIComponent(q));
-    if (!r.length) { el.geoResults.style.display = "none"; return; }
-    el.geoResults.replaceChildren();
-    for (const x of r) {
-      const row = document.createElement("div");
-      row.dataset.lat = x.lat;
-      row.dataset.lon = x.lon;
-      row.textContent = x.display_name;
-      el.geoResults.appendChild(row);
+    if (r.length) {
+      for (const x of r) {
+        const row = document.createElement("div");
+        row.dataset.lat = x.lat;
+        row.dataset.lon = x.lon;
+        row.textContent = x.display_name;
+        el.geoResults.appendChild(row);
+        found++;
+      }
+      el.geoResults.querySelectorAll("div[data-lat]").forEach(d => d.onclick = () => {
+        map.flyTo({ center: [+d.dataset.lon, +d.dataset.lat], zoom: 12, duration: 2500, essential: true });
+        el.geoResults.style.display = "none";
+      });
     }
-    el.geoResults.style.display = "block";
-    el.geoResults.querySelectorAll("div").forEach(d => d.onclick = () => {
-      map.flyTo({ center: [+d.dataset.lon, +d.dataset.lat], zoom: 12, duration: 2500, essential: true });
-      el.geoResults.style.display = "none";
-    });
   } catch (e) { /* offline is fine */ }
+  el.geoResults.style.display = found ? "block" : "none";
 }
 
 // --------------------------------------------------- tour / live / visits ---
@@ -1310,6 +1363,13 @@ function wireUI() {
       Vessels.restore();
       Transit.restore();
       Airports.restore();
+      Events.restore();
+      Markets.restore();
+      Infra.restore();
+      News.restore();
+      Conflict.restore();
+      Companies.restore();
+      Countries.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1401,6 +1461,61 @@ function wireUI() {
   };
   $("#btn-airports").onclick = (e) => { e.target.classList.toggle("active", Airports.toggle()); fxBlip(); };
   $("#airport-chip").onclick = () => Airports.openList();
+  $("#btn-events").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Events.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("events feed unavailable", error);
+    }
+  };
+  $("#events-chip").onclick = () => Events.openList();
+  $("#btn-markets").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Markets.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("markets feed unavailable", error);
+      el.syncMsg.textContent = "◇ prediction market feed unavailable — try again shortly";
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 6000);
+    }
+  };
+  $("#markets-chip").onclick = () => Markets.openList();
+  $("#infra-chip").onclick = () => $("#btn-infra").click();
+  $("#news-chip").onclick = () => News.openList();
+  $("#conflict-chip").onclick = () => Conflict.openList();
+  $("#companies-chip").onclick = () => Companies.openList();
+  $("#btn-infra").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Infra.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("infra layer unavailable", error);
+    }
+  };
+  $("#btn-news").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await News.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("news layer unavailable", error);
+    }
+  };
+  for (const [btn, layer, label] of [["#btn-conflict", Conflict, "conflict"], ["#btn-companies", Companies, "companies"]]) {
+    $(btn).onclick = async (e) => {
+      try {
+        e.target.classList.toggle("active", await layer.toggle());
+        fxBlip();
+      } catch (error) {
+        e.target.classList.remove("active");
+        console.warn(label + " layer unavailable", error);
+      }
+    };
+  }
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
@@ -1623,9 +1738,16 @@ function tickClock() {
     await initMap();
     Intel.init(map);
     Satellites.init(map);
+    Iss.init(map);
     Vessels.init(map);
     Transit.init(map);
     Airports.init(map);
+    Events.init(map);
+    Markets.init(map);
+    Infra.init(map);
+    News.init(map);
+    Conflict.init(map);
+    Companies.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }
