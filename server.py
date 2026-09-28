@@ -11,7 +11,7 @@ GOD'S EYE — tiny zero-dependency server (Python stdlib only).
 
 Run:  python3 server.py [port]      (default 8000, binds 0.0.0.0)
 """
-import os, re, sys, time, json, urllib.request, urllib.error
+import os, re, sys, time, json, base64, threading, urllib.request, urllib.error
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote
@@ -52,6 +52,110 @@ def valid_url(url):
         return True
     except Exception:
         return False
+
+
+def _ascii_host(authority):
+    """IDNA-encode a non-ASCII host, keeping any userinfo and port around it."""
+    userinfo, sep, hostport = authority.rpartition("@")
+    if hostport.startswith("["):                      # IPv6 literal: leave it alone
+        host, colon, port = hostport.partition("]:")
+        host += "]"
+        port = (":" + port) if colon else ""
+    else:
+        host, colon, port = hostport.rpartition(":")
+        if not host:                                  # no port at all
+            host, port = hostport, ""
+        else:
+            port = ":" + port
+    try:
+        host.encode("ascii")
+    except UnicodeEncodeError:
+        try:
+            host = host.encode("idna").decode("ascii")
+        except (UnicodeError, UnicodeDecodeError):
+            host = quote(host, safe="")
+    return (userinfo + "@" if sep else "") + host + port
+
+
+def encode_iri(url):
+    """Percent-encode an IRI so urllib can put it on the wire.
+
+    parse_qs hands us a percent-*decoded* URL and http.client writes the request line as
+    ASCII, so any target carrying a non-ASCII character — a Korean camera path, say — used to
+    die with "'ascii' codec can't encode characters" and look exactly like the operator being
+    down. Already-encoded sequences are left alone ('%' is safe) so this never double-encodes.
+    """
+    try:
+        url.encode("ascii")
+        return url
+    except UnicodeEncodeError:
+        pass
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return url
+    netloc = _ascii_host(parts.netloc) if parts.netloc else parts.netloc
+    return urllib.parse.urlunsplit((
+        parts.scheme,
+        netloc,
+        quote(parts.path, safe="/%:@&=+$,;~!*'()"),
+        quote(parts.query, safe="=&%:@/?+,;$~!*'()"),
+        quote(parts.fragment, safe="%:@&=+$,;~!*'()/"),
+    ))
+
+
+# ---- shared upstream cache (mirrors netlify/functions/api.mjs) -----------------
+# Quota-limited operator feeds are spent once for the whole app instead of once per visitor.
+# Only an HTTP-200 JSON body under 512 KB is ever stored: never a playlist, never an error
+# envelope, never a relay-level failure.
+CACHE = {}                 # url -> {"at": float, "ctype": str, "data": bytes}
+INFLIGHT = {}              # url -> {"event": Event, "result": tuple|None, "error": Exception|None}
+CACHE_LOCK = threading.Lock()
+CACHE_MAX_ENTRIES = 64
+CACHE_MAX_BYTES = 512 * 1024
+WINDOW_MAX_SEC = 900
+
+
+def window_sec(value):
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return 0
+    if n <= 0:
+        return 0
+    return min(WINDOW_MAX_SEC, n)
+
+
+def cache_get(url, window):
+    with CACHE_LOCK:
+        entry = CACHE.get(url)
+        if not entry:
+            return None
+        if time.time() - entry["at"] >= window:
+            CACHE.pop(url, None)
+            return None
+        return entry
+
+
+def cache_set(url, entry):
+    with CACHE_LOCK:
+        CACHE[url] = entry
+        while len(CACHE) > CACHE_MAX_ENTRIES:
+            CACHE.pop(min(CACHE, key=lambda key: CACHE[key]["at"]), None)
+
+
+def cacheable(data):
+    """An operator's refusal (Seoul's {"errorMessage":{"code":"INFO-300"}}) is HTTP 200 but
+    must not be pinned for the whole window: caching it would keep a recovered key locked out."""
+    if not data or len(data) > CACHE_MAX_BYTES:
+        return False
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    return parsed.get("error") is None and parsed.get("errorMessage") is None
 
 
 def rewrite_m3u8(text, base_url):
@@ -142,13 +246,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/proxy":
             return self.do_proxy(parse_qs(parsed.query).get("url", [""])[0])
         if path == "/api/fetch":
-            return self.do_fetch(parse_qs(parsed.query).get("url", [""])[0])
+            query = parse_qs(parsed.query)
+            return self.do_fetch(
+                query.get("url", [""])[0],
+                window_sec(query.get("window", ["0"])[0]),
+                query.get("encoding", [""])[0])
         return self.do_static(path)
 
     # ------------------------------------------------------------- proxy ----
     def do_proxy(self, url):
         if not url or not valid_url(url) or len(url) > 2000:
             return self._json({"error": "bad url"}, 400)
+        url = encode_iri(url)
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": USER_AGENT, "Accept": "*/*",
@@ -200,28 +309,77 @@ class Handler(BaseHTTPRequestHandler):
             upstream.close()
 
     # ------------------------------------------------------------- fetch ----
-    def do_fetch(self, url):
-        if not url or not valid_url(url) or len(url) > 2000:
-            return self._json({"error": "bad url"}, 400)
+    def _single_flight(self, url, fn):
+        """Concurrent identical requests share one upstream fetch: forty tabs opening the map
+        at once must cost the operator one request, not forty."""
+        with CACHE_LOCK:
+            flight = INFLIGHT.get(url)
+            owner = flight is None
+            if owner:
+                flight = {"event": threading.Event(), "result": None, "error": None}
+                INFLIGHT[url] = flight
+        if owner:
+            try:
+                flight["result"] = fn()
+            except Exception as e:                    # noqa: BLE001 - shared with the followers
+                flight["error"] = e
+            finally:
+                with CACHE_LOCK:
+                    INFLIGHT.pop(url, None)
+                flight["event"].set()
+        elif not flight["event"].wait(35):
+            return fn()                                # the leader vanished; fetch it ourselves
+        if flight["error"] is not None:
+            raise flight["error"]
+        return flight["result"]
+
+    def _upstream(self, url):
+        req = urllib.request.Request(encode_iri(url), headers={
+            "User-Agent": USER_AGENT, "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip",
+        })
+        upstream = urllib.request.urlopen(req, timeout=30)
         try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": USER_AGENT, "Accept": "application/json, text/plain, */*",
-                "Accept-Encoding": "gzip",
-            })
-            upstream = urllib.request.urlopen(req, timeout=30)
             data = upstream.read()
-            if data[:2] == b"\x1f\x8b":
-                import gzip as _gz
-                data = _gz.decompress(data)
-            ctype = upstream.headers.get("Content-Type", "application/json; charset=utf-8")
-        except Exception as e:
-            return self._json({"error": str(e)}, 502)
+        finally:
+            upstream.close()
+        if data[:2] == b"\x1f\x8b":
+            import gzip as _gz
+            data = _gz.decompress(data)
+        return upstream.headers.get("Content-Type", "application/json; charset=utf-8"), data
+
+    def _bytes(self, data, ctype, extra=None):
         self.send_response(200)
         self._cors()
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        for name, value in (extra or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
+
+    def do_fetch(self, url, window=0, encoding=""):
+        if not url or not valid_url(url) or len(url) > 2000:
+            return self._json({"error": "bad url"}, 400)
+        as_base64 = encoding == "base64"
+        if as_base64:
+            window = 0
+        if window:
+            hit = cache_get(url, window)
+            if hit:
+                return self._bytes(hit["data"], hit["ctype"], {"X-Cache": "HIT"})
+        try:
+            if window:
+                ctype, data = self._single_flight(url, lambda: self._upstream(url))
+            else:
+                ctype, data = self._upstream(url)
+        except Exception as e:                        # noqa: BLE001 - a relay failure is never cached
+            return self._json({"error": str(e)}, 502)
+        if window and cacheable(data):
+            cache_set(url, {"at": time.time(), "ctype": ctype, "data": data})
+        if as_base64:
+            return self._bytes(base64.b64encode(data), "text/plain; charset=utf-8", {"X-Cache": "SKIP"})
+        return self._bytes(data, ctype, {"X-Cache": "MISS" if window else "SKIP"})
 
     # ------------------------------------------------------------ static ----
     def do_static(self, path):

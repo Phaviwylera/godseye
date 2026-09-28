@@ -104,6 +104,83 @@ function rewriteM3u8(text, base) {
   return out.join("\n") + "\n";
 }
 
+/* ---- shared upstream cache (JSON only, small, short-lived, single-flight) ----
+ * Quota-limited operator feeds are spent once for the whole site instead of once per visitor:
+ * a caller that passes ?window=N gets the same bytes as anybody else who asked for that URL in
+ * the last N seconds, and concurrent identical requests share one upstream fetch. Only an
+ * HTTP-200 JSON body under 512 KB is ever stored — never a playlist, never an error envelope,
+ * never a relay-level failure — so a cached answer can only ever be an answer the operator
+ * really gave.
+ */
+const CACHE = new Map();               // url -> { at, body, ctype }
+const INFLIGHT = new Map();            // url -> Promise<{ ok, status, ctype, buf }>
+const CACHE_MAX_ENTRIES = 64;
+const CACHE_MAX_BYTES = 512 * 1024;
+const WINDOW_MAX_SEC = 900;
+
+function windowSec(param) {
+  const n = Number(param);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(WINDOW_MAX_SEC, Math.round(n));
+}
+
+/* An operator's refusal (Seoul's {"errorMessage":{"code":"INFO-300"}}) is HTTP 200 but must
+ * not be pinned for the whole window: caching it would keep a recovered key locked out. */
+function cacheable(text) {
+  if (!text || text.length > CACHE_MAX_BYTES) return false;
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return false; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  return parsed.error == null && parsed.errorMessage == null;
+}
+
+function cacheGet(url, window) {
+  const entry = CACHE.get(url);
+  if (!entry) return null;
+  if (Date.now() - entry.at >= window * 1000) { CACHE.delete(url); return null; }
+  return entry;
+}
+
+function cacheSet(url, entry) {
+  CACHE.set(url, entry);
+  while (CACHE.size > CACHE_MAX_ENTRIES) {
+    const oldest = [...CACHE.entries()].sort((a, b) => a[1].at - b[1].at)[0][0];
+    CACHE.delete(oldest);
+  }
+}
+
+/* Follow redirects by hand so every hop is address-checked before it is fetched. */
+async function fetchUpstream(url) {
+  let r;
+  let current = url;
+  for (let redirects = 0; redirects <= 3; redirects++) {
+    if (!await safeTarget(current)) {
+      return { failure: { statusCode: 400, body: JSON.stringify({ error: "unsafe source address" }) } };
+    }
+    r = await fetch(current, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
+    }).catch((te) => { throw Object.assign(new Error("source-timeout-or-unreachable"), { detail: String(te), timeout: true }); });
+    if (![301, 302, 303, 307, 308].includes(r.status)) break;
+    const location = r.headers.get("location");
+    if (!location || redirects === 3) {
+      return { failure: { statusCode: 502, body: JSON.stringify({ error: "source redirect limit" }) } };
+    }
+    current = new URL(location, current).href;
+  }
+  if (!r.ok) {
+    return { failure: { statusCode: r.status >= 400 && r.status < 600 ? r.status : 502,
+      body: JSON.stringify({ error: "source returned HTTP " + r.status }), json: true } };
+  }
+  const ctype = r.headers.get("content-type") || "application/octet-stream";
+  const isHls = current.split("?")[0].toLowerCase().endsWith(".m3u8") || ctype.includes("mpegurl");
+  return { current, ctype, isHls, buf: await readLimited(r) };
+}
+
+const TEXTUAL = (ctype) => ctype.includes("json") || ctype.includes("text") ||
+  ctype.includes("xml") || ctype.includes("csv") || ctype.includes("javascript");
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS, body: "" };
 
@@ -128,35 +205,39 @@ export async function handler(event) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "bad url" }) };
   }
   const isFetch = (event.path || "").includes("/fetch");
+  // ?encoding=base64 is how a binary feed (GTFS-Realtime) survives the trip as text
+  const asBase64 = params.encoding === "base64";
+  const window = isFetch && !asBase64 ? windowSec(params.window) : 0;
+
+  if (window) {
+    const hit = cacheGet(url, window);
+    if (hit) {
+      return { statusCode: 200, headers: { ...CORS, "Content-Type": hit.ctype,
+        "Cache-Control": "no-store", "X-Cache": "HIT" }, body: hit.body };
+    }
+  }
 
   try {
-    let r;
-    let current = url;
-    try {
-      for (let redirects = 0; redirects <= 3; redirects++) {
-        if (!await safeTarget(current)) return { statusCode: 400, headers: CORS,
-          body: JSON.stringify({ error: "unsafe source address" }) };
-        r = await fetch(current, {
-          redirect: "manual",
-          signal: AbortSignal.timeout(8000),
-          headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
-        });
-        if (![301, 302, 303, 307, 308].includes(r.status)) break;
-        const location = r.headers.get("location");
-        if (!location || redirects === 3) return { statusCode: 502, headers: CORS,
-          body: JSON.stringify({ error: "source redirect limit" }) };
-        current = new URL(location, current).href;
+    /* Concurrent identical requests share one upstream fetch: 40 tabs opening the map at
+     * once must cost the operator one request, not forty. */
+    let upstream;
+    if (window) {
+      if (!INFLIGHT.has(url)) {
+        INFLIGHT.set(url, fetchUpstream(url).finally(() => INFLIGHT.delete(url)));
       }
-    } catch (te) {
-      return { statusCode: 504, headers: CORS,
-        body: JSON.stringify({ error: "source-timeout-or-unreachable", detail: String(te) }) };
+      upstream = await INFLIGHT.get(url);
+    } else {
+      upstream = await fetchUpstream(url);
     }
-    if (!r.ok) return { statusCode: r.status >= 400 && r.status < 600 ? r.status : 502,
-      headers: { ...CORS, "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "source returned HTTP " + r.status }) };
-    const ctype = r.headers.get("content-type") || "application/octet-stream";
-    const isHls = current.split("?")[0].toLowerCase().endsWith(".m3u8") || ctype.includes("mpegurl");
-    const buf = await readLimited(r);
+
+    if (upstream.failure) {
+      // a relay-level failure is never cached: the next visitor gets a fresh attempt
+      return { statusCode: upstream.failure.statusCode,
+        headers: { ...CORS, "Content-Type": "application/json", "X-Cache": "SKIP" },
+        body: upstream.failure.body };
+    }
+
+    const { ctype, isHls, buf, current } = upstream;
 
     if (isHls) {
       const text = buf.toString("utf8");
@@ -165,25 +246,33 @@ export async function handler(event) {
       if (!text.trimStart().startsWith("#EXTM3U")) {
         return {
           statusCode: 404,
-          headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" },
+          headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store", "X-Cache": "SKIP" },
           body: JSON.stringify({ error: "source-not-streaming", detail: text.trim().slice(0, 80) }),
         };
       }
       return {
         statusCode: 200,
-        headers: { ...CORS, "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store" },
+        headers: { ...CORS, "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store", "X-Cache": "SKIP" },
         body: rewriteM3u8(text, current),
       };
     }
 
+    const text = TEXTUAL(ctype) || (isFetch && !asBase64) ? buf.toString("utf8") : buf.toString("base64");
+    if (window && TEXTUAL(ctype) && cacheable(buf.toString("utf8"))) {
+      cacheSet(url, { at: Date.now(), body: buf.toString("utf8"), ctype });
+    }
     return {
       statusCode: 200,
-      headers: { ...CORS, "Content-Type": ctype, "Cache-Control": "no-store" },
-      body: (isFetch || ctype.includes("json") || ctype.includes("text") || ctype.includes("xml") || ctype.includes("csv"))
-        ? buf.toString("utf8") : buf.toString("base64"),
-      isBase64Encoded: !(isFetch || ctype.includes("json") || ctype.includes("text") || ctype.includes("xml") || ctype.includes("csv")),
+      headers: { ...CORS, "Content-Type": ctype, "Cache-Control": "no-store",
+        "X-Cache": window ? "MISS" : "SKIP" },
+      body: asBase64 ? buf.toString("base64") : text,
+      isBase64Encoded: asBase64 || (!TEXTUAL(ctype) && !isFetch),
     };
   } catch (e) {
-    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: String(e) }) };
+    if (e && e.timeout) {
+      return { statusCode: 504, headers: { ...CORS, "X-Cache": "SKIP" },
+        body: JSON.stringify({ error: "source-timeout-or-unreachable", detail: e.detail }) };
+    }
+    return { statusCode: 502, headers: { ...CORS, "X-Cache": "SKIP" }, body: JSON.stringify({ error: String(e) }) };
   }
 }

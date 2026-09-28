@@ -1,7 +1,45 @@
 /* Recent AIS observations and their actual sampled trail (up to 30 minutes). */
 const Vessels = (() => {
   let map, enabled = false, timer = null, bound = false, requestId = 0;
-  let selected = null, latest = [];
+  let selected = null, latest = [], lastOk = 0, source = '';
+
+  /* The corridor collector needs a provider key configured on the server. When it is not — or
+   * when the app is served by `python3 server.py` — fall back to Digitraffic's open AIS, which
+   * is keyless and covers Finnish waters. Both are real observations; the chip says which. */
+  const OPEN_AIS = 'https://meri.digitraffic.fi/api/v1/locations/latest';
+
+  /* Public AIS endpoints do not all agree on their envelope or field names, so accept the
+   * shapes that are actually published rather than the one shape we would have preferred. */
+  function parseOpenAis(payload) {
+    const rows = Array.isArray(payload) ? payload
+      : (payload && (payload.locations || payload.features || payload.data)) || [];
+    const out = [];
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const geometry = row && row.geometry;
+      const props = (row && row.properties) || row || {};
+      const coords = Array.isArray(geometry && geometry.coordinates) ? geometry.coordinates : [];
+      const lat = Number(coords.length ? coords[1] : (props.lat ?? props.latitude));
+      const lon = Number(coords.length ? coords[0] : (props.lon ?? props.longitude));
+      const mmsi = String(props.mmsi ?? props.MMSI ?? props.userId ?? '').trim();
+      if (!/^\d{9}$/.test(mmsi) || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) continue;
+      const speed = Number(props.sog ?? props.speed ?? props.Sog);
+      const course = Number(props.cog ?? props.course ?? props.heading ?? props.Cog);
+      const received = props.time || props.timestamp || props.lastReport || new Date().toISOString();
+      out.push({ mmsi, name: String(props.name || props.shipName || props.ShipName || '').trim().slice(0, 70) || `MMSI ${mmsi}`,
+        lat, lon,
+        speed: Number.isFinite(speed) && speed >= 0 && speed < 102.3 ? Math.round(speed * 10) / 10 : null,
+        course: Number.isFinite(course) && course >= 0 && course < 360 ? course : null,
+        received: new Date(received).toISOString(), track: [] });
+    }
+    return out;
+  }
+
+  function ago() {
+    if (!lastOk) return '';
+    const minutes = Math.max(1, Math.round((Date.now() - lastOk) / 60000));
+    return minutes < 60 ? `${minutes} MIN AGO` : `${(minutes / 60).toFixed(1)} H AGO`;
+  }
   const empty = () => ({ type: 'FeatureCollection', features: [] });
   const chip = () => document.getElementById('vessel-chip');
   const button = () => document.getElementById('btn-vessels');
@@ -104,22 +142,50 @@ const Vessels = (() => {
   async function refresh() {
     if (!enabled) return;
     const id = ++requestId;
+    let vessels = [];
+    let provenance = '';
+
     try {
       const response = await fetch('/.netlify/functions/ais-vessels', { cache: 'no-store' });
       if (!response.ok) throw new Error('unavailable');
       const snapshot = await response.json();
-      if (!enabled || id !== requestId) return;
-      latest = snapshot.vessels || [];
-      restore();
-      status(`◇ ${latest.length} VESSELS · RECENT AIS`);
-      chip().title = `AIS positions observed within the last five minutes. Snapshot: ${new Date(snapshot.observed).toLocaleString()}. Coverage: selected shipping corridors.`;
-    } catch {
-      if (enabled && id === requestId) {
-        latest = []; showVessels();
-        status('◇ AIS UNAVAILABLE');
-        chip().title = 'No recent AIS snapshot; retry later.';
+      vessels = snapshot.vessels || [];
+      if (vessels.length) {
+        provenance = `AIS positions observed within the last five minutes. Snapshot: ${new Date(snapshot.observed).toLocaleString()}. Coverage: selected shipping corridors.`;
       }
+    } catch { /* no keyed collector here: try the open feed below */ }
+
+    if (!vessels.length) {
+      try {
+        const open = parseOpenAis(await Sources.fetchJSON(OPEN_AIS, 60));
+        if (open.length) {
+          vessels = open;
+          provenance = 'Open AIS published by Digitraffic (Finnish Transport Agency), no key required. Coverage: Finnish waters. The corridor collector is not configured on this host.';
+        }
+      } catch { /* neither source answered: keep what is on the map and say so */ }
     }
+
+    if (!enabled || id !== requestId) return;
+
+    if (!vessels.length) {
+      /* A failed poll must not empty the ocean: hold the last good sweep and report its age. */
+      if (latest.length) {
+        status(`◇ ${latest.length} VESSELS · HELD · ${ago()}`);
+        chip().title = `Neither AIS source answered this poll. Showing the last sweep that succeeded, ${ago().toLowerCase()}. ${source}`;
+        return;
+      }
+      latest = []; showVessels();
+      status('◇ AIS UNAVAILABLE');
+      chip().title = 'No recent AIS snapshot from the corridor collector or the open Digitraffic feed; retry later.';
+      return;
+    }
+
+    latest = vessels;
+    lastOk = Date.now();
+    source = provenance;
+    restore();
+    status(`◇ ${latest.length} VESSELS · RECENT AIS`);
+    chip().title = provenance;
   }
   function toggle() {
     enabled = !enabled;
@@ -158,5 +224,5 @@ const Vessels = (() => {
     });
   }
   function init(instance) { map = instance; }
-  return { init, toggle, restore, refresh, openList };
+  return { init, toggle, restore, refresh, openList, parseOpenAis };
 })();

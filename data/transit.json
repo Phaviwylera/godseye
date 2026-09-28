@@ -1,5 +1,5 @@
 {
-  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept. 'station' = the operator publishes which station a train is at and no coordinates at all; the train is drawn at that station's coordinate from a bundled station list.",
+  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept. 'station' = the operator publishes which station a train is at and no coordinates at all; the train is drawn at that station's coordinate from a bundled station list. adapter: oba | tfl | bart | umo | seoul | mbta | digitraffic | opendata-ch | irail | gtfsrt. For quota-limited feeds pollSec / budgetSec / maxAgeSec are one contract: maxAgeSec >= budgetSec + pollSec and targets × 86400 / budgetSec <= dailyBudget (default 10000), asserted by tests/transit.test.mjs.",
   "updated": "2026-09-28",
   "feeds": [
     {
@@ -326,8 +326,10 @@
       "zoom": 10,
       "base": "http://swopenapi.seoul.go.kr/api/subway/sample/json/realtimePosition/0/5/",
       "stations": "data/kr-stations.json",
-      "rotate": 2,
-      "maxAgeSec": 900,
+      "pollSec": 600,
+      "budgetSec": 1500,
+      "dailyBudget": 1000,
+      "maxAgeSec": 2400,
       "sample": true,
       "lines": [
         {
@@ -411,7 +413,148 @@
           "color": "#6789CA"
         }
       ],
-      "note": "This is the portal's public sample key, so it is capped at five trains per line: what is drawn is a sample of the fleet, not the whole of it. The endpoint reports which station a train is at, never a position, so each train sits on its station's coordinate and a train at a station the table cannot resolve — or a name shared by two stations, such as 양평 — is not drawn at all. The sample key is limited to 1,000 requests a day for everyone together, so after the first poll only two lines are re-polled per minute and each keeps its last report for up to 15 minutes. Register a free key at data.seoul.go.kr and put it in `base` in place of `sample` for full coverage and no rotation. Korean buses and the metro of Busan, Daegu, Daejeon and Gwangju publish no keyless feed, so they are absent."
+      "note": "This is the portal's public sample key, so it is capped at five trains per line: what is drawn is a sample of the fleet, not the whole of it. The endpoint reports which station a train is at, never a position, so each train sits on its station's coordinate and a train at a station the table cannot resolve — or a name shared by two stations, such as 양평 — is not drawn at all. The sample key is limited to 1,000 requests a day for everyone together, so this feed is budgeted, not polled: pollSec / budgetSec / maxAgeSec are one contract (16 lines × 86400/1500 = 921 requests a day at worst, held for 40 minutes so a refused poll never blanks the map) and tests/transit.test.mjs fails if they are retuned apart. The relay caches each line's answer for budgetSec, so every visitor shares one request per window instead of spending the key per tab. Register a free key at data.seoul.go.kr and put it in `base` in place of `sample` for full coverage and a larger budget. Korean buses and the metro of Busan, Daegu, Daejeon and Gwangju publish no keyless feed, so they are absent."
+    },
+    {
+      "id": "mbta",
+      "adapter": "mbta",
+      "mode": "bus",
+      "network": "MBTA subway · light rail · bus",
+      "operator": "Massachusetts Bay Transportation Authority",
+      "city": "Boston",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "MBTA V3 API (open data, no key required)",
+      "page": "https://api-v3.mbta.com/",
+      "cors": false,
+      "center": [
+        -71.0589,
+        42.3601
+      ],
+      "zoom": 11,
+      "base": "https://api-v3.mbta.com",
+      "limit": 1000,
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "windowSec": 30,
+      "note": "One keyless call returns every vehicle MBTA is running — subway, Green Line, Silver Line and the whole bus fleet — with GPS positions, so this is the layer's densest source. The marker follows the GTFS route type of the route the vehicle is on, so the same feed draws both trains and buses. Positions older than ten minutes are dropped rather than held: a vehicle that stopped reporting is off the map, not frozen on it."
+    },
+    {
+      "id": "fi-rail",
+      "adapter": "digitraffic",
+      "mode": "rail",
+      "network": "VR · commuter rail · freight — every train running in Finland",
+      "operator": "Finnish Transport Infrastructure Agency (Väylävirasto)",
+      "city": "Finland",
+      "country": "FI",
+      "kind": "station",
+      "attribution": "Digitraffic / rata.digitraffic.fi — Finnish open railway data (CC 4.0)",
+      "page": "https://www.digitraffic.fi/en/railway-traffic/",
+      "cors": false,
+      "center": [
+        24.9354,
+        60.1699
+      ],
+      "zoom": 6,
+      "base": "https://rata.digitraffic.fi/api/v1/",
+      "stations": "https://rata.digitraffic.fi/api/v1/metadata/stations",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 900,
+      "windowSec": 30,
+      "note": "Digitraffic publishes every train in the country and which station it has actually reached, but no coordinates, so each train is drawn at that station using the agency's own station table (loaded once per session and cached a day by the relay). The delay shown is the feed's actual time against its scheduled time. A train whose last report is older than fifteen minutes is dropped."
+    },
+    {
+      "id": "ch-rail",
+      "adapter": "opendata-ch",
+      "mode": "rail",
+      "network": "SBB · BLS · PostBus · tram — nationwide departures",
+      "operator": "Swiss federal railways and partners",
+      "city": "Switzerland",
+      "country": "CH",
+      "kind": "arrivals",
+      "attribution": "transport.opendata.ch — Swiss open data timetable (SBB, BLS, PostBus)",
+      "page": "https://transport.opendata.ch/",
+      "cors": true,
+      "center": [
+        8.2275,
+        46.8182
+      ],
+      "zoom": 8,
+      "base": "https://transport.opendata.ch/v1/",
+      "limit": 10,
+      "perStation": 3,
+      "pollSec": 60,
+      "budgetSec": 300,
+      "maxAgeSec": 900,
+      "dailyBudget": 5000,
+      "stations": [
+        "8503000",
+        "8507000",
+        "8501120",
+        "8500010",
+        "8502113",
+        "8504100",
+        "8506197",
+        "8500090"
+      ],
+      "note": "Keyless nationwide Swiss departures with the live delay, one board per hub re-read every five minutes, and at most three departures drawn per station so the map stays readable. Departures that have already left are dropped; a marker is a scheduled departure at the station it leaves from, not a GPS position."
+    },
+    {
+      "id": "be-rail",
+      "adapter": "irail",
+      "mode": "rail",
+      "network": "SNCB / NMBS live departures",
+      "operator": "National Railway Company of Belgium",
+      "city": "Belgium",
+      "country": "BE",
+      "kind": "arrivals",
+      "attribution": "iRail — open data from SNCB/NMBS (CC0)",
+      "page": "https://api.irail.be/",
+      "cors": true,
+      "center": [
+        4.352,
+        50.8466
+      ],
+      "zoom": 8,
+      "base": "https://api.irail.be/",
+      "perStation": 3,
+      "pollSec": 60,
+      "budgetSec": 300,
+      "maxAgeSec": 900,
+      "dailyBudget": 3000,
+      "stations": [
+        "Brussels-South",
+        "Antwerpen-Centraal",
+        "Gent-Sint-Pieters",
+        "Liège-Guillemins",
+        "Brugge"
+      ],
+      "note": "iRail republishes SNCB/NMBS departure boards as open data with no key: delay in seconds, platform and station coordinates. Cancelled and already-departed services are dropped. Five hubs re-read every five minutes."
+    },
+    {
+      "id": "gcrta-bus",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Greater Cleveland RTA buses & rail",
+      "operator": "Greater Cleveland Regional Transit Authority",
+      "city": "Cleveland",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "GCRTA GTFS-Realtime (public feed, no key)",
+      "page": "https://www.riderta.com/developers",
+      "cors": false,
+      "center": [
+        -81.6944,
+        41.4993
+      ],
+      "zoom": 12,
+      "base": "http://gtfs.gcrta.org/TMGTFSRealTimeWebService/vehicle/vehiclepositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "GTFS-Realtime is the format most of the world's bus agencies publish, so the layer carries a small protobuf reader for it rather than a per-agency adapter: any agency that publishes a keyless VehiclePositions URL can be added here with adapter \"gtfsrt\" and no new code. Positions are the agency's own; ones older than ten minutes are dropped."
     }
   ]
 }

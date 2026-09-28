@@ -89,3 +89,64 @@ test('feed refresh stores per-sample telemetry and paints the popup strip', asyn
     if (Intel.state.air) Intel.toggleAir();
   }
 });
+
+/* The aircraft feed polls a provider that rate-limits by IP, so a refused poll is normal and
+ * must not empty the sky: the last good sweep stays drawn and the chip says how old it is. */
+test('a failed aircraft poll holds the last good sweep instead of emptying the sky', async () => {
+  const sources = new Map(), layers = new Map(), images = new Map();
+  const drawing = {
+    translate() {}, beginPath() {}, arc() {}, moveTo() {}, lineTo() {}, closePath() {},
+    fill() {}, stroke() {}, fillRect() {},
+    getImageData(x, y, width, height) { return { width, height }; },
+  };
+  const map = {
+    getSource: id => sources.get(id),
+    addSource(id) { sources.set(id, { setData() {} }); },
+    hasImage: () => true,
+    addImage: (id, data, options) => images.set(id, { data, options }),
+    getLayer: id => layers.get(id),
+    addLayer: layer => layers.set(layer.id, layer),
+    setLayoutProperty() {}, on() {}, easeTo() {},
+    getCenter: () => ({ lat: 13.08, lng: 80.27 }), getZoom: () => 8,
+  };
+  const chip = { classList: { remove() {}, add() {} }, textContent: '', title: '' };
+  let failing = false;
+  const calls = [];
+  const context = {
+    URL, window: {}, document: {
+      createElement: () => ({ width: 0, height: 0, style: {}, getContext: () => drawing }),
+      getElementById: id => id === 'air-chip' ? chip : null,
+    },
+    Sources: { fetchJSON: (url, windowSec) => {
+      calls.push({ url, windowSec });
+      if (failing) return Promise.reject(new Error('429 too many requests'));
+      return Promise.resolve({ ac: [{ hex: 'abc123', flight: 'GEE101', lat: 13.1, lon: 80.2,
+        alt_baro: 30000, gs: 412, baro_rate: -640, track: 42 }] });
+    } },
+    Contacts: { close() {}, open() {} }, setInterval, clearInterval, setTimeout, clearTimeout,
+  };
+  const Intel = runInNewContext(readFileSync(new URL('../js/intel.js', import.meta.url), 'utf8')
+    + '\nIntel;', context);
+  Intel.init(map);
+  try {
+    Intel.toggleAir();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(Intel.state.airFeatures.length, 1, 'the first poll drew an aircraft');
+    assert.ok(calls.every(call => call.windowSec === 20),
+      'every poll asks the relay to share its answer for the window');
+
+    failing = true;
+    await Intel.fetchAirData().catch(error => Intel.showAirError(error));
+    assert.equal(Intel.state.airFeatures.length, 1, 'a refused poll does not clear the layer');
+    assert.match(chip.textContent, /HELD/, 'and the chip says the sweep is being held');
+    assert.match(chip.title, /429 too many requests/, 'with the provider’s own reason');
+    assert.match(chip.textContent, /HELD \d+S|HELD \d+ MIN|HELD [\d.]+ H/);
+    assert.doesNotMatch(chip.textContent, /UNAVAILABLE/, 'the feed did respond earlier');
+
+    failing = false;
+    await Intel.fetchAirData();
+    assert.doesNotMatch(chip.textContent, /HELD|UNAVAILABLE/, 'a good poll clears the held state');
+  } finally {
+    if (Intel.state.air) Intel.toggleAir();
+  }
+});

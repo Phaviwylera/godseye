@@ -32,6 +32,9 @@ const Transit = (() => {
   const HISTORY_MS = 30 * 60 * 1000;
   const MAX_FEATURES = 2500;
   const DEFAULT_COLOR = { rail: '#8be9fa', tram: '#41efc2', bus: '#d9b56d' };
+  /* Every operator feed this layer knows how to read. A registry entry naming anything else
+   * is skipped rather than half-drawn. */
+  const ADAPTERS = ['oba', 'tfl', 'bart', 'umo', 'seoul', 'mbta', 'digitraffic', 'gtfsrt', 'opendata-ch', 'irail'];
 
   const chip = () => document.getElementById('transit-chip');
   const button = () => document.getElementById('btn-transit');
@@ -589,53 +592,589 @@ const Transit = (() => {
     }
   }
 
-  /* The portal caps this API at 1,000 requests a day on a key every user shares, so the first
-   * poll covers every line at once and after that only `rotate` lines are re-polled per refresh;
-   * each line keeps its last report until it comes round again (or for maxAgeSec). */
+  /* --------------------------------------------------- budgeted polling ------
+   * Every quota-limited feed in this layer shares one discipline, because they all spend
+   * somebody's key: a target (a line, a station, an endpoint) is re-read at most once per
+   * budgetSec, sweeps run on the app's own tick and cost nothing when nothing is due, a
+   * failed target is retried at pollSec and then with a doubling gap capped at budgetSec, and
+   * a failed poll holds the last good rows instead of emptying the map.
+   *
+   * Three numbers in data/transit.json are therefore one contract, asserted in tests:
+   *   pollSec   how often the feed is swept
+   *   budgetSec how often a single target may be re-read upstream
+   *   maxAgeSec how long a report stays on the map before it is refused as stale
+   * with maxAgeSec >= budgetSec + pollSec and targets × 86400 / budgetSec <= dailyBudget.
+   */
+  function finite(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  async function budgetedSweep(feed, targets, read, defaults) {
+    const list = (targets || []).map((target) => String(target));
+    if (!list.length) throw new Error('no targets configured');
+    const pollSec = Math.max(1, finite(feed.pollSec, defaults.pollSec));
+    const budgetSec = Math.max(pollSec, finite(feed.budgetSec, defaults.budgetSec));
+    const maxAgeSec = finite(feed.maxAgeSec, defaults.maxAgeSec);
+    if (!feed._byTarget) feed._byTarget = new Map();
+    if (!feed._poll) feed._poll = new Map();             // target -> { at, fails }
+    const now = Date.now();
+
+    const due = (target) => {
+      const state = feed._poll.get(target);
+      if (!state) return true;
+      /* A dead target is not hammered: the gap doubles per consecutive failure (pollSec, 2×,
+       * 4×) up to budgetSec, so a dead key costs no more than a live one, while a transient
+       * blip is retried on the very next sweep. */
+      const gap = state.fails ? Math.min(budgetSec, pollSec * 2 ** Math.min(state.fails - 1, 2)) : budgetSec;
+      return now - state.at >= gap * 1000;
+    };
+    /* The first sweep reads every target so the network appears at once; after that only the
+     * targets whose budget has elapsed are read. */
+    const queue = feed._byTarget.size ? list.filter(due) : list.slice();
+
+    let attempted = 0;
+    let answered = 0;
+    let failure = '';
+    if (queue.length) {
+      await Promise.all(queue.map(async (target) => {
+        attempted++;
+        try {
+          const rows = asArray(await read(target, now));
+          feed._byTarget.set(target, { rows, at: now });
+          feed._poll.set(target, { at: now, fails: 0 });
+          answered++;
+        } catch (e) {
+          const state = feed._poll.get(target) || { at: 0, fails: 0 };
+          feed._poll.set(target, { at: now, fails: state.fails + 1 });
+          failure = String((e && e.message) || e || 'unavailable');
+        }
+      }));
+    }
+
+    const maxAge = maxAgeSec * 1000;
+    const out = [];
+    for (const bucket of feed._byTarget.values()) {
+      for (const row of bucket.rows) {
+        if (now - (Number.isFinite(row.observed) ? row.observed : bucket.at) <= maxAge) out.push(row);
+      }
+    }
+    /* No target answered this sweep: that is a failure, never a silent success assembled out of
+     * leftover rows — a dead key must not be able to advertise a fleet it has not reported. */
+    if (attempted && !answered) {
+      feed._held = { reason: failure || 'unavailable', since: (feed._held && feed._held.since) || now };
+    } else if (answered) {
+      feed._held = null;
+      feed._lastOk = now;
+    }
+    if (!out.length) {
+      throw new Error(failure || (attempted ? 'nothing reported right now' : 'no live report'));
+    }
+    return out;
+  }
+
+  /* The portal caps this API at 1,000 requests a day on a key every visitor shares. */
+  const SEOUL_DEFAULTS = { pollSec: 600, budgetSec: 1500, maxAgeSec: 2400 };
+
   async function refreshSeoul(feed) {
     const table = await loadKrStations(feed);
     const list = asArray(feed.lines);
-    if (!list.length) throw new Error('no lines configured');
     const meta = new Map(list.map((line) => [String(line.id), line]));
-    if (!feed._byLine) feed._byLine = new Map();
-    const rotate = Math.max(1, Math.min(list.length, Number(feed.rotate) || list.length));
-    const batch = feed._byLine.size ? rotate : list.length;
-    const cursor = Number.isFinite(feed._cursor) ? feed._cursor : 0;
-    const queue = [];
-    for (let i = 0; i < batch; i++) queue.push(list[(cursor + i) % list.length]);
-    feed._cursor = (cursor + batch) % list.length;
-    const now = Date.now();
-    let failure = '';
-    await Promise.all(queue.map(async (line) => {
-      try {
-        const data = await getJson(`${feed.base}${encodeURIComponent(String(line.id))}`, feed.cors);
-        feed._byLine.set(String(line.id), { items: parseSeoulPositions(data, feed, table, now, meta) });
-      } catch (e) {
-        failure = String((e && e.message) || e || 'unavailable');
-      }
-    }));
-    if (!feed._byLine.size) throw new Error(failure || 'unavailable');
-    const maxAge = (Number.isFinite(feed.maxAgeSec) ? feed.maxAgeSec : 900) * 1000;
-    const out = [];
-    for (const entry of feed._byLine.values()) {
-      for (const item of entry.items) if (now - item.observed <= maxAge) out.push(item);
+    /* The relay window is the per-line budget, so a line costs the shared key at most one
+     * request per budgetSec no matter how many people are looking at the map. */
+    const windowSec = Math.max(1, finite(feed.budgetSec, SEOUL_DEFAULTS.budgetSec));
+    return budgetedSweep(feed, list.map((line) => line.id),
+      (lineId, now) => getJson(`${feed.base}${encodeURIComponent(lineId)}`, feed.cors, windowSec)
+        .then((data) => parseSeoulPositions(data, feed, table, now, meta)), SEOUL_DEFAULTS);
+  }
+
+  /* --------------------------------------------------- MBTA (Boston, USA) ---
+   * api-v3.mbta.com needs no key and no signup: one call returns GPS positions for every
+   * subway, light-rail and bus vehicle the agency is running, JSON:API shaped, with the route
+   * and stop records included alongside.
+   */
+  const MBTA_DEFAULTS = { pollSec: 60, budgetSec: 60, maxAgeSec: 600 };
+
+  function parseMbtaVehicles(payload, feed, now) {
+    const included = new Map();
+    for (const item of asArray(payload && payload.included)) {
+      if (item && item.type) included.set(`${item.type}:${item.id}`, item);
     }
-    if (!out.length) throw new Error(failure || 'no trains reported right now');
+    const related = (vehicle, kind) => {
+      const ref = vehicle && vehicle.relationships && vehicle.relationships[kind];
+      const data = ref && ref.data;
+      return (data && !Array.isArray(data) && included.get(`${kind}:${data.id}`)) || null;
+    };
+    const maxAge = finite(feed.maxAgeSec, MBTA_DEFAULTS.maxAgeSec) * 1000;
+    const out = [];
+    for (const vehicle of asArray(payload && payload.data)) {
+      if (!vehicle || vehicle.type !== 'vehicle') continue;
+      const attr = vehicle.attributes || {};
+      const lat = Number(attr.latitude);
+      const lon = Number(attr.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+      const observed = Date.parse(attr.updated_at || '');
+      if (!Number.isFinite(observed) || now - observed > maxAge) continue;  // a vehicle that stopped reporting is gone
+      const route = related(vehicle, 'route');
+      const routeAttr = (route && route.attributes) || {};
+      const stop = related(vehicle, 'stop');
+      const stopAttr = (stop && stop.attributes) || {};
+      const mode = modeFromRouteType(Number(routeAttr.type));
+      out.push({
+        key: `mbta:${vehicle.id}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'positions',
+        mode,
+        lineId: String(routeAttr.id || (route && route.id) || ''),
+        lineName: String(routeAttr.name || routeAttr.long_name || (route && route.id) || feed.network),
+        color: readable(routeAttr.color),
+        lon,
+        lat,
+        heading: Number.isFinite(Number(attr.bearing)) ? Number(attr.bearing) : 0,
+        speed: Number.isFinite(Number(attr.speed)) ? Math.round(Number(attr.speed) * 1.60934) : null,  // mph -> km/h
+        dest: String(routeAttr.direction_names && routeAttr.direction_names[Number(attr.direction_id) || 0] || ''),
+        nextStop: String(stopAttr.name || ''),
+        etaSec: null,
+        delaySec: null,
+        vehicle: String(attr.label || vehicle.id || ''),
+        where: `reported by MBTA${stopAttr.name ? ` at ${stopAttr.name}` : ''}`,
+        observed,
+        attribution: feed.attribution,
+      });
+    }
     return out;
+  }
+
+  /* ------------------------------------------- Digitraffic rail (Finland) ---
+   * rata.digitraffic.fi is the Finnish Transport Agency's open rail API: every train running
+   * in the country, keyless, with the timetable rows it has actually passed and the delay
+   * against schedule. It publishes station names, not coordinates, so positions come from the
+   * agency's station table — the same arrangement as Seoul.
+   */
+  const DIGITRAFFIC_DEFAULTS = { pollSec: 60, budgetSec: 60, maxAgeSec: 900 };
+
+  function digitrafficStationOf(row, table) {
+    const station = row && row.station;
+    if (station && typeof station === 'object') {
+      const lon = Number(station.longitude);
+      const lat = Number(station.latitude);
+      if (Number.isFinite(lon) && Number.isFinite(lat)) {
+        return { name: String(station.name || row.stationShortCode || '').trim(), lon, lat };
+      }
+    }
+    for (const code of [row && row.stationShortCode, station && station.stationShortCode, station]) {
+      const hit = code && typeof code === 'string' ? table && table.get(code) : null;
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /* Index the station table under every identifier the feed might join on. */
+  function digitrafficStations(payload) {
+    const table = new Map();
+    const add = (key, value) => {
+      const name = String(key == null ? '' : key).trim();
+      if (name && !table.has(name)) table.set(name, value);
+    };
+    for (const station of asArray(payload)) {
+      const lon = Number(station && station.longitude);
+      const lat = Number(station && station.latitude);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      if (Math.abs(lon) > 180 || Math.abs(lat) > 90) continue;
+      const value = { name: String(station.name || station.stationShortCode || '').trim(), lon, lat };
+      add(station.stationShortCode, value);
+      add(station.shortCode, value);
+      add(station.stationUICCode, value);
+      add(station.name, value);
+    }
+    return table;
+  }
+
+  function parseDigitrafficTrains(payload, feed, table, now) {
+    const maxAge = finite(feed.maxAgeSec, DIGITRAFFIC_DEFAULTS.maxAgeSec) * 1000;
+    const out = [];
+    for (const train of asArray(payload)) {
+      if (!train || train.cancelled || train.runningCurrently === false) continue;
+      const rows = asArray(train.timeTableRows).filter((row) => row && row.trainStopping !== false);
+      let here = null;
+      for (const row of rows) {
+        if (!row.actualTime) continue;                 // the feed says what really happened, not what was planned
+        const observed = Date.parse(row.actualTime);
+        if (!Number.isFinite(observed)) continue;
+        if (here && observed < here.observed) continue;
+        const station = digitrafficStationOf(row, table);
+        if (!station) continue;
+        here = { row, station, observed };
+      }
+      if (!here || now - here.observed > maxAge) continue;
+      const scheduled = Date.parse(here.row.scheduledTime || '');
+      const delay = Number.isFinite(scheduled) ? Math.round((here.observed - scheduled) / 1000) : null;
+      const index = rows.indexOf(here.row);
+      const next = rows.slice(index + 1)
+        .find((row) => row.actualTime == null && !row.cancelled
+          && String(row.stationShortCode || '') !== String(here.row.stationShortCode || '')) || null;
+      const nextStation = next ? digitrafficStationOf(next, table) : null;
+      const last = rows.length ? digitrafficStationOf(rows[rows.length - 1], table) : null;
+      const lineName = String(train.commuterLineID || train.trainType || train.trainNumber || feed.network);
+      out.push({
+        key: `fi:${train.trainNumber}:${train.departureDate || ''}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'station',
+        mode: 'rail',
+        lineId: String(train.commuterLineID || train.trainType || 'train'),
+        lineName,
+        color: readable(DEFAULT_COLOR.rail),
+        lon: here.station.lon,
+        lat: here.station.lat,
+        heading: 0,                                     // the feed publishes no bearing; do not invent one
+        speed: null,
+        dest: last ? last.name : (nextStation ? nextStation.name : ''),   // dest is the terminus, as elsewhere in this layer
+        nextStop: nextStation ? nextStation.name : '',
+        atStation: here.station.name,
+        etaSec: null,
+        delaySec: delay,
+        vehicle: String(train.trainNumber || ''),
+        where: `at ${here.station.name}${delay != null && delay > 60 ? ` · ${Math.round(delay / 60)} min late` : ''}`,
+        observed: here.observed,
+        attribution: feed.attribution,
+      });
+    }
+    return out;
+  }
+
+  async function digitrafficStatic(feed) {
+    if (feed._stationsDone) return;
+    let table = new Map();
+    try {
+      table = digitrafficStations(await getJson(
+        feed.stations || 'https://rata.digitraffic.fi/api/v1/metadata/stations', feed.cors, 86400));
+    } catch (e) {
+      /* Without the table a train is only drawn if the feed itself carries station
+       * coordinates, which digitrafficStationOf accepts: a missing table costs coverage,
+       * never a guessed position. */
+      table = new Map();
+    }
+    feed._stations = table;
+    feed._stationsDone = true;
+    for (const [code, station] of table) {
+      pushStation(feed, { id: `fi:${code}`, name: station.name, lon: station.lon, lat: station.lat },
+        '', feed.network, DEFAULT_COLOR.rail);
+    }
+  }
+
+  /* ----------------------------------------- transport.opendata.ch (Switzerland) --
+   * The Swiss open-data transport API is keyless and covers the whole country's rail, tram
+   * and bus departures with the live delay. It publishes no vehicle coordinates, so this is
+   * an arrivals feed: a marker is a scheduled departure at the station it leaves from.
+   */
+  const BOARD_DEFAULTS = { pollSec: 60, budgetSec: 300, maxAgeSec: 900 };
+
+  /* One board can list a dozen departures for the same platform: keep the next few so the
+   * layer stays readable and the map does not stack identical dots. */
+  function keepPerStation(rows, limit) {
+    const per = new Map();
+    const out = [];
+    for (const row of rows) {
+      const n = (per.get(row.atStation) || 0) + 1;
+      per.set(row.atStation, n);
+      if (n <= limit) out.push(row);
+    }
+    return out;
+  }
+
+  function parseOpendataChStationboard(payload, feed, now) {
+    const rows = [];
+    for (const entry of asArray(payload && payload.stationboard)) {
+      const station = entry && entry.station;
+      const coord = station && station.coordinate;
+      const lon = Number(coord && coord.x);             // opendata.ch: x is longitude, y is latitude
+      const lat = Number(coord && coord.y);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      const departure = Date.parse(entry.departure || '');
+      const delaySec = Math.round(finite(entry.delay, 0) * 60);
+      if (Number.isFinite(departure) && departure + delaySec * 1000 < now - 120000) continue;   // already gone
+      const name = String((entry.category || '') + (entry.number || '')).trim();
+      rows.push({
+        key: `ch:${station && station.id}:${name}:${Number.isFinite(departure) ? departure : ''}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'arrivals',
+        mode: feed.mode === 'bus' ? 'bus' : (/^(T|B|BUS)$/i.test(String(entry.category || '')) ? 'tram' : 'rail'),
+        lineId: String(entry.category || 'train'),
+        lineName: name || feed.network,
+        color: readable(DEFAULT_COLOR.rail),
+        lon,
+        lat,
+        heading: 0,
+        speed: null,
+        dest: String(entry.to || ''),
+        nextStop: '',
+        atStation: String((station && station.name) || '').trim(),
+        etaSec: Number.isFinite(departure) ? Math.max(0, Math.round((departure + delaySec * 1000 - now) / 1000)) : null,
+        platform: String(entry.platform || '').trim() ? `platform ${entry.platform}` : '',
+        delaySec: delaySec || null,
+        vehicle: name,
+        where: `due at ${(station && station.name) || 'the station'}`,
+        observed: now,                                  // a schedule is not an observation: the board was read now
+        attribution: feed.attribution,
+      });
+    }
+    return keepPerStation(rows, finite(feed.perStation, 3));
+  }
+
+  /* ------------------------------------------------------- iRail (Belgium) --
+   * api.irail.be is the open interface to SNCB/NMBS: keyless live boards with the delay,
+   * the platform and the station coordinates.
+   */
+  function parseIrailLiveboard(payload, feed, now) {
+    const info = (payload && payload.stationinfo) || {};
+    const boardLon = Number(info.locationX);
+    const boardLat = Number(info.locationY);
+    const board = String(info.name || payload && payload.station || '').trim();
+    const departures = (payload && payload.departures && payload.departures.departure)
+      || (payload && payload.arrivals && payload.arrivals.arrival) || [];
+    const rows = [];
+    for (const entry of asArray(departures)) {
+      if (!entry || String(entry.canceled) === '1' || entry.left === '1' || String(entry.left) === '1') continue;
+      const lon = Number((entry.stationinfo || {}).locationX ?? boardLon);
+      const lat = Number((entry.stationinfo || {}).locationY ?? boardLat);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      const at = Number(entry.time) * 1000;
+      const delaySec = Math.round(finite(entry.delay, 0));
+      if (Number.isFinite(at) && at + delaySec * 1000 < now - 120000) continue;
+      const vehicle = String(((entry.vehicleinfo || {}).name) || entry.vehicle || '').trim();
+      rows.push({
+        key: `be:${entry.id || vehicle}:${Number.isFinite(at) ? at : ''}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'arrivals',
+        mode: 'rail',
+        lineId: vehicle.split(/\d+/)[0] || 'train',
+        lineName: vehicle || feed.network,
+        color: readable(DEFAULT_COLOR.rail),
+        lon,
+        lat,
+        heading: 0,
+        speed: null,
+        dest: String(entry.station || '').trim(),
+        nextStop: '',
+        atStation: board,
+        etaSec: Number.isFinite(at) ? Math.max(0, Math.round((at + delaySec * 1000 - now) / 1000)) : null,
+        platform: String((entry.platforminfo || {}).name || entry.platform || '').trim()
+          ? `platform ${(entry.platforminfo || {}).name || entry.platform}` : '',
+        delaySec: delaySec || null,
+        vehicle,
+        where: `due at ${board}`,
+        observed: now,
+        attribution: feed.attribution,
+      });
+    }
+    return keepPerStation(rows, finite(feed.perStation, 3));
+  }
+
+  /* -------------------------------------------------- GTFS-Realtime (buses) --
+   * GTFS-RT is the format most of the world's bus agencies publish, but it is a protobuf, so
+   * this is a small wire-format reader: enough to pull VehiclePosition messages out of a
+   * FeedMessage without a schema compiler. Any agency that publishes a keyless
+   * VehiclePositions URL can be added to data/transit.json with adapter "gtfsrt".
+   */
+  const GTFSRT_DEFAULTS = { pollSec: 60, budgetSec: 60, maxAgeSec: 600 };
+
+  function pbVarint(bytes, index) {
+    let result = 0;
+    let shift = 0;
+    let p = index;
+    for (;;) {
+      if (p >= bytes.length) throw new Error('truncated varint');
+      const byte = bytes[p++];
+      result += (byte & 0x7f) * 2 ** shift;
+      if (!(byte & 0x80)) return [result, p];
+      shift += 7;
+      if (shift > 63) throw new Error('varint too long');
+    }
+  }
+
+  function pbFloat32(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, 4);
+    return view.getFloat32(0, true);
+  }
+
+  function pbDouble(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, 8);
+    return view.getFloat64(0, true);
+  }
+
+  /* Flat field list: protobuf repeats a field by emitting it again, so a repeated field is
+   * simply several entries with the same number. */
+  function pbFields(bytes) {
+    const out = [];
+    let i = 0;
+    while (i < bytes.length) {
+      const [key, afterKey] = pbVarint(bytes, i);
+      const field = Math.floor(key / 8);
+      const type = key % 8;
+      i = afterKey;
+      if (type === 0) {
+        const [value, next] = pbVarint(bytes, i);
+        out.push({ field, type, value });
+        i = next;
+      } else if (type === 1) {
+        if (i + 8 > bytes.length) throw new Error('truncated fixed64');
+        out.push({ field, type, value: bytes.subarray(i, i + 8) });
+        i += 8;
+      } else if (type === 2) {
+        const [length, next] = pbVarint(bytes, i);
+        if (next + length > bytes.length) throw new Error('truncated length-delimited field');
+        out.push({ field, type, value: bytes.subarray(next, next + length) });
+        i = next + length;
+      } else if (type === 5) {
+        if (i + 4 > bytes.length) throw new Error('truncated fixed32');
+        out.push({ field, type, value: bytes.subarray(i, i + 4) });
+        i += 4;
+      } else {
+        throw new Error(`unsupported wire type ${type}`);
+      }
+    }
+    return out;
+  }
+
+  const PB_DECODER = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
+  function pbText(bytes) {
+    if (PB_DECODER) return PB_DECODER.decode(bytes);
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+    return out;
+  }
+  const pbNum = (fields, n) => {
+    for (const f of fields) if (f.field === n) return f.type === 5 ? pbFloat32(f.value) : (f.type === 1 ? pbDouble(f.value) : f.value);
+    return null;
+  };
+  const pbStr = (fields, n) => {
+    for (const f of fields) if (f.field === n) return pbText(f.value);
+    return null;
+  };
+  const pbSub = (fields, n) => {
+    for (const f of fields) if (f.field === n && f.type === 2) return pbFields(f.value);
+    return null;
+  };
+  const pbAll = (fields, n) => fields.filter((f) => f.field === n && f.type === 2).map((f) => pbFields(f.value));
+
+  function parseGtfsrtFeed(bytes, feed, now) {
+    /* Duck-typed on purpose: a Node Buffer, a cross-realm Uint8Array and a plain typed array
+       are all valid frames, and `instanceof` says no to two of them. */
+    if (!bytes || typeof bytes.length !== 'number' || !bytes.length) throw new Error('empty realtime payload');
+    const message = pbFields(bytes);
+    const header = pbSub(message, 1);
+    const fallback = Number(pbNum(header || [], 3)) * 1000;    // FeedHeader.timestamp, seconds
+    const maxAge = finite(feed.maxAgeSec, GTFSRT_DEFAULTS.maxAgeSec) * 1000;
+    const out = [];
+    for (const entity of pbAll(message, 2)) {
+      const position = pbSub(entity, 4);                        // FeedEntity.vehicle
+      if (!position) continue;
+      const pos = pbSub(position, 3);                           // VehiclePosition.position
+      if (!pos) continue;
+      const lat = Number(pbNum(pos, 1));
+      const lon = Number(pbNum(pos, 2));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+      const seconds = Number(pbNum(position, 8)) || Number(fallback) / 1000;
+      const observed = seconds * 1000;
+      if (!Number.isFinite(observed) || now - observed > maxAge) continue;
+      const trip = pbSub(position, 1) || [];
+      const descriptor = pbSub(position, 2) || [];
+      const bearing = Number(pbNum(pos, 3));
+      const speed = Number(pbNum(pos, 5));
+      const routeId = pbStr(trip, 2) || '';
+      out.push({
+        key: `gtfsrt:${feed.id}:${pbStr(descriptor, 1) || pbStr(trip, 1) || `${lat},${lon}`}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'positions',
+        mode: feed.mode === 'tram' ? 'tram' : 'bus',
+        lineId: routeId,
+        lineName: routeId || feed.network,
+        color: readable(DEFAULT_COLOR.bus),
+        lon,
+        lat,
+        heading: Number.isFinite(bearing) && bearing >= 0 && bearing < 360 ? bearing : 0,
+        speed: Number.isFinite(speed) && speed >= 0 ? Math.round(speed * 3.6) : null,   // m/s -> km/h
+        dest: pbStr(trip, 1) || '',
+        nextStop: pbStr(position, 11) || '',
+        etaSec: null,
+        delaySec: null,
+        vehicle: pbStr(descriptor, 2) || pbStr(descriptor, 1) || '',
+        where: 'Live position from the agency GTFS-Realtime feed.',
+        observed,
+        attribution: feed.attribution,
+      });
+    }
+    return out;
+  }
+
+  async function refreshGtfsrt(feed) {
+    const targets = asArray(feed.endpoints && feed.endpoints.length ? feed.endpoints : [feed.base]);
+    return budgetedSweep(feed, targets,
+      (endpoint, now) => getBinary(endpoint, feed.cors)
+        .then((bytes) => parseGtfsrtFeed(bytes, feed, now)), GTFSRT_DEFAULTS);
+  }
+
+  async function refreshBoard(feed) {
+    const targets = asArray(feed.stations || feed.stops);
+    if (!targets.length) throw new Error('no stations configured');
+    const read = (target, now) => (feed.adapter === 'irail'
+      ? getJson(`${feed.base}liveboard/?station=${encodeURIComponent(target)}&format=json&lang=en`, feed.cors)
+        .then((data) => parseIrailLiveboard(data, feed, now))
+      : getJson(`${feed.base}stationboard?station=${encodeURIComponent(target)}&limit=${finite(feed.limit, 10)}`, feed.cors)
+        .then((data) => parseOpendataChStationboard(data, feed, now)));
+    return budgetedSweep(feed, targets, read, BOARD_DEFAULTS);
   }
 
   /* ------------------------------------------------------------- networking */
 
-  async function getJson(url, direct) {
+  /* `windowSec` asks the relay to answer from its own short-lived cache: that is what turns
+   * "every visitor polls the operator" into "every visitor shares one answer per window",
+   * which is the only reason a key with a 1,000-request daily cap survives being public. */
+  function relayUrl(url, windowSec, binary) {
+    let target = '/api/fetch?url=' + encodeURIComponent(url);
+    if (Number(windowSec) > 0) target += '&window=' + Math.round(Number(windowSec));
+    if (binary) target += '&encoding=base64';
+    return target;
+  }
+
+  async function getJson(url, direct, windowSec) {
     if (direct) {
       try {
         const response = await fetch(url, { cache: 'no-store' });
         if (response.ok) return await response.json();
       } catch (e) { /* fall through to the same relay the camera feeds use */ }
     }
-    const relay = await fetch('/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
+    const relay = await fetch(relayUrl(url, windowSec), { cache: 'no-store' });
     if (!relay.ok) throw new Error('unavailable');
     return await relay.json();
+  }
+
+  /* GTFS-Realtime is binary; the relay base64s it so the bytes survive the trip intact. */
+  async function getBinary(url, direct) {
+    const relay = await fetch(relayUrl(url, 0, true), { cache: 'no-store' });
+    if (!relay.ok) throw new Error('unavailable');
+    const text = (await relay.text()).trim();
+    const raw = atob(text);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return bytes;
   }
 
   async function loadRegistry() {
@@ -643,7 +1182,9 @@ const Transit = (() => {
     const response = await fetch('data/transit.json', { cache: 'no-store' });
     if (!response.ok) throw new Error('registry unavailable');
     const json = await response.json();
-    registry = asArray(json.feeds).map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null }, feed));
+    registry = asArray(json.feeds)
+      .filter((feed) => ADAPTERS.includes(feed.adapter))   // an unknown adapter draws nothing but is not a crash
+      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null }, feed));
     return registry;
   }
 
@@ -658,6 +1199,7 @@ const Transit = (() => {
       else if (feed.adapter === 'bart') await bartStatic(feed);
       else if (feed.adapter === 'umo') await umoStatic(feed);
       else if (feed.adapter === 'seoul') await seoulStatic(feed);
+      else if (feed.adapter === 'digitraffic') await digitrafficStatic(feed);
     } catch (e) {
       staticDone.delete(feed.id);   // let the next tick retry instead of leaving the network half-drawn
       throw e;
@@ -815,6 +1357,17 @@ const Transit = (() => {
       return parseUmoVehicles(data, feed, feed._routeNames, feed.maxAgeSec);
     }
     if (feed.adapter === 'seoul') return refreshSeoul(feed);
+    if (feed.adapter === 'mbta') {
+      const url = `${feed.base}/vehicles?page[limit]=${finite(feed.limit, 1000)}&include=route,stop`;
+      const data = await getJson(url, feed.cors, finite(feed.windowSec, 30));
+      return parseMbtaVehicles(data, feed, Date.now());
+    }
+    if (feed.adapter === 'digitraffic') {
+      const data = await getJson(`${feed.base}trains/latest`, feed.cors, finite(feed.windowSec, 30));
+      return parseDigitrafficTrains(data, feed, feed._stations || new Map(), Date.now());
+    }
+    if (feed.adapter === 'gtfsrt') return refreshGtfsrt(feed);
+    if (feed.adapter === 'opendata-ch' || feed.adapter === 'irail') return refreshBoard(feed);
     return [];
   }
 
@@ -1037,10 +1590,17 @@ const Transit = (() => {
     if (!chip()) return;
     const rows = registry.map((feed) => {
       const count = feed._count || 0;
-      const detail = feed._error ? `unavailable (${feed._error})` : `${count} live${feed.sample ? ' · sample' : ''}`;
+      const detail = feed._error
+        ? `unavailable (${feed._error})`
+        : feed._held
+          ? `held (${feed._held.reason}) · ${agoText(feed._lastOk)}`
+          : `${count} live${feed.sample ? ' · sample' : ''}`;
       return `${feed.city} — ${feed.network}: ${detail}`;
     });
     const notes = [];
+    if (registry.some((feed) => feed._held)) {
+      notes.push('A network marked held kept the last sweep its operator accepted: those vehicles are drawn, but they are that old.');
+    }
     if (capped) notes.push(`Drawing the ${MAX_FEATURES} vehicles nearest the view of ${capped} reported.`);
     const tfl = registry.find((feed) => feed.adapter === 'tfl' && feed._status);
     if (tfl) {
@@ -1127,6 +1687,16 @@ const Transit = (() => {
     if (seconds < 45) return 'just now';
     if (seconds < 90) return '1 min ago';
     return `${Math.round(seconds / 60)} min ago`;
+  }
+
+  /* How long since a feed last heard from its operator: the honest caption for held rows. */
+  function agoText(stamp) {
+    if (!Number.isFinite(stamp)) return 'age unknown';
+    const seconds = Math.max(0, Math.round((Date.now() - stamp) / 1000));
+    if (seconds < 45) return 'just now';
+    if (seconds < 90) return '1 min ago';
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+    return `${(seconds / 3600).toFixed(1)} h ago`;
   }
 
   function popupFor(vehicle) {
@@ -1297,5 +1867,9 @@ const Transit = (() => {
     parseBartStations, parseBartRoutes, parseBartRouteInfo, parseBartEtd,
     parseUmoRoutes, parseUmoVehicles,
     parseKst, parseSeoulPositions, seoulLookup, seoulStationCandidates,
+    budgetedSweep, refreshSeoul, agoText, ADAPTERS, finite,
+    parseMbtaVehicles, parseDigitrafficTrains, digitrafficStations, digitrafficStationOf,
+    parseOpendataChStationboard, parseIrailLiveboard, keepPerStation,
+    pbFields, pbVarint, parseGtfsrtFeed,
   };
 })();
