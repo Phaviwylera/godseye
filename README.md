@@ -20,8 +20,12 @@ The interface has been redesigned around a restrained global-intelligence aesthe
 - camera target-acquisition reticle before the feed opens
 - refined HUD, camera index, video wall, route panel, radar, compass and mobile controls
 - redesigned PWA/app icon to match the interface
-- navigation reorganised around the globe itself: option rows ride under the HUD header, only
-  + / − zoom floats on the map's edge, and tablets/phones keep the one-finger FAB sheet
+- navigation reorganised around the globe itself: every option lives in one **MAP TOOLS**
+  panel — an arrow chip under the HUD that expands into sections grouped by purpose (VIEW,
+  PLAYBACK, LIVE LAYERS, WORLD LAYERS, WEATHER & SPACE, MAP, STATUS), remembers whether it
+  was open, toggles with **M**, closes on Escape or a click on the globe, and shows the
+  count of active tools when put away. Only + / − zoom still floats on the map's edge, the
+  camera registry keeps its own collapse button, and tablets/phones keep the one-finger FAB sheet
 - every overlay honours the palette: the weather radar renders in RainViewer's cool
   Universal Blue scheme at low opacity instead of alarm colours
 
@@ -258,10 +262,19 @@ through the relay so all visitors share one upstream call per window.
 **⌁ EVENTS** (`js/events.js`) — three sources, each drawn only where reported:
 * **storms** — NOAA/NWS active weather alerts (US), Severe/Extreme storm events only
   (tornado, hurricane, flood, winter, dust…), keyless JSON, 10-minute refresh.
-* **fires** — NASA FIRMS satellite fire hotspots (VIIRS NOAA-21, last day). The free
-  MAP_KEY stays server-side: set `FIRMS_MAP_KEY` in the Netlify project env (and as an
-  env var or `tools/_cache/firms-key.txt` when running `python3 server.py`). Without it
-  the layer degrades to a labelled `FIRES · KEY PENDING` state instead of a fake feed.
+* **fires** — NASA FIRMS satellite fire hotspots (the relay requests VIIRS NOAA-21 NRT,
+  world, last day; the parser also understands the MODIS product's header). The
+  free MAP_KEY stays server-side: set `FIRMS_MAP_KEY` in the Netlify project env (and as an
+  env var or `tools/_cache/firms-key.txt` when running `python3 server.py`). Without it the
+  layer degrades to a labelled `FIRES · KEY PENDING` state instead of a fake feed. The
+  parser reads the area API's real header for both products (`latitude`,
+  `longitude`, `bright_ti4` / `brightness`, `confidence` as `l/n/h` or 0–100, `acq_time`
+  as HHMM UTC, `frp`, `daynight`), and both relays check that a payload really is a
+  header-and-rows sweep before caching it: FIRMS answers a bad key or an exhausted quota
+  with **HTTP 200 and a line of prose**, which is reported as the upstream error it is
+  (or held behind the last good sweep) rather than drawn as a world with no fires.
+  Popups state brightness in kelvin, the feed's own confidence label, FRP in MW and the
+  UTC acquisition time.
 * **volcanoes** — every named volcano in OpenStreetMap, built by `tools/build_infra.py`
   into `data/volcanoes.json` (the `refresh-infra` action runs it weekly). Until the first
   snapshot ships, the chip reads `VOLC · PENDING BUILD`.
@@ -269,7 +282,8 @@ through the relay so all visitors share one upstream call per window.
 **⬡ INFRA** (`js/infra.js`) — critical infrastructure as map layers: named power
 plants (coloured by fuel type: solar, wind, hydro, nuclear, coal, gas, oil) and named
 harbours from OpenStreetMap, plus the open "CABLE" submarine-cable routes (2019
-vintage — every popup says so). `tools/build_infra.py` builds `data/power.json`,
+vintage — every popup says so, with the route's published length, ready-for-service year
+and owners). `tools/build_infra.py` builds `data/power.json`,
 `data/ports.json` and `data/cables.geojson`; `refresh-infra` runs it weekly. Each
 dataset degrades independently to a `PENDING BUILD` chip until its first snapshot.
 

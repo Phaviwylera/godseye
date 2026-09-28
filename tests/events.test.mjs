@@ -12,27 +12,82 @@ const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
  * normalise them into this realm before deepEqual (same trick as JSON round-trip). */
 const inRealm = (x) => JSON.parse(JSON.stringify(x));
 
-const FIRMS_CSV = [
-  'lat,lon,brightness,temp,scan,track,acq_date,acq_time,confidence,sourcedata,ch_name,bright_t35,version',
-  '37.1200,-121.9800,78.4,-12.3,0,1,2026-09-26,14:32:11,91,VIIRS,3I,287.4,2.0',
-  '-33.4500,151.2600,55.1,-5.2,1,1,2026-09-26,15:01:44,64,VIIRS,3I,290.1,2.0',
-  '64.1300,-21.8200,12.9,-18.0,0,1,2026-09-26,16:12:09,22,VIIRS,3I,271.9,2.0',
-  '95.0,10.0,99,-10,0,1,2026-09-26,16:00:00,50,VIIRS,3I,300.0,2.0',   // out of range -> dropped
-  '1.0,2.0,not-a-number,0,0,1,2026-09-26,16:00:00,50,VIIRS,3I,300.0,2.0', // bad row -> dropped
-].join('\n');
+/* Realistic FIRMS payloads: the exact header the area API answers for each
+ * product, with real row shapes — VIIRS brightness (Kelvin) in bright_ti4 and
+ * letter confidence, MODIS brightness with a 0-100 confidence, the 0,0
+ * null-island artefact, one out-of-range row and one unparsable row. */
+const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+const FIRMS_VIIRS = fixture('firms-viirs-noaa21.csv');
+const FIRMS_MODIS = fixture('firms-modis-nrt.csv');
+const FIRMS_ERROR = fixture('firms-invalid-key.txt');
 
-test('parseFirmsCsv decodes valid rows and drops invalid ones', () => {
-  const rows = Events.parseFirmsCsv(FIRMS_CSV);
-  assert.equal(rows.length, 3);
-  assert.deepEqual(inRealm(rows[0]), { lon: -121.98, lat: 37.12, bright: 78.4, conf: 91, date: '2026-09-26' });
-  assert.equal(rows[1].lat, -33.45);
-  assert.equal(rows[2].bright, 12.9);
+test('parseFirmsCsv reads the real VIIRS area-CSV header', () => {
+  const rows = Events.parseFirmsCsv(FIRMS_VIIRS);
+  // 9 data lines: 6 real detections; 0,0 artefact, out-of-range lon and a
+  // non-numeric brightness are all dropped rather than coerced.
+  assert.equal(rows.length, 6);
+  const first = rows[0];
+  assert.equal(first.lat, 66.42133);
+  assert.equal(first.lon, 58.04745);
+  assert.equal(first.bright, 326.84);          // bright_ti4, Kelvin
+  assert.equal(first.conf, null);              // VIIRS confidence is a letter…
+  assert.equal(first.confLabel, 'nominal');    // …and 'n' means nominal
+  assert.equal(first.frp, 2.74);
+  assert.equal(first.date, '2026-09-27');
+  assert.equal(first.time, '0001');            // acq_time is HHMM UTC
+  assert.equal(first.at, '2026-09-27T00:01:00Z');
+  assert.equal(first.daynight, 'N');
+  assert.equal(first.instrument, 'VIIRS');
+  assert.deepEqual(inRealm(rows.map((r) => r.lon)), [58.04745, -74.22502, 102.5581, -121.30419, 151.261, -21.82]);
+  assert.equal(rows[1].confLabel, 'nominal');  // 'nominal' spelled out
+  assert.equal(rows[2].confLabel, 'high');
+  assert.equal(rows[3].time, '1834');
+  assert.equal(rows[5].confLabel, 'low');
+  assert.ok(rows.every((r) => r.conf === null), 'no VIIRS row may carry a fabricated percentage');
 });
 
-test('parseFirmsCsv rejects non-FIRMS payloads and returns empty for empty input', () => {
-  assert.throws(() => Events.parseFirmsCsv('a,b,c\n1,2,3'));
+test('parseFirmsCsv reads the MODIS variant, where confidence is numeric', () => {
+  const rows = Events.parseFirmsCsv(FIRMS_MODIS);
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].bright, 312.4);
+  assert.equal(rows[0].conf, 87);
+  assert.equal(rows[0].confLabel, null);
+  assert.equal(rows[0].time, '0145');
+  assert.equal(rows[2].conf, 23);
+});
+
+test('parseFirmsCsv returns nothing for a header-only sweep, and refuses prose', () => {
+  assert.deepEqual(inRealm(Events.parseFirmsCsv(fixture('firms-header-only.csv'))), []);
   assert.deepEqual(inRealm(Events.parseFirmsCsv('')), []);
   assert.deepEqual(inRealm(Events.parseFirmsCsv(null)), []);
+  // FIRMS signals a bad MAP_KEY with HTTP 200 and a line of prose: refused, never
+  // read as a world with no fires.
+  assert.throws(() => Events.parseFirmsCsv(FIRMS_ERROR), /firms:/);
+  assert.throws(() => Events.parseFirmsCsv('a,b,c\n1,2,3'));
+  assert.equal(Events.isFirmsCsv(FIRMS_VIIRS), true);
+  assert.equal(Events.isFirmsCsv(FIRMS_MODIS), true);
+  assert.equal(Events.isFirmsCsv(FIRMS_ERROR), false);
+  assert.equal(Events.isFirmsCsv('<html><body>404</body></html>'), false);
+});
+
+test('firmsStamp pads and rejects malformed acquisition times', () => {
+  assert.deepEqual(inRealm(Events.firmsStamp('2026-09-27', '3')), { date: '2026-09-27', time: '0003', at: '2026-09-27T00:03:00Z' });
+  assert.deepEqual(inRealm(Events.firmsStamp('2026-09-27', '1834')), { date: '2026-09-27', time: '1834', at: '2026-09-27T18:34:00Z' });
+  assert.deepEqual(inRealm(Events.firmsStamp('', '1834')), { date: '', time: '', at: '' });
+  assert.deepEqual(inRealm(Events.firmsStamp('2026-09-27', '9999')), { date: '2026-09-27', time: '', at: '' });
+});
+
+test('fire cards state the feed\'s own units and confidence', () => {
+  const fire = Events.parseFirmsCsv(FIRMS_VIIRS)[2];
+  const html = Events.fireCard(fire);
+  assert.match(html, /340\.1 K/);              // brightness temperature, Kelvin
+  assert.match(html, /confidence high/);
+  assert.match(html, /FRP 18\.6 MW/);
+  assert.match(html, /2026-09-27 06:07 UTC/);
+  assert.match(html, /daytime/);
+  const modis = Events.fireCard(Events.parseFirmsCsv(FIRMS_MODIS)[0]);
+  assert.match(modis, /confidence 87%/);
+  assert.match(Events.fireLabel(fire), /340 K · HIGH/);
 });
 
 test('ringCenter averages the first ring (closed ring), never the duplicate vertex', () => {

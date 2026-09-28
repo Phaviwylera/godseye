@@ -1,0 +1,39 @@
+{
+  "source": "Open 'CABLE' dataset (Submarine Cable Map routes, MIT), vintage 2019 — routes are historical, not live status",
+  "generated": "2026-09-27T00:00:00Z",
+  "count": 3,
+  "url": "https://gist.githubusercontent.com/shimizu/6b7123b893fca8440e70216cddfcfe52/raw/cable.geojson",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "SEA-ME-WE 3",
+        "length": "39,000 km",
+        "rfs": "1999",
+        "owners": "Orange, Singtel, TATA, Telefónica"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-9.14, 38.71], [-5.6, 36.0], [14.5, 35.9], [32.3, 31.2], [55.3, 25.3]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "MAREA",
+        "length": "6,605 km",
+        "rfs": "2018",
+        "owners": "Meta, Microsoft, Telxius"
+      },
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [[[-73.99, 40.71], [-40.0, 41.5], [-9.14, 43.4]], [[-9.14, 43.4], [-9.0, 43.2]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Unnamed segment", "length": "", "rfs": "", "owners": "" },
+      "geometry": { "type": "LineString", "coordinates": [[100.5, 13.75], [101.7, 3.1]] }
+    }
+  ]
+}

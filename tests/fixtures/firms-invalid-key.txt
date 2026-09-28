@@ -1,0 +1,1 @@
+Invalid MAP_KEY. Request a new MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/map_key/

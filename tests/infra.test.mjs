@@ -56,6 +56,39 @@ test('cards escape names and cite the source with its vintage', () => {
   assert.ok(Infra.portCard({ name: 'Test Harbour' }).includes('OpenStreetMap'));
 });
 
+/* A realistic snapshot in exactly the shape tools/build_infra.py's build_cables
+ * writes to data/cables.geojson. The map click hands a card the feature's
+ * properties, which is what the old cable card got wrong: it read `.properties`
+ * off an already-unwrapped object and rendered every submarine cable nameless. */
+const CABLES = JSON.parse(readFileSync(new URL('./fixtures/cables-sample.geojson', import.meta.url), 'utf8'));
+
+test('the cable card renders the clicked feature from a real cables snapshot', () => {
+  const [seaMeWe, marea] = CABLES.features;
+  for (const feature of [seaMeWe, marea]) {
+    const viaProperties = Infra.cardFor('infra-cables', feature.properties);  // the click path
+    const viaFeature = Infra.cardFor('infra-cables', feature);               // callers with geometry
+    assert.equal(viaProperties, viaFeature, 'a card must not depend on how it is handed the feature');
+    assert.ok(viaFeature.includes(feature.properties.name), feature.properties.name);
+    assert.ok(viaFeature.includes(feature.properties.length));
+    assert.ok(viaFeature.includes(feature.properties.rfs));
+    assert.ok(viaFeature.includes('2019 vintage'));
+  }
+  assert.match(Infra.cardFor('infra-cables', seaMeWe.properties), /39,000 km · in service 1999 · Orange, Singtel/);
+  // Every layer's card survives the click path, and an unknown layer renders nothing.
+  assert.match(Infra.cardFor('infra-power', { name: 'Solar Plant A', kind: 'solar' }), /solar plant/);
+  assert.match(Infra.cardFor('infra-ports', { name: 'Test Harbour' }), /Test Harbour/);
+  assert.equal(Infra.cardFor('infra-nope', seaMeWe.properties), '');
+  assert.equal(Infra.cardFor('infra-cables', null), Infra.cardFor('infra-cables', {}));
+});
+
+test('a partially built cable feature still names the route without inventing fields', () => {
+  const blank = CABLES.features[2];
+  const html = Infra.cardFor('infra-cables', blank.properties);
+  assert.ok(html.includes('Unnamed segment'));
+  assert.ok(!/in service\s*·/.test(html), 'no empty "in service" clause');
+  assert.ok(html.includes('2019 vintage'));
+});
+
 test('the INFRA control, chip, scripts and straits data exist in the UI', () => {
   assert.match(html, /id="btn-infra"/);
   assert.match(html, /id="infra-chip"/);

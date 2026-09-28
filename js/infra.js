@@ -50,22 +50,48 @@ const Infra = (() => {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 
-  function powerCard(f) {
-    return `<div class="ev-card"><div class="ev-q">${esc(f.name)}</div>
-      <div class="ev-row">${esc(f.kind)} plant</div>
+  /** A card may be handed a feature's properties (what the map click passes)
+   *  or the whole feature (callers that keep the geometry). Both must render
+   *  the same card: the cable card used to read `.properties` off an
+   *  already-unwrapped properties object, so every submarine-cable popup came
+   *  up nameless and empty. */
+  function propsOf(feature) {
+    if (!feature || typeof feature !== "object") return {};
+    const p = feature.properties;
+    return p && typeof p === "object" ? p : feature;
+  }
+
+  function powerCard(feature) {
+    const f = propsOf(feature);
+    return `<div class="ev-card"><div class="ev-q">${esc(f.name || "Power plant")}</div>
+      <div class="ev-row">${esc(f.kind || "other")} plant</div>
       <div class="ev-row dim">OpenStreetMap (power=plant), CC-BY-SA</div></div>`;
   }
 
-  function portCard(f) {
-    return `<div class="ev-card"><div class="ev-q">${esc(f.name)}</div>
+  function portCard(feature) {
+    const f = propsOf(feature);
+    return `<div class="ev-card"><div class="ev-q">${esc(f.name || "Harbour")}</div>
       <div class="ev-row dim">Named harbour, OpenStreetMap, CC-BY-SA</div></div>`;
   }
 
-  function cableCard(f) {
-    const p = f.properties || {};
+  function cableCard(feature) {
+    const p = propsOf(feature);
+    const bits = [];
+    if (p.length) bits.push(esc(p.length));
+    if (p.rfs) bits.push("in service " + esc(p.rfs));
+    if (p.owners) bits.push(esc(p.owners));
     return `<div class="ev-card"><div class="ev-q">${esc(p.name || "Submarine cable")}</div>
-      ${p.length ? `<div class="ev-row">${esc(p.length)}${p.rfs ? " · in service " + esc(p.rfs) : ""}</div>` : ""}
+      ${bits.length ? `<div class="ev-row">${bits.join(" · ")}</div>` : ""}
       <div class="ev-row dim">Open CABLE dataset, 2019 vintage — historical route, not live status</div></div>`;
+  }
+
+  const CARDS = { "infra-power": powerCard, "infra-ports": portCard, "infra-cables": cableCard };
+
+  /** The popup HTML for one clicked feature — the single contract the map
+   *  click handler and the tests share. */
+  function cardFor(layerId, feature) {
+    const card = CARDS[layerId];
+    return card ? card(feature) : "";
   }
 
   /* ------------------------------------------------------------------- DOM -- */
@@ -117,15 +143,15 @@ const Infra = (() => {
         "circle-color": "#65e4d2", "circle-stroke-color": "rgba(4,28,34,.9)",
         "circle-stroke-width": 1, "circle-opacity": 0.95 },
     });
-    const popups = {
-      "infra-power": powerCard, "infra-ports": portCard, "infra-cables": cableCard,
-    };
-    for (const id of Object.keys(popups)) {
+    for (const id of Object.keys(CARDS)) {
       map.on("click", id, (e) => {
         const f = e.features && e.features[0];
         if (!f) return;
+        // Geometry anchor for a line layer: use the click point, not the first
+        // vertex (which can be an ocean away from what was clicked).
+        const at = id === "infra-cables" ? e.lngLat : f.geometry.coordinates;
         new maplibregl.Popup({ closeButton: true, closeOnClick: true })
-          .setLngLat(f.geometry.coordinates).setHTML(popups[id](f.properties)).addTo(map);
+          .setLngLat(at).setHTML(cardFor(id, f)).addTo(map);
       });
       map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
@@ -189,5 +215,5 @@ const Infra = (() => {
   function init(instance) { map = instance; }
 
   return { init, toggle, restore, powerFeatures, portFeatures, powerCard, portCard, cableCard,
-    fmtCount, chipText, _state: state };
+    cardFor, propsOf, fmtCount, chipText, _state: state };
 })();
