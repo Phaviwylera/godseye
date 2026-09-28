@@ -1,6 +1,6 @@
 /* God's Eye service worker — offline shell; network-first so feeds stay fresh. */
-const CACHE = 'godseye-shell-v24';
-const CORE = ['./', './index.html', './css/style.css', './js/app.js', './js/players.js',
+const CACHE = 'godseye-shell-v25';
+const CORE = ['./', './index.html', './css/style.css', './js/app.js', './js/map-tools.js', './js/saved-views.js', './js/players.js',
               './js/intel.js', './js/sources.js', './js/satellites.js', './js/contacts.js', './js/ofac.js', './js/iss.js', './js/vessels.js', './js/transit.js', './js/airports.js', './js/events.js', './js/markets.js', './js/infra.js', './js/news.js', './js/conflict.js', './js/companies.js', './js/countries.js', './vendor/maplibre-gl.js', './vendor/maplibre-gl.css', './vendor/satellite.min.js',
               './vendor/hls.min.js', './manifest.json', './icon.svg', './assets/gods-eye-emblem.svg', './img/godseye-icon.png'];
 

@@ -86,25 +86,28 @@ const Events = (() => {
     return out;
   }
 
-  /** FIRMS CSV (lat,lon,brightness,temp,scan,track,acq_date,acq_time,confidence,…)
+  /** FIRMS VIIRS/MODIS CSV (latitude,longitude,bright_ti4/brightness,…)
    *  -> hotspots. Rows that fail validation are dropped, never coerced. */
   function parseFirmsCsv(text) {
     const trimmed = String(text || "").trim();
     if (!trimmed) return [];
     const lines = trimmed.split(/\r?\n/);
-    const head = lines[0].split(",");
-    const idx = (name) => head.indexOf(name);
-    const iLat = idx("lat"), iLon = idx("lon"), iBright = idx("brightness"),
+    const head = lines[0].replace(/^\uFEFF/, "").split(",").map(x => x.trim().toLowerCase());
+    const idx = (...names) => names.map(name => head.indexOf(name)).find(i => i >= 0) ?? -1;
+    const iLat = idx("latitude", "lat"), iLon = idx("longitude", "lon"), iBright = idx("bright_ti4", "brightness"),
       iConf = idx("confidence"), iDate = idx("acq_date");
     if (iLat < 0 || iLon < 0 || iBright < 0) throw new Error("not a FIRMS csv");
     const rows = [];
     for (let i = 1; i < lines.length; i++) {
       const f = lines[i].split(",");
+      if ([iLat, iLon, iBright].some(j => !f[j]?.trim())) continue;
       const lat = Number(f[iLat]), lon = Number(f[iLon]), bright = Number(f[iBright]);
       if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(bright)) continue;
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
-      const conf = iConf >= 0 ? Number(f[iConf]) : NaN;
-      rows.push({ lon, lat, bright, conf: Number.isFinite(conf) ? conf : null, date: iDate >= 0 ? f[iDate] : "" });
+      const rawConf = iConf >= 0 ? (f[iConf] || "").trim().toLowerCase() : "";
+      const classes = { l: "low", n: "nominal", h: "high", low: "low", nominal: "nominal", high: "high" };
+      const conf = classes[rawConf] || (rawConf && Number.isFinite(Number(rawConf)) && Number(rawConf) >= 0 && Number(rawConf) <= 100 ? Number(rawConf) : null);
+      rows.push({ lon, lat, bright, conf, date: iDate >= 0 ? f[iDate] : "" });
     }
     if (rows.length > MAX_FIRE_POINTS) {
       rows.sort((a, b) => b.bright - a.bright);
@@ -135,7 +138,7 @@ const Events = (() => {
   function fireCard(f) {
     return `<div class="ev-card">
       <div class="ev-q">Fire hotspot</div>
-      <div class="ev-row">brightness ${f.bright.toFixed(0)}${f.conf != null ? " · confidence " + f.conf.toFixed(0) + "%" : ""}${f.date ? " · " + f.date : ""}</div>
+      <div class="ev-row">brightness ${f.bright.toFixed(0)}${f.conf != null ? " · confidence " + (typeof f.conf === "number" ? f.conf.toFixed(0) + "%" : esc(f.conf)) : ""}${f.date ? " · " + f.date : ""}</div>
       <div class="ev-row dim">Satellite detection (NASA FIRMS, VIIRS NOAA-21, last day). A thermal signal — not always a wildfire.</div>
     </div>`;
   }

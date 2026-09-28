@@ -11,6 +11,7 @@
  */
 const Infra = (() => {
   let map = null;
+  let handlersBound = false;
   const state = { on: false, power: null, ports: null, cables: null, pending: { power: false, ports: false, cables: false } };
 
   /* ------------------------------------------------------------------ pure -- */
@@ -53,16 +54,16 @@ const Infra = (() => {
   function powerCard(f) {
     return `<div class="ev-card"><div class="ev-q">${esc(f.name)}</div>
       <div class="ev-row">${esc(f.kind)} plant</div>
-      <div class="ev-row dim">OpenStreetMap (power=plant), CC-BY-SA</div></div>`;
+      <div class="ev-row dim">OpenStreetMap (power=plant), ODbL</div></div>`;
   }
 
   function portCard(f) {
     return `<div class="ev-card"><div class="ev-q">${esc(f.name)}</div>
-      <div class="ev-row dim">Named harbour, OpenStreetMap, CC-BY-SA</div></div>`;
+      <div class="ev-row dim">Named harbour, OpenStreetMap, ODbL</div></div>`;
   }
 
   function cableCard(f) {
-    const p = f.properties || {};
+    const p = f.properties || f;
     return `<div class="ev-card"><div class="ev-q">${esc(p.name || "Submarine cable")}</div>
       ${p.length ? `<div class="ev-row">${esc(p.length)}${p.rfs ? " · in service " + esc(p.rfs) : ""}</div>` : ""}
       <div class="ev-row dim">Open CABLE dataset, 2019 vintage — historical route, not live status</div></div>`;
@@ -120,12 +121,14 @@ const Infra = (() => {
     const popups = {
       "infra-power": powerCard, "infra-ports": portCard, "infra-cables": cableCard,
     };
+    if (handlersBound) return;
+    handlersBound = true;
     for (const id of Object.keys(popups)) {
       map.on("click", id, (e) => {
         const f = e.features && e.features[0];
         if (!f) return;
         new maplibregl.Popup({ closeButton: true, closeOnClick: true })
-          .setLngLat(f.geometry.coordinates).setHTML(popups[id](f.properties)).addTo(map);
+          .setLngLat(e.lngLat).setHTML(popups[id](f.properties)).addTo(map);
       });
       map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
@@ -154,7 +157,7 @@ const Infra = (() => {
       if (src("infra-ports")) src("infra-ports").setData({ type: "FeatureCollection", features: state.ports || [] });
       if (src("infra-cables")) src("infra-cables").setData({ type: "FeatureCollection", features: state.cables || [] });
       setChip(chipText(),
-        "Named power plants and harbours from OpenStreetMap (CC-BY-SA) and the open CABLE submarine-cable dataset (2019 vintage, historical). Built weekly by the refresh-infra action.");
+        "Named power plants and harbours from OpenStreetMap (ODbL) and the open CABLE submarine-cable dataset (2019 vintage, historical). Built weekly by the refresh-infra action.");
     });
   }
 
@@ -169,6 +172,7 @@ const Infra = (() => {
     }
     state.on = true;
     await refresh();
+    if (!state.on) return false;
     addLayers();
     if (map.getSource("infra-power")) map.getSource("infra-power").setData({ type: "FeatureCollection", features: state.power || [] });
     if (map.getSource("infra-ports")) map.getSource("infra-ports").setData({ type: "FeatureCollection", features: state.ports || [] });

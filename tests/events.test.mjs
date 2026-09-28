@@ -106,3 +106,17 @@ test('fmtAge renders sweep ages honestly', () => {
   assert.equal(Events.fmtAge(Date.now() - 5 * 60000), '5 min ago');
   assert.equal(Events.fmtAge(Date.now() - 2 * 3600000), '2 h ago');
 });
+
+
+test('real VIIRS schema preserves categorical confidence and rejects empty coordinates', () => {
+  const rows = Events.parseFirmsCsv('latitude,longitude,bright_ti4,confidence,acq_date\n13.1,80.2,330.4,n,2026-09-28\n,80.2,340,h,2026-09-28\n12,81,331,l,2026-09-28');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].conf, 'nominal');
+  assert.equal(rows[1].conf, 'low');
+  assert.equal(rows[0].lat, 13.1);
+});
+
+test('MODIS schema preserves numeric confidence', () => {
+  const rows = Events.parseFirmsCsv('latitude,longitude,brightness,confidence\n13,80,320,87');
+  assert.equal(rows[0].conf, 87);
+});

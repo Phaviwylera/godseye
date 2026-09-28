@@ -2,11 +2,14 @@
 """Copy only files needed by the Netlify static site."""
 from pathlib import Path
 import shutil
+from build_coverage import main as build_coverage
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "site"
 FILES = ("index.html", "manifest.json", "sw.js", "icon.svg", "_redirects")
 DIRS = ("assets", "css", "js", "img", "vendor", "data")
+
+build_coverage()
 
 if OUT.exists():
     shutil.rmtree(OUT)
