@@ -57,7 +57,9 @@ own operators publish openly for riders: coloured rail line geometry, station do
 (zoom 10.5+) and every vehicle the feed currently reports. Click a vehicle for its route,
 destination, next stop, ETA, speed and delay; click a rail station for the next trains due
 there; click the chip for a sortable contact list. Data comes from `data/transit.json` and
-is fetched live — nothing is bundled or simulated.
+is fetched live — nothing is bundled or simulated. The one exception is Seoul's station
+coordinates: that feed reports station names and no positions at all, so a static station
+table (`data/kr-stations.json`, a CC0 extract of Wikidata) is bundled to place them.
 
 | id | network | adapter | mode | provides |
 |----|---------|---------|------|----------|
@@ -70,8 +72,9 @@ is fetched live — nothing is bundled or simulated.
 | `stl` | Laval — Société de transport de Laval | Umo IQ | 🚌 bus | live GPS bus positions |
 | `omnitrans` | San Bernardino — Omnitrans | Umo IQ | 🚌 bus | live GPS bus positions |
 | `portland-sc` | Portland Streetcar | Umo IQ | 🚊 tram | live GPS tram positions |
+| `seoul-metro` | Seoul — Metropolitan Subway, lines 1–9 + Gyeongui–Jungang, Suin–Bundang, Shinbundang, AREX, Ui, Seohae, Sillim | Seoul open API (public sample key) + bundled Wikidata stations | 🚆 rail | trains at the station they last reported (max 5 per line — the sample key's cap) |
 
-Two kinds of feed are supported and labelled differently in every popup:
+Three kinds of feed are supported and labelled differently in every popup:
 
 * **positions** — the operator publishes live vehicle coordinates (OneBusAway networks,
   Umo IQ networks). Vehicles are drawn where they actually are, rotated to their heading,
@@ -82,25 +85,37 @@ Two kinds of feed are supported and labelled differently in every popup:
   de-duplicated by vehicle id so one train appears once, and BART — which publishes no
   vehicle ids at all — is sampled to the departures due within five minutes, so one
   marker is one departure rather than one unique train.
+* **station** — the operator publishes which station a train is at, and no coordinates at
+  all (Seoul). The train is drawn at that station's coordinate from the bundled table; a
+  train at a station the table cannot resolve, or at a name two stations share, is skipped
+  rather than placed at a guess. Report times are read as KST (+09:00), so the age shown
+  is the feed's, not the viewer's clock, and future-dated reports are treated as skew.
 
 Rail line geometry and stations load once per session; only vehicle positions are polled,
-every 60 seconds. Markers fade as their last report ages, so a stale vehicle reads as
-stale. Past 2,500 vehicles the layer draws the ones nearest the view and says so in the
-chip tooltip. A network whose feed fails is reported as unavailable in the chip tooltip
-and never back-filled with guesses.
+every 60 seconds. Seoul is the exception the shared key forces: the portal caps this API at
+1,000 requests a day for everyone, so the first poll covers all sixteen lines and afterwards
+two lines are re-polled per refresh, each line keeping its last report until it comes round
+again or for 15 minutes, whichever is sooner. Markers fade as their last report ages, so a
+stale vehicle reads as stale. Past 2,500 vehicles the layer draws the ones nearest the view
+and says so in the chip tooltip. A network whose feed fails is reported as unavailable in the
+chip tooltip and never back-filled with guesses.
 
 Colours follow the operator's own brand colour where the feed publishes one (TfL, BART,
 Sound Transit); where it does not, markers use the app palette — cyan for rail, teal for
 trams, amber for buses. Keep each operator's attribution, which is shown in the chip
 tooltip and in every vehicle popup. To add a network, append a feed to
-`data/transit.json` and, if it is not OneBusAway / TfL / BART / Umo, a parser + adapter
-in `js/transit.js` — the parsers are pure functions and are unit-tested in
+`data/transit.json` and, if it is not OneBusAway / TfL / BART / Umo / Seoul, a parser +
+adapter in `js/transit.js` — the parsers are pure functions and are unit-tested in
 `tests/transit.test.mjs`.
 
-Not included, and why: MTA, WMATA, CTA, TfNSW, TransLink, LTA Singapore, Taipei, Seoul
-and Tokyo all require a registered API key; Amtrak's live map returns an encrypted
-payload; Chennai's CMRL publishes no real-time feed at all. King County Metro is left out
-on purpose — its `vehicles-for-agency` payload is over a megabyte per poll.
+Not included, and why: MTA, WMATA, CTA, TfNSW, TransLink, LTA Singapore, Taipei and Tokyo all
+require a registered API key — as do Korean buses and the metros of Busan, Daegu, Daejeon and
+Gwangju, which is why Korea appears only as Seoul, and only through the portal's public sample
+key: it caps every line at five trains, so the layer draws a sample of the fleet and says so.
+A key registered at data.seoul.go.kr lifted into `base` in place of `sample` removes both the
+cap and the rotation. Amtrak's live map returns an encrypted payload; Chennai's CMRL publishes
+no real-time feed at all. King County Metro is left out on purpose — its `vehicles-for-agency`
+payload is over a megabyte per poll.
 
 ## ✨ Features
 
@@ -116,7 +131,7 @@ on purpose — its `vehicles-for-agency` payload is over a megabyte per poll.
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
  ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, a dedicated tracked-aircraft pin, follow mode and an oblique cockpit view |
- 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 9 public operator feeds |
+ 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 10 public operator feeds (Seoul's through a rate-limited sample key) |
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
