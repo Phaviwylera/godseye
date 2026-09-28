@@ -416,6 +416,67 @@ class TestContract(unittest.TestCase):
         self.assertEqual(mf.get("short_name"), "God's Eye")
 
 
+class TestBuildOfac(unittest.TestCase):
+    """OFAC SDN index (aircraft registrations + vessel IMOs/names)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ofac = load_module("build_ofac", os.path.join(ROOT, "tools", "build_ofac.py"))
+
+    SDN_XML = """<?xml version="1.0" encoding="UTF-8"?>
+    <SDNEntryList>
+      <SDNEntry>
+        <Type>Aircraft</Type>
+        <ID><PrimaryName>Test Air</PrimaryName></ID>
+        <SDNReg>9H-ABC</SDNReg>
+        <SDNReg> N4XYZ </SDNReg>
+        <SDNReason>Test aircraft reason</SDNReason>
+      </SDNEntry>
+      <SDNEntry>
+        <Type>Vessel</Type>
+        <ID><PrimaryName>Test Ship</PrimaryName></ID>
+        <SDNIMONumber>1234567</SDNIMONumber>
+        <SDNReason>Naval service reason</SDNReason>
+      </SDNEntry>
+      <SDNEntry>
+        <Type>Vessel</Type>
+        <ID><PrimaryName>Name Only Vessel</PrimaryName></ID>
+      </SDNEntry>
+      <SDNEntry>
+        <Type>Individual</Type>
+        <ID><PrimaryName>Some Person</PrimaryName></ID>
+      </SDNEntry>
+    </SDNEntryList>"""
+
+    def test_parse_sdn_extracts_aircraft_registrations(self):
+        doc = self.ofac.parse_sdn(self.SDN_XML)
+        self.assertEqual([a["reg"] for a in doc["aircraft"]], ["9H-ABC", "N4XYZ"])
+        self.assertEqual(doc["aircraft"][0]["name"], "Test Air")
+        self.assertEqual(doc["aircraft"][0]["reason"], "Test aircraft reason")
+
+    def test_parse_sdn_extracts_vessels_by_imo_and_name(self):
+        doc = self.ofac.parse_sdn(self.SDN_XML)
+        self.assertEqual(len(doc["vessels"]), 2)
+        by_imo = [v for v in doc["vessels"] if v["imo"] == "1234567"]
+        self.assertEqual(by_imo[0]["name"], "Test Ship")
+        by_name = [v for v in doc["vessels"] if not v["imo"]]
+        self.assertEqual(by_name[0]["name"], "Name Only Vessel")
+
+    def test_parse_sdn_ignores_other_entry_types(self):
+        doc = self.ofac.parse_sdn(self.SDN_XML)
+        for key in ("aircraft", "vessels"):
+            for row in doc[key]:
+                self.assertNotEqual(row["name"], "Some Person")
+
+    def test_check_refuses_partial_parses(self):
+        with self.assertRaises(SystemExit):
+            self.ofac._check("aircraft", [{"reg": "x"}])
+        with self.assertRaises(SystemExit):
+            self.ofac._check("vessels", [{"name": "x"}])
+        self.ofac._check("aircraft", [{} for _ in range(self.ofac.FLOORS["aircraft"])])
+        self.ofac._check("vessels", [{} for _ in range(self.ofac.FLOORS["vessels"])])
+
+
 class TestBuildInfra(unittest.TestCase):
     """Static infrastructure datasets (OSM volcanoes/plants/harbours, open cable map)."""
 

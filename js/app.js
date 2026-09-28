@@ -1312,6 +1312,7 @@ function wireUI() {
       Airports.restore();
       Events.restore();
       Markets.restore();
+      Infra.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1425,6 +1426,16 @@ function wireUI() {
     }
   };
   $("#markets-chip").onclick = () => Markets.openList();
+  $("#infra-chip").onclick = () => $("#btn-infra").click();
+  $("#btn-infra").onclick = async (e) => {
+    try {
+      e.target.classList.toggle("active", await Infra.toggle());
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("infra layer unavailable", error);
+    }
+  };
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
@@ -1652,6 +1663,7 @@ function tickClock() {
     Airports.init(map);
     Events.init(map);
     Markets.init(map);
+    Infra.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

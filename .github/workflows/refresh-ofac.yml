@@ -1,0 +1,31 @@
+name: refresh-ofac
+on:
+  schedule:
+    - cron: "33 4 * * 1"   # weekly, Mondays: the SDN list changes in batches
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refresh OFAC SDN index (aircraft registrations + vessel IMOs/names)
+        run: python tools/build_ofac.py
+      - name: Commit snapshot
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/ofac.json
+          if git diff --cached --quiet; then
+            echo "no OFAC changes"
+          else
+            git commit -m "chore: weekly OFAC SDN refresh"
+            git push
+          fi

@@ -10,12 +10,19 @@ try { ({ default: WebSocket } = await import('ws')); } catch { /* optional outsi
 export const config = { schedule: '*/2 * * * *' };
 const URL = 'wss://stream.aisstream.io/v0/stream';
 // AISStream corners are [latitude, longitude], northwest then southeast.
+// Chokepoints are drawn on the map as context markers (data/straits.json);
+// the boxes below are the waterways the collector actually listens on.
 const BOXES = [
   [[15.2, 79.0], [12.5, 82.0]],       // Chennai
   [[2.4, 102.8], [0.8, 105.0]],       // Singapore Strait
   [[52.2, 3.3], [51.3, 4.9]],         // Rotterdam
   [[41.1, -74.7], [40.3, -73.2]],     // New York
   [[34.3, -119.0], [33.3, -117.6]],   // Los Angeles
+  [[5.4, 98.0], [0.6, 101.0]],        // Strait of Malacca (west)
+  [[27.1, 56.2], [26.3, 58.9]],       // Strait of Hormuz
+  [[31.35, 32.1], [29.95, 33.0]],     // Suez Canal
+  [[9.55, -80.1], [8.95, -79.55]],    // Panama Canal
+  [[36.35, -6.0], [35.75, -4.6]],     // Strait of Gibraltar
 ];
 const TYPES = ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'];
 const accepted = new Set(TYPES);

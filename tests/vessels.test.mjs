@@ -20,9 +20,19 @@ test('collector subscribes once with server key, deduplicates vessels, and close
   socket.emit('open');
   const vessels = await promise;
   assert.equal(socket.subscription.APIKey, 'test-key');
-  assert.equal(socket.subscription.BoundingBoxes.length, 5);
+  assert.equal(socket.subscription.BoundingBoxes.length, 10);
   for (const [[north, west], [south, east]] of socket.subscription.BoundingBoxes) {
     assert.ok(north > south && west < east, 'AIS boxes run northwest to southeast');
+  }
+  // The five chokepoints must be listened on as well, not just drawn.
+  const flat = JSON.stringify(socket.subscription.BoundingBoxes);
+  for (const [name, box] of [
+    ['Hormuz', [[27.1, 56.2], [26.3, 58.9]]],
+    ['Suez', [[31.35, 32.1], [29.95, 33.0]]],
+    ['Panama', [[9.55, -80.1], [8.95, -79.55]]],
+    ['Gibraltar', [[36.35, -6.0], [35.75, -4.6]]],
+  ]) {
+    assert.ok(flat.includes(JSON.stringify(box)), 'missing corridor box: ' + name);
   }
   assert.equal(vessels.length, 1);
   assert.equal(socket.closed, true);

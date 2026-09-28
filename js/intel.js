@@ -613,7 +613,7 @@ const Intel = (() => {
     }
     if (!state.airHandlersBound) {
       state.airHandlersBound = true;
-      map.on("click", "air-dots", (event) => {
+      map.on("click", "air-dots", async (event) => {
         const feature = event.features && event.features[0];
         if (!feature) return;
         const properties = feature.properties || {};
@@ -622,6 +622,7 @@ const Intel = (() => {
           callsign: String(properties.callsign || properties.hex || "Unknown aircraft"),
           coordinates: feature.geometry.coordinates,
           track: Number(properties.track),
+          reg: String(properties.reg || ""),
         };
         if (!record.hex) return;
         const tracking = selectAirTrack(record);
@@ -647,6 +648,18 @@ const Intel = (() => {
         };
         paintNote();
         content.appendChild(note);
+        // OFAC SDN cross-check: only when the feed actually carries a
+        // registration — the flag says which field matched.
+        const ofacDoc = await Ofac.load().catch(() => null);
+        const ofacMatch = ofacDoc && ofacDoc.aircraft
+          ? Ofac.matchAircraft(ofacDoc.aircraft, record.reg, record.callsign) : null;
+        if (ofacMatch) {
+          const ofacLine = document.createElement("div");
+          ofacLine.style.color = "#ff667d";
+          ofacLine.style.marginTop = "6px";
+          ofacLine.textContent = "⚠ " + Ofac.flagText(ofacMatch);
+          content.appendChild(ofacLine);
+        }
         // Live telemetry strip: altitude (bright) and speed (dim) over the
         // last hour, redrawn on every feed refresh while the popup is open.
         const strip = document.createElement("canvas");
@@ -924,6 +937,7 @@ const Intel = (() => {
       properties: {
         hex: String(a.hex || "").trim().toLowerCase(),
         callsign: (a.flight || a.r || a.hex || "?").trim(),
+        reg: a.r ? String(a.r).trim().toUpperCase() : "",
         track: a.track != null ? a.track : (a.true_heading != null ? a.true_heading : 0),
         alt: a.altt || a.alt_baro || a.alt || "?",
         gs: Math.round(a.gs || 0),

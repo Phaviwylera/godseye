@@ -7,6 +7,8 @@ const Vessels = (() => {
    * when the app is served by `python3 server.py` — fall back to Digitraffic's open AIS, which
    * is keyless and covers Finnish waters. Both are real observations; the chip says which. */
   const OPEN_AIS = 'https://meri.digitraffic.fi/api/v1/locations/latest';
+  const STRAITS_URL = 'data/straits.json';
+  let straitsLoaded = false, straitsData = null;
 
   /* Public AIS endpoints do not all agree on their envelope or field names, so accept the
    * shapes that are actually published rather than the one shape we would have preferred. */
@@ -79,6 +81,30 @@ const Vessels = (() => {
         { type: 'Feature', properties: { label: 'LATEST' }, geometry: { type: 'Point', coordinates: track.at(-1).slice(0, 2) } },
       ] });
   }
+  function setStraits() {
+    const src = map.getSource('straits');
+    if (src) src.setData({ type: 'FeatureCollection', features: (straitsData || []).map(s => ({
+      type: 'Feature', properties: { name: s.name, note: s.note || '' },
+      geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) });
+  }
+  async function loadStraits() {
+    if (straitsLoaded || straitsData) { setStraits(); return; }
+    try {
+      const r = await fetch(STRAITS_URL);
+      if (!r.ok) return;
+      const doc = await r.json();
+      straitsData = Array.isArray(doc.waterways) ? doc.waterways : [];
+      straitsLoaded = true;
+      setStraits();
+    } catch { /* context markers are optional — ships are the layer */ }
+  }
+  async function annotateOfac(vessels) {
+    let doc = null;
+    try { doc = await Ofac.load(); } catch { doc = null; }
+    for (const v of vessels) {
+      v.ofac = (doc && doc.vessels) ? Ofac.matchVessel(doc.vessels, v.imo, v.name) : null;
+    }
+  }
   function showVessels() {
     map.getSource('vessels')?.setData({ type: 'FeatureCollection', features: latest.map(p => ({
       type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
@@ -90,9 +116,22 @@ const Vessels = (() => {
   function restore() {
     if (!enabled || !map) return;
     if (!map.hasImage('ge-ship')) map.addImage('ge-ship', shipIcon(), { pixelRatio: 2 });
-    for (const source of ['vessels', 'vessel-trail', 'vessel-waypoints', 'vessel-endpoints']) {
+    for (const source of ['vessels', 'vessel-trail', 'vessel-waypoints', 'vessel-endpoints', 'straits']) {
       if (!map.getSource(source)) map.addSource(source, { type: 'geojson', data: empty() });
     }
+    if (!map.getLayer('straits-dots')) map.addLayer({
+      id: 'straits-dots', type: 'circle', source: 'straits',
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2, 5, 3.5, 8, 5],
+        'circle-color': '#1d4e56', 'circle-stroke-color': '#65e4d2',
+        'circle-stroke-width': 1.2, 'circle-opacity': 0.9 },
+    });
+    if (!map.getLayer('straits-labels')) map.addLayer({
+      id: 'straits-labels', type: 'symbol', source: 'straits', minzoom: 5,
+      layout: { 'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.6],
+        'text-allow-overlap': true },
+      paint: { 'text-color': '#65e4d2', 'text-halo-color': '#04141a', 'text-halo-width': 2,
+        'text-opacity': 0.85 },
+    });
     if (!map.getLayer('vessel-trail-line')) map.addLayer({
       id: 'vessel-trail-line', type: 'line', source: 'vessel-trail',
       paint: { 'line-color': '#65e4d2', 'line-width': 2.5, 'line-opacity': 0.85,
@@ -134,6 +173,13 @@ const Vessels = (() => {
       const note = document.createElement('div');
       note.textContent = count > 1 ? `${count} observed trail positions in the last 30 minutes · first and latest are sample endpoints, not the full voyage` : 'Trail begins after a second distinct AIS position is observed';
       box.append(title, detail, note);
+      if (vessel && vessel.ofac) {
+        const ofacLine = document.createElement('div');
+        ofacLine.style.color = '#ff667d';
+        ofacLine.style.marginTop = '6px';
+        ofacLine.textContent = '⚠ ' + Ofac.flagText(vessel.ofac);
+        box.append(ofacLine);
+      }
       new maplibregl.Popup({ maxWidth: '320px' }).setLngLat(item.geometry.coordinates).setDOMContent(box).addTo(map);
     });
     map.on('mouseenter', 'vessel-points', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -167,6 +213,7 @@ const Vessels = (() => {
 
     if (!enabled || id !== requestId) return;
 
+    await annotateOfac(vessels);
     if (!vessels.length) {
       /* A failed poll must not empty the ocean: hold the last good sweep and report its age. */
       if (latest.length) {
@@ -192,16 +239,16 @@ const Vessels = (() => {
     button()?.classList.toggle('active', enabled);
     button()?.setAttribute('aria-pressed', String(enabled));
     if (enabled) {
-      restore(); status('◇ AIS CONNECTING…'); refresh();
+      restore(); status('◇ AIS CONNECTING…'); loadStraits(); refresh();
       timer = setInterval(refresh, 60000);
     } else {
       requestId++; clearInterval(timer); selected = null; latest = [];
       chip()?.classList.add('hidden');
       Contacts.close();
-      for (const layer of ['vessel-points', 'vessel-endpoint-labels', 'vessel-waypoint-dots', 'vessel-trail-line']) {
+      for (const layer of ['vessel-points', 'vessel-endpoint-labels', 'vessel-waypoint-dots', 'vessel-trail-line', 'straits-dots', 'straits-labels']) {
         if (map.getLayer(layer)) map.removeLayer(layer);
       }
-      for (const source of ['vessels', 'vessel-endpoints', 'vessel-waypoints', 'vessel-trail']) {
+      for (const source of ['vessels', 'vessel-endpoints', 'vessel-waypoints', 'vessel-trail', 'straits']) {
         if (map.getSource(source)) map.removeSource(source);
       }
     }
@@ -214,7 +261,8 @@ const Vessels = (() => {
       Math.abs(a.lon - center.lng) + Math.abs(a.lat - center.lat) -
       Math.abs(b.lon - center.lng) - Math.abs(b.lat - center.lat));
     Contacts.open(`${latest.length} VESSELS · RECENT AIS`, rows.map(v => ({
-      label: v.name, detail: `MMSI ${v.mmsi} · ${v.speed == null ? 'speed unknown' : `${v.speed} kn`} · ${v.track?.length || 0} observed positions`, vessel: v,
+      label: v.ofac ? '⚠ ' + v.name : v.name,
+      detail: `MMSI ${v.mmsi} · ${v.speed == null ? 'speed unknown' : `${v.speed} kn`} · ${v.track?.length || 0} observed positions${v.ofac ? ' · OFAC DESIGNATION' : ''}`, vessel: v,
     })), row => {
       const vessel = row.vessel;
       selected = vessel.mmsi;
