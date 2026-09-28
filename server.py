@@ -15,7 +15,7 @@ import os, re, sys, time, json, base64, threading, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, quote, urlencode
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 def _port():
@@ -120,6 +120,15 @@ WINDOW_MAX_SEC = 900
 # only updates as the satellite overpasses; the rest is cache).
 FIRMS_TTL = 900.0
 FIRMS_CACHE = {}
+
+# /api/gdelt: one GDELT DOC 2.0 PointData sweep per process for 15 minutes.
+# Keyless; the query is a fixed OR of conflict/disaster headline terms. GDELT
+# allows one request per 5 seconds, so the 15-minute cache is far under.
+GDELT_TTL = 900.0
+GDELT_CACHE = {}
+GDELT_QUERY = ("attack OR airstrike OR bombing OR explosion OR missile OR shelling "
+               "OR arrest OR riot OR protest OR earthquake OR tsunami OR flood OR "
+               "wildfire OR coup OR ceasefire OR election OR conflict")
 
 # The browser calls one bounded endpoint for Seoul's sixteen documented public sample
 # lines. Keeping the line list and base URL server-owned avoids a batch endpoint that
@@ -282,6 +291,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.do_seoul_batch()
         if path == "/api/fires":
             return self.do_fires()
+        if path == "/api/gdelt":
+            return self.do_gdelt()
         if path == "/api/fetch":
             query = parse_qs(parsed.query)
             return self.do_fetch(
@@ -458,6 +469,36 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "firms-upstream-error", "detail": head}, 502)
         FIRMS_CACHE["entry"] = {"at": now, "ctype": ctype, "data": data}
         return self._bytes(data, ctype, {"X-Cache": "MISS"})
+
+    def do_gdelt(self):
+        """GDELT DOC 2.0 geolocated world news (PointData GeoJSON), 15-min cache.
+
+        Keyless upstream. GDELT signals throttling with a 200 and prose; when
+        that happens we keep the last good sweep (X-Cache: STALE) rather than
+        drawing a feed out of an error page."""
+        now = time.time()
+        hit = GDELT_CACHE.get("entry")
+        if hit and now - hit["at"] < GDELT_TTL:
+            return self._bytes(hit["data"], "application/geo+json", {"X-Cache": "HIT"})
+        q = urlencode({"query": GDELT_QUERY, "mode": "PointData", "format": "GeoJSON",
+                       "timespan": "1440m", "maxrecords": "250"})
+        try:
+            ctype, data = self._upstream("https://api.gdeltproject.org/api/v2/doc/doc?" + q)
+        except Exception as e:                         # noqa: BLE001
+            return self._json({"error": str(e)}, 502)
+        if not data or len(data) > 8 * 1024 * 1024:
+            return self._json({"error": "source-too-large"}, 502)
+        try:
+            doc = json.loads(data)
+            if not isinstance(doc, dict) or not isinstance(doc.get("features"), list):
+                raise ValueError("not a FeatureCollection")
+        except Exception:
+            if hit:
+                return self._bytes(hit["data"], "application/geo+json", {"X-Cache": "STALE"})
+            head = data[:120].decode("utf-8", "replace")
+            return self._json({"error": "gdelt-unavailable", "detail": head}, 502)
+        GDELT_CACHE["entry"] = {"at": now, "data": data}
+        return self._bytes(data, "application/geo+json", {"X-Cache": "MISS"})
 
     def do_fetch(self, url, window=0, encoding=""):
         if not url or not valid_url(url) or len(url) > 2000:

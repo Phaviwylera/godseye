@@ -174,6 +174,7 @@
     <button id="btn-events" title="Active NWS storm warnings, NASA FIRMS fire hotspots and named volcanoes">⌁ EVENTS</button>
     <button id="btn-markets" title="Live Polymarket prediction markets by 24 h volume, pinned where place-bound">⊙ MARKETS</button>
     <button id="btn-infra" title="Named power plants and harbours (OSM) + open submarine-cable routes">⬡ INFRA</button>
+    <button id="btn-news" title="Geolocated world headlines (GDELT DOC 2.0), 15-min refresh, severity by headline keywords">◈ NEWS</button>
   </div>
   <div id="intel-row">
     <span id="air-chip" class="hidden">AIR</span>
@@ -186,6 +187,7 @@
     <span id="events-chip" class="hidden" aria-live="polite">EVENTS</span>
     <span id="markets-chip" class="hidden" aria-live="polite">MARKETS</span>
     <span id="infra-chip" class="hidden" aria-live="polite">INFRA</span>
+    <span id="news-chip" class="hidden" aria-live="polite">NEWS</span>
     <span id="radar-ctl" class="hidden">
       <button id="radar-play">⏸</button>
       <input id="radar-slider" type="range" min="0" max="0" value="0" />
@@ -306,6 +308,7 @@
     <button data-do="#btn-events">⌁ EVENTS</button>
     <button data-do="#btn-markets">⊙ MARKETS</button>
     <button data-do="#btn-infra">⬡ INFRA</button>
+    <button data-do="#btn-news">◈ NEWS</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
     <button data-do="#btn-terrain">3D</button>
@@ -363,6 +366,7 @@
 <script src="js/events.js"></script>
 <script src="js/markets.js"></script>
 <script src="js/infra.js"></script>
+<script src="js/news.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
 <script>

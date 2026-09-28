@@ -1313,6 +1313,7 @@ function wireUI() {
       Events.restore();
       Markets.restore();
       Infra.restore();
+      News.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1427,6 +1428,7 @@ function wireUI() {
   };
   $("#markets-chip").onclick = () => Markets.openList();
   $("#infra-chip").onclick = () => $("#btn-infra").click();
+  $("#news-chip").onclick = () => News.openList();
   $("#btn-infra").onclick = async (e) => {
     try {
       e.target.classList.toggle("active", await Infra.toggle());
@@ -1664,6 +1666,7 @@ function tickClock() {
     Events.init(map);
     Markets.init(map);
     Infra.init(map);
+    News.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

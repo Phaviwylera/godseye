@@ -229,6 +229,56 @@ async function cacheSet(url, entry) {
 const FIRMS_TTL_MS = 15 * 60 * 1000;
 let firmsCache = null; // { at, ctype, buf }
 
+/* /gdelt: one GDELT DOC 2.0 PointData sweep per instance per 15 minutes.
+ * Keyless upstream; the query is fixed and small (one OR-of-headlines for
+ * conflict/disaster terms) so the response stays a GeoJSON of geolocated
+ * articles. GDELT's own limit is one request per 5 seconds — a 15-minute
+ * TTL keeps us far under it. */
+const GDELT_TTL_MS = 15 * 60 * 1000;
+const GDELT_QUERY = 'attack OR airstrike OR bombing OR explosion OR missile OR shelling OR arrest OR riot OR protest OR earthquake OR tsunami OR flood OR wildfire OR coup OR ceasefire OR election OR conflict';
+let gdeltCache = null; // { at, buf }
+
+async function gdeltRoute() {
+  if (gdeltCache && Date.now() - gdeltCache.at < GDELT_TTL_MS) {
+    return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
+      "Cache-Control": "no-store", "X-Cache": "HIT" }, body: gdeltCache.buf };
+  }
+  const url = 'https://api.gdeltproject.org/api/v2/doc/doc?' +
+    new URLSearchParams({
+      query: GDELT_QUERY, mode: "PointData", format: "GeoJSON",
+      timespan: "1440m", maxrecords: "250",
+    }).toString();
+  let upstream;
+  try {
+    upstream = await fetchUpstream(url);
+  } catch (e) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: String(e) }) };
+  }
+  if (upstream.failure) {
+    return { statusCode: upstream.failure.statusCode, headers: { ...CORS, "Content-Type": "application/json", "X-Cache": "SKIP" },
+      body: upstream.failure.body };
+  }
+  const { buf } = upstream;
+  if (buf.length > 8 * 1024 * 1024) {
+    return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: "source-too-large" }) };
+  }
+  // GDELT signals throttling with 200 + prose; keep the last good sweep then.
+  let doc = null;
+  try { doc = JSON.parse(buf.toString("utf8")); } catch { doc = null; }
+  if (!doc || !Array.isArray(doc.features)) {
+    if (gdeltCache) {
+      return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
+        "Cache-Control": "no-store", "X-Cache": "STALE" }, body: gdeltCache.buf };
+    }
+    return { statusCode: 502, headers: CORS,
+      body: JSON.stringify({ error: "gdelt-unavailable",
+        detail: buf.toString("utf8", 0, 120) }) };
+  }
+  gdeltCache = { at: Date.now(), buf: buf.toString("utf8") };
+  return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
+    "Cache-Control": "no-store", "X-Cache": "MISS" }, body: gdeltCache.buf };
+}
+
 async function firesRoute() {
   const key = String(process.env.FIRMS_MAP_KEY || "").trim();
   if (firmsCache && Date.now() - firmsCache.at < FIRMS_TTL_MS) {
@@ -419,6 +469,9 @@ export async function handler(event) {
           hint: "free key at https://firms.modaps.eosdis.nasa.gov/api -> Netlify env FIRMS_MAP_KEY" }) };
     }
     return firesRoute();
+  }
+  if (path.includes('/gdelt')) {
+    return gdeltRoute();
   }
   if (path.includes('/transit/seoul')) {
     if (!seoulBatchRateOK(ip)) {

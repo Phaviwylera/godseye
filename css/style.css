@@ -416,10 +416,10 @@ body.map-unavailable #zoomctl { display: none; }
   visibility: hidden; pointer-events: none;
   transition: opacity .35s var(--ease-apple), transform .45s var(--ease-apple), visibility 0s .45s; }
 
-#radar-ctl, #iss-chip, #air-chip, #quake-chip, #transit-chip, #events-chip, #markets-chip, #infra-chip, #m-scrub-live, #scrub-wrap {
+#radar-ctl, #iss-chip, #air-chip, #quake-chip, #transit-chip, #events-chip, #markets-chip, #infra-chip, #news-chip, #m-scrub-live, #scrub-wrap {
   transition: opacity var(--t-med) var(--ease-apple), transform .5s var(--ease-spring), visibility 0s;
 }
-#radar-ctl.hidden, #iss-chip.hidden, #air-chip.hidden, #quake-chip.hidden, #transit-chip.hidden, #events-chip.hidden, #markets-chip.hidden, #infra-chip.hidden, #m-scrub-live.hidden, #scrub-wrap.hidden {
+#radar-ctl.hidden, #iss-chip.hidden, #air-chip.hidden, #quake-chip.hidden, #transit-chip.hidden, #events-chip.hidden, #markets-chip.hidden, #infra-chip.hidden, #news-chip.hidden, #m-scrub-live.hidden, #scrub-wrap.hidden {
   display: flex !important; opacity: 0; transform: translateY(8px);
   visibility: hidden; pointer-events: none;
   transition: opacity .3s var(--ease-apple), transform .35s var(--ease-apple), visibility 0s .35s;
@@ -1071,10 +1071,11 @@ body[data-sensor-mode="snow"] .maplibregl-canvas { filter: grayscale(.9) invert(
 .btn-group button:hover { color:#b6edf6; background:rgba(139,233,250,.045); }
 .btn-group button.active { color:#bceff7; background:linear-gradient(180deg, rgba(139,233,250,.09), rgba(139,233,250,.035)); text-shadow:none; box-shadow:inset 0 -1px rgba(139,233,250,.24); }
 #intel-row { gap:5px; justify-content:flex-end; }
-#iss-chip, #air-chip, #quake-chip, #airport-chip, #events-chip, #markets-chip, #infra-chip { background:rgba(3,10,16,.8); border:1px solid rgba(132,226,255,.11); color:#82d9e7; border-radius:3px; font-size:7px; padding:5px 10px; }
+#iss-chip, #air-chip, #quake-chip, #airport-chip, #events-chip, #markets-chip, #infra-chip, #news-chip { background:rgba(3,10,16,.8); border:1px solid rgba(132,226,255,.11); color:#82d9e7; border-radius:3px; font-size:7px; padding:5px 10px; }
 #events-chip { color:#ff9dab; border-color:rgba(255,102,125,.22); }
 #markets-chip { color:#ffd28a; border-color:rgba(255,196,87,.22); }
 #infra-chip { color:#a9c3cf; border-color:rgba(154,196,211,.22); }
+#news-chip { color:#e0c98f; border-color:rgba(224,201,143,.22); }
 #radar-ctl { background:rgba(3,10,16,.82); border-color:rgba(132,226,255,.11); border-radius:3px; }
 #radar-time { color:#d8b772; font-size:8px; }
 
@@ -1263,7 +1264,7 @@ body[data-sensor-mode="snow"] .maplibregl-canvas { filter: grayscale(.9) invert(
 .contact-row small { font-size:9px; color:#84abb5; }
 .contact-note { padding:14px 12px; color:#8aa9b2; font-size:10px; line-height:1.5; }
 #btn-zoom-in, #btn-zoom-out { color:#a7eaf0; font-size:15px; min-width:32px; }
-#air-chip, #vessel-chip, #transit-chip, #events-chip, #markets-chip, #infra-chip { cursor:pointer; }
+#air-chip, #vessel-chip, #transit-chip, #events-chip, #markets-chip, #infra-chip, #news-chip { cursor:pointer; }
 
 /* --- events / markets popups (rendered inside the map container) --- */
 .maplibregl-popup-content .mk-card, .maplibregl-popup-content .ev-card {
