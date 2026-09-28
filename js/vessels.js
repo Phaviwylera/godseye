@@ -272,5 +272,5 @@ const Vessels = (() => {
     });
   }
   function init(instance) { map = instance; }
-  return { init, toggle, restore, refresh, openList, parseOpenAis };
+  return { init, toggle, restore, refresh, openList, parseOpenAis, list: () => latest };
 })();

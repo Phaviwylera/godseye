@@ -1,0 +1,31 @@
+name: refresh-companies
+on:
+  schedule:
+    - cron: "23 6 1 * *"   # monthly, 1st: HQ cities do not move; the seed file changes on purpose
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Geocode the curated large-cap HQ sample (Nominatim, 1 req/s, cached)
+        run: python tools/build_companies.py
+      - name: Commit snapshot
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/companies.json
+          if git diff --cached --quiet; then
+            echo "no companies data changes"
+          else
+            git commit -m "chore: refresh companies HQ geocodes"
+            git push
+          fi

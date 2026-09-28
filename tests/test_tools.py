@@ -477,6 +477,212 @@ class TestBuildOfac(unittest.TestCase):
         self.ofac._check("vessels", [{} for _ in range(self.ofac.FLOORS["vessels"])])
 
 
+class TestBuildConflict(unittest.TestCase):
+    """UCDP GED -> data/conflict.json (offline fixtures)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conf = load_module("build_conflict", os.path.join(ROOT, "tools", "build_conflict.py"))
+
+    def _csv(self, rows):
+        header = ("Year,Month,Day,EventID,CountryCode,CountryName,StateName,"
+                  "Location (Free Text),EventCode,EventCode2015,Conflict,Killings,Lat,Long,Resolution")
+        return header + "\n" + "\n".join(rows) + "\n"
+
+    def test_parse_events_keeps_recent_geolocated_rows_only(self):
+        from datetime import date, timedelta
+        d = (date.today() - timedelta(days=10)).isoformat()
+        y, m, dd = d.split("-")
+        csv_text = self._csv([
+            f"{y},{m},{dd},100,100,Testland,North,Base camp,17,17,2,3,41.1,1.2,Subnational",
+            f"{y},{m},{dd},101,100,Testland,North,Bunker,14,14,1,,2.0,Subnational",            # missing lat
+            "2024,1,1,102,100,Testland,North,Old site,17,17,2,9,40.0,1.0,Subnational",        # outside window
+            f"{y},{m},{dd},103,100,Testland,North,Bad range,17,17,2,1,95.0,1.0,Subnational",  # lat out of range
+            f"{y},{m},{dd},104,100,Testland,South,Twin,17,17,1,0,40.5,1.5,Subnational",
+            f"{y},{m},{dd},104,100,Testland,South,Twin dup,17,17,1,0,40.5,1.5,Subnational",   # same key as 104
+        ])
+        events = self.conf.parse_events(csv_text, 180)
+        self.assertEqual(len(events), 2, events)
+        self.assertEqual(events[0][3], "Testland")
+        self.assertEqual(events[0][6], 3)
+        self.assertEqual(events[0][5], "2")
+
+    def test_find_events_csv_inside_zip(self):
+        import io, zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("README.txt", "not a csv")
+            z.writestr("UCDP_GED/UCDP_GED_2026_1.csv",
+                       "Year,Month,Day,EventID,CountryName,EventCode,EventCode2015,Lat,Long\n"
+                       "2026,1,1,1,T,17,17,0.0,0.0\n")
+        text = self.conf.find_events_csv(buf.getvalue())
+        self.assertIsNotNone(text)
+        self.assertIn("CountryName", text)
+
+    def test_main_offline_rebuild_from_zip(self):
+        import io, zipfile, tempfile
+        from datetime import date, timedelta
+        with tempfile.TemporaryDirectory() as td:
+            zip_path = os.path.join(td, "ged.zip")
+            rows = []
+            for i in range(120):
+                d = (date.today() - timedelta(days=i % 150)).isoformat()
+                y, m, dd = d.split("-")
+                rows.append(f"{y},{m},{dd},{i},100,Testland,State{i%3},Place {i},17,17,{(i%3)+1},{i%7},"
+                            f"{20 + (i % 40)},{10 + (i % 20)},Subnational")
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                z.writestr("UCDP_GED.csv", self._csv(rows))
+                z.writestr("pad.bin", b"0" * 110_000)  # the tool guards downloads >=100KB
+            with open(zip_path, "wb") as f:
+                f.write(buf.getvalue())
+            out_path = os.path.join(td, "conflict.json")
+            old_argv = sys.argv
+            sys.argv = ["build_conflict", "--zip", zip_path, "--out", out_path, "--days", "180"]
+            try:
+                rc = self.conf.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 0)
+            doc = json.load(open(out_path))
+            self.assertEqual(doc["count"], 120)
+            self.assertEqual(len(doc["events"]), 120)
+            self.assertEqual(doc["window_days"], 180)
+            ev = doc["events"][0]
+            self.assertEqual(len(ev), 8)
+            self.assertTrue(ev[2] >= -90 and ev[2] <= 90)
+
+    def test_main_refuses_below_floor(self):
+        import io, zipfile, tempfile
+        from datetime import date, timedelta
+        with tempfile.TemporaryDirectory() as td:
+            zip_path = os.path.join(td, "ged.zip")
+            rows = []
+            for i in range(10):
+                d = (date.today() - timedelta(days=i)).isoformat()
+                y, m, dd = d.split("-")
+                rows.append(f"{y},{m},{dd},{i},100,T,S,P{i},17,17,1,0,30.0,10.0,Subnational")
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                z.writestr("UCDP_GED.csv", self._csv(rows))
+                z.writestr("pad.bin", b"0" * 110_000)
+            with open(zip_path, "wb") as f:
+                f.write(buf.getvalue())
+            old_argv = sys.argv
+            sys.argv = ["build_conflict", "--zip", zip_path,
+                        "--out", os.path.join(td, "conflict.json"), "--days", "180"]
+            try:
+                rc = self.conf.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 5)
+
+
+class TestBuildCompanies(unittest.TestCase):
+    """Seed + geocode cache -> data/companies.json (offline)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.comp = load_module("build_companies", os.path.join(ROOT, "tools", "build_companies.py"))
+
+    def test_geocode_cache_hit_never_hits_the_network(self):
+        self.assertEqual(self.comp.geocode("Some City, Country", {"Some City, Country": [1.5, 2.5]}), [1.5, 2.5])
+        self.assertIsNone(self.comp.geocode("Unknown City", {}, offline=True))
+
+    def test_main_offline_uses_cache_and_drops_unresolvable(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            seed = {"companies": [
+                {"name": "Alpha Corp", "ticker": "AAA", "q": "City A, Country"},
+                {"name": "Beta Corp", "ticker": "BBB", "q": "City B, Country"},
+                {"name": "Gamma Corp", "ticker": "GGG", "q": "Nowhere, Void"},
+            ]}
+            seed_path = os.path.join(td, "seed.json")
+            cache_path = os.path.join(td, "cache.json")
+            out_path = os.path.join(td, "companies.json")
+            json.dump(seed, open(seed_path, "w"))
+            json.dump({"City A, Country": [-1.5, 41.0], "City B, Country": [2.5, -3.5]}, open(cache_path, "w"))
+            old_argv = sys.argv
+            sys.argv = ["build_companies", "--offline", "--seed", seed_path,
+                        "--cache", cache_path, "--out", out_path, "--floor", "1"]
+            try:
+                rc = self.comp.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 0)
+            doc = json.load(open(out_path))
+            self.assertEqual(doc["count"], 2)
+            self.assertEqual(doc["dropped"], 1)
+            names = {c["name"]: (c["lon"], c["lat"]) for c in doc["companies"]}
+            self.assertEqual(names["Alpha Corp"], (-1.5, 41.0))
+            self.assertEqual(names["Beta Corp"], (2.5, -3.5))
+            self.assertNotIn("Gamma Corp", names)
+
+
+class TestBuildCountries(unittest.TestCase):
+    """world.geo.json -> data/countries.json (offline fixture)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.coun = load_module("build_countries", os.path.join(ROOT, "tools", "build_countries.py"))
+
+    @classmethod
+    def _fixture(cls, n=210):
+        feats = []
+        for i in range(n):
+            feats.append({
+                "type": "Feature",
+                "properties": {"name": f"Country {i}", "id": f"X{i % 10}"},
+                "geometry": {"type": "Polygon",
+                             "coordinates": [[[i, i], [i + 1, i], [i + 1, i + 1], [i, i]]]},
+            })
+        # one broken feature per defect: no name, bad ring
+        feats.append({"type": "Feature", "properties": {"id": "Z1"},
+                      "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [0, 0]]]}})
+        feats.append({"type": "Feature", "properties": {"name": "NoGeom"}})
+        return {"type": "FeatureCollection", "features": feats}
+
+    def test_validate_drops_broken_features_and_keeps_iso(self):
+        feats = self.coun.validate(self._fixture())
+        self.assertEqual(len(feats), 210)
+        self.assertEqual(feats[0]["iso2"], "X0")  # id upper-cased, kept
+        self.assertTrue(all(f["name"] for f in feats))
+        self.assertTrue(all(f["geometry"]["type"] == "Polygon" for f in feats))
+
+    def test_main_offline_via_file_url(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            src_path = os.path.join(td, "world.geo.json")
+            out_path = os.path.join(td, "countries.json")
+            json.dump(self._fixture(), open(src_path, "w"))
+            old_argv = sys.argv
+            sys.argv = ["build_countries", "--url", "file://" + src_path, "--out", out_path]
+            try:
+                rc = self.coun.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 0)
+            doc = json.load(open(out_path))
+            self.assertEqual(doc["count"], 210)
+            self.assertTrue(all(c["name"].startswith("Country") for c in doc["countries"]))
+
+    def test_main_refuses_below_floor(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            src_path = os.path.join(td, "world.geo.json")
+            small = self._fixture()
+            small["features"] = small["features"][:50]
+            json.dump(small, open(src_path, "w"))
+            old_argv = sys.argv
+            sys.argv = ["build_countries", "--url", "file://" + src_path,
+                        "--out", os.path.join(td, "countries.json")]
+            try:
+                rc = self.coun.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 5)
+
+
 class TestBuildInfra(unittest.TestCase):
     """Static infrastructure datasets (OSM volcanoes/plants/harbours, open cable map)."""
 

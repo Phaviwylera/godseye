@@ -1,18 +1,47 @@
 # GODSEYE × ARGOS ATLAS — capability gap & build plan
 
-Date: 2026-09-28 · Status: Phase 1 in progress
+Date: 2026-09-28 · Status: **all three phases shipped (v1 scope)** — one branch, one PR
 
-Progress (2026-09-28):
-- ✅ **MARKETS layer shipped** — `js/markets.js` + `data/markets-geo.json`, live Polymarket
-  data, momentum flag, place pins, chip/list/popups, unit tests, offline-shell precache.
-- ✅ **EVENTS layer shipped** — `js/events.js`: NWS storm alerts (live, keyless) +
-  volcano points (pending first `refresh-infra` snapshot) + FIRMS fires (code complete;
-  needs the free `FIRMS_MAP_KEY` — Netlify env / `FIRMS_MAP_KEY` env / `tools/_cache/firms-key.txt`).
-- ✅ **`tools/build_infra.py` + `refresh-infra` workflow** — OSM volcanoes/power/ports
-  (Overpass, 4 quadrants, sanity floors) + open CABLE submarine cables; data files land
-  on the first CI run.
-- Next up: POWER/PORTS/CABLES map layers reading the new snapshots, then Phase 2
-  (global air + sea + OFAC, GDELT intel + country cards).
+Final state (2026-09-28):
+- ✅ **MARKETS** — `js/markets.js` + `data/markets-geo.json`: live Polymarket data, momentum flag, place pins.
+- ✅ **EVENTS** — `js/events.js`: NWS storm alerts (live, keyless) + volcano points (first `refresh-infra`
+  snapshot) + FIRMS fires (needs free `FIRMS_MAP_KEY`; degrades to `KEY PENDING`).
+- ✅ **INFRA** — `js/infra.js` + `tools/build_infra.py`: power plants (by fuel), harbours (OSM),
+  open CABLE submarine routes (2019 vintage, labelled). `refresh-infra` weekly.
+- ✅ **SHIPS widened** — five chokepoint corridors added to the AISStream collector
+  (Malacca, Hormuz, Suez, Panama, Gibraltar) + nine named waterway markers
+  (`data/straits.json`, context labels only).
+- ✅ **OFAC cross-check** — `tools/build_ofac.py` (weekly `refresh-ofac`) → `data/ofac.json`;
+  `js/ofac.js` flags matches in SHIPS popups/list (IMO match / name match with
+  "verify IMO" caution) and AIR popups (registration only when the feed supplies one).
+- ✅ **NEWS** — `js/news.js` + `/api/gdelt` relay (both runtimes): GDELT DOC 2.0
+  PointData sweep per 15 min, transparent headline-keyword severity, links out.
+- ✅ **CONFLICT** — `js/conflict.js` + `tools/build_conflict.py` (Wednesday
+  `refresh-conflict`): UCDP/PRIO GED events, last 180 days, death-count colour scale.
+- ✅ **COMPANIES** — `js/companies.js` + `data/companies-seed.json` (66 curated
+  large caps) + `tools/build_companies.py` (Nominatim HQ geocoding, cached; monthly
+  `refresh-companies`): quote link-out, no fetched prices.
+- ✅ **COUNTRIES** — `js/countries.js` + `tools/build_countries.py` (monthly
+  `refresh-countries`): clickable admin-0 boundaries; `/api/worldbank` relay (both
+  runtimes, 1 h cache) answers ten keyless World Bank indicators per card, latest
+  year per figure, no interpolation.
+- ✅ **ISS PASSES** — `js/iss.js`: SGP4 pass prediction (vendored engine + CelesTrak
+  snapshot) over the view centre; epoch stated, stale-warned.
+- ✅ **Universal search** — the search box matches vessels (name/MMSI, OFAC flag),
+  aircraft (callsign/registration) and open market questions before place geocoding.
+
+Deliberate v1 deviations (documented, not gaps):
+- **No frontlines** in CONFLICT — no open, verifiable contact-line GeoJSON exists
+  (ISW publishes map images only); a hand-drawn line would be fabrication.
+- **COMPANIES is a curated 66-company sample**, not Wikidata-scale: a public
+  SPARQL query returns unranked rows, and ranking without notability data would be
+  fake curation. Quotes are a link out; v1 fetches no prices (and a guessed quote
+  deep-link would be fabrication).
+- **PEOPLE layer skipped in v1** — no open source with verified coordinates *and*
+  net worth; Forbes is paywalled.
+- **Tower audio (liveatc) skipped in v1** — community-stream ToS gray zone.
+- **Country cards carry indicators only** (no leader/index panel) — leaders would
+  need a second dataset (Wikidata) that v1 defers.
 
 ARGOS ATLAS (argosatlas.com) is a 12-section "world, live" OSINT map. Godseye
 already shares its core idea — one 3D globe, open public feeds, attributed
@@ -35,15 +64,15 @@ godseye already does for cameras, satellites, ships and transit.
 | # | Capability (ARGOS claim) | Godseye now | Open source to build on | Work |
 |---|---|---|---|---|
 | 1 | Cameras — 212k cams, 190 countries, favourites, grid | ✅ 24,822 cams (8 agency sources), one-click HLS, **video wall already in `app.js`**, **favourites already in `app.js`** | same public agency portals + more 511/region feeds; dataset rebuild in `tools/build_dataset.py` | add sources (slow grind), then UI is done |
-| 2 | Flights — global ADS-B, civil/military split, OFAC aircraft, ocean continuation, tower audio | ◐ AIR layer via `api.adsb.lol` (4-region sampling), trails, cockpit view | **`api.adsb.lol`** (in use) + **OpenSky** (verified live, keyless region boxes); OFAC SDN (see §4) | widen sampling grid; add registration/OFAC card fields |
-| 3 | Ships — global AIS, dark ships, OFAC vessels, ports & straits | ◐ SHIPS via AISStream corridor collector (Netlify fn) + keyless Digitraffic fallback; trails | AISStream (key exists), widen corridors; static port/strait GeoJSON from OSM (Un/LOCODE + `harbour` tags) | more corridors; OFAC IMO match; port/strait markers |
-| 4 | War — 16 frontlines, GeoConfirmed events, jamming, UCDP history | ❌ | **UCDP/GED event dataset** (open, daily, geocoded) for events; no clean *open* frontline GeoJSON exists (ISW publishes map images only) | UCDP event layer; frontlines = curated static lines per theatre, clearly labelled |
-| 5 | AI intel — GDELT geocoded news + severity + risk zones + country cards (World Bank, leaders, market) | ❌ | **GDELT DOC 2.0 PointData** (verified live; ≥5 s between calls, we poll every 15 min); **World Bank API** (verified live); leaders/market via Wikidata + keyless quotes | `js/intel` module already hosts quakes+radar+air — news layer fits the same pattern |
-| 6 | Infrastructure — 34,936 power plants, 47,927 airports, 1,081 ports, 694 submarine cables, commodities | ◐ **airports already bundled: 72,587** (beats ARGOS); no plants/ports/cables | power plants + ports: **Overpass/OSM** (`power=plant`, `harbour`/`port` tags) → static GeoJSON, rebuilt nightly like cameras; cables: open **CABLE GeoJSON** datasets (hasan-soliman/CABLE line; ~2017 vintage, label as such) | dataset tools + 3 new map layers |
-| 7 | People & companies — 1,594 people (Forbes), 4,123 companies at HQ, 15,583 priced assets | ❌ | Forbes is paywalled → open substitute: **Wikidata SPARQL** (companies with HQ geo, notable people with location & net-worth property) + keyless quote feeds for assets | curation + 1 layer; lower fidelity than Forbes, fully open |
-| 8 | Live events — quakes, NASA fire hotspots, volcanoes, storms, WHO outbreaks | ◐ **quakes live** (USGS M2.5+/24 h, 5-min poll) + **RainViewer radar** live | **NASA FIRMS** (verified API; free MAP_KEY, same Netlify-env pattern as AISStream); volcanoes: Smithsonian/USGS open feeds; WHO PHEIC: static snapshot scrape with citation | new "EVENTS" layer joining quakes |
-| 9 | Prediction markets — 962 Polymarket markets geolocated, value signals, ticker | ❌ | **Polymarket Gamma API** (verified live, keyless, rich: prices, volume, liquidity, end dates) | new layer: top markets by volume/liquidity, geolocate the place-bound ones, simple value-signal flag |
-| 10 | Extras — basemaps, favourites/grid, ISS passes, dark vessels, OFAC, cross-links, universal search | ◐ 3 map modes ✅, favourites ✅, wall ✅, ISS position ✅ (wheretheiss), **SGP4 `satellite.js` vendored** (passes computable offline), cross-card links partial | ISS passes from vendored SGP4; tower audio via liveatc.net community streams (check their ToS before shipping) | polish + a couple of small systems |
+| 2 | Flights — global ADS-B, civil/military split, OFAC aircraft, ocean continuation, tower audio | ✅ **registration + OFAC flag in the popup** (only when the feed carries a registration); trails, cockpit view. ◐ civil/military split + tower audio deferred (see deviations) | **`api.adsb.lol`** (in use) + **OpenSky** (verified live); **OFAC SDN** (built) | done in v1 |
+| 3 | Ships — global AIS, dark ships, OFAC vessels, ports & straits | ✅ **ten corridors incl. five chokepoints + nine waterway markers; OFAC IMO/name flags** (name matches carry verify-IMO). ◐ dark-ship plotting refused by standing rule | AISStream (key exists) + Digitraffic fallback; **OFAC SDN** (built) | done in v1 |
+| 4 | War — 16 frontlines, GeoConfirmed events, jamming, UCDP history | ◐ **UCDP/PRIO GED events shipped** (180-day window, death-count scale); frontlines deliberately not drawn (no open verifiable source) | **UCDP/GED** (built, Wednesday refresh) | done in v1, frontlines out |
+| 5 | AI intel — GDELT geocoded news + severity + risk zones + country cards (World Bank, leaders, market) | ✅ **NEWS layer** (15-min relay sweep, headline-keyword severity) + **country cards** (ten World Bank indicators, latest year each). ◐ risk-zone aggregation + leader panels deferred | **GDELT DOC 2.0** (in relay) + **World Bank API** (in relay, 1 h cache) | done in v1 |
+| 6 | Infrastructure — 34,936 power plants, 47,927 airports, 1,081 ports, 694 submarine cables, commodities | ✅ **airports 72,587** (beats ARGOS) + **INFRA layer**: power plants by fuel, harbours (OSM), CABLE submarine routes (2019 vintage, labelled) | Overpass/OSM + open CABLE dataset (built, weekly) | done in v1 |
+| 7 | People & companies — 1,594 people (Forbes), 4,123 companies at HQ, 15,583 priced assets | ◐ **COMPANIES layer**: curated 66-company large-cap sample, Nominatim-geocoded HQs, quote link-out; people skipped in v1 (no open verified source) | curated seed + Nominatim (built, monthly) | done in v1 at sample scale |
+| 8 | Live events — quakes, NASA fire hotspots, volcanoes, storms, WHO outbreaks | ✅ **EVENTS layer**: quakes (USGS) + NWS storms + FIRMS fires (key-pending state until `FIRMS_MAP_KEY` set) + named volcanoes. ◐ WHO PHEIC deferred | USGS/NWS/FIRMS/OSM (all wired) | done in v1 |
+| 9 | Prediction markets — 962 Polymarket markets geolocated, value signals, ticker | ✅ **MARKETS layer**: top by 24 h volume, momentum flag, place pins, universal-search integration | Polymarket Gamma (in use) | done in v1 |
+| 10 | Extras — basemaps, favourites/grid, ISS passes, dark vessels, OFAC, cross-links, universal search | ✅ 3 map modes, favourites, wall, ISS position + **ISS PASSES panel**, OFAC (ships+air), **universal search** (ships/air/markets). Tower audio deferred (ToS) | vendored SGP4 + CelesTrak snapshot | done in v1 |
 
 ---
 

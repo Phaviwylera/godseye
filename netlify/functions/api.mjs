@@ -238,6 +238,61 @@ const GDELT_TTL_MS = 15 * 60 * 1000;
 const GDELT_QUERY = 'attack OR airstrike OR bombing OR explosion OR missile OR shelling OR arrest OR riot OR protest OR earthquake OR tsunami OR flood OR wildfire OR coup OR ceasefire OR election OR conflict';
 let gdeltCache = null; // { at, buf }
 
+/* /worldbank: ten keyless country indicators in one bounded relay call.
+ * The World Bank API answers one indicator per request, so we fan out
+ * concurrently and merge; one hour of cache per country. */
+const WORLD_BANK_TTL_MS = 60 * 60 * 1000;
+const WORLD_BANK_INDICATORS = [
+  "NY.GDP.MKTP.CD", "NY.GDP.PCAP.CD", "SP.POP.TOTL", "FP.CPI.TOTL.ZG",
+  "SL.UEM.TOTL.ZS", "SP.DYN.LE00.IN", "IT.NET.USER.ZS", "MS.XPD.TOTL.GD.ZS",
+  "EG.USE.ELEC.KH.PC", "SH.TOT.MRTS",
+];
+const worldBankCache = new Map(); // cc -> { at, body }
+
+async function worldbankRoute(cc) {
+  if (!/^[A-Z]{2}$/.test(cc)) {
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "bad country code" }) };
+  }
+  const hit = worldBankCache.get(cc);
+  if (hit && Date.now() - hit.at < WORLD_BANK_TTL_MS) {
+    return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/json",
+      "Cache-Control": "no-store", "X-Cache": "HIT" }, body: hit.body };
+  }
+  const base = `https://api.worldbank.org/v2/country/${cc}/indicator/`;
+  const results = await Promise.all(WORLD_BANK_INDICATORS.map(async (id) => {
+    try {
+      const up = await fetchUpstream(base + id + "?format=json&per_page=1&sort=desc");
+      if (up.failure) return null;
+      const doc = JSON.parse(up.buf.toString("utf8"));
+      const rows = Array.isArray(doc) && Array.isArray(doc[1]) ? doc[1] : [];
+      const row = rows.find(r => Number.isFinite(Number(r.value)));
+      if (!row) return null;
+      return {
+        id,
+        name: row.indicator && row.indicator.value,
+        value: Number(row.value),
+        date: String(row.date),
+        country: row.country && row.country.value,
+        iso3: row.countryiso3code || null,
+      };
+    } catch { return null; }
+  }));
+  const ok = results.filter(Boolean);
+  if (!ok.length) {
+    return { statusCode: 502, headers: CORS,
+      body: JSON.stringify({ error: "worldbank-unavailable" }) };
+  }
+  const body = JSON.stringify({
+    country: ok[0].country || cc,
+    iso2: cc,
+    iso3: ok.find(r => r.iso3).iso3 || null,
+    indicators: ok,
+  });
+  worldBankCache.set(cc, { at: Date.now(), body });
+  return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/json",
+    "Cache-Control": "no-store", "X-Cache": "MISS" }, body };
+}
+
 async function gdeltRoute() {
   if (gdeltCache && Date.now() - gdeltCache.at < GDELT_TTL_MS) {
     return { statusCode: 200, headers: { ...CORS, "Content-Type": "application/geo+json",
@@ -472,6 +527,9 @@ export async function handler(event) {
   }
   if (path.includes('/gdelt')) {
     return gdeltRoute();
+  }
+  if (path.includes('/worldbank')) {
+    return worldbankRoute(String(params.cc || "").toUpperCase());
   }
   if (path.includes('/transit/seoul')) {
     if (!seoulBatchRateOK(ip)) {

@@ -293,6 +293,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.do_fires()
         if path == "/api/gdelt":
             return self.do_gdelt()
+        if path == "/api/worldbank":
+            query = parse_qs(parsed.query)
+            return self.do_worldbank(query.get("cc", [""])[0])
         if path == "/api/fetch":
             query = parse_qs(parsed.query)
             return self.do_fetch(
@@ -499,6 +502,50 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "gdelt-unavailable", "detail": head}, 502)
         GDELT_CACHE["entry"] = {"at": now, "data": data}
         return self._bytes(data, "application/geo+json", {"X-Cache": "MISS"})
+
+    # World Bank country indicators — one keyless call per indicator; fan out.
+    WB_INDICATORS = ("NY.GDP.MKTP.CD", "NY.GDP.PCAP.CD", "SP.POP.TOTL", "FP.CPI.TOTL.ZG",
+                     "SL.UEM.TOTL.ZS", "SP.DYN.LE00.IN", "IT.NET.USER.ZS",
+                     "MS.XPD.TOTL.GD.ZS", "EG.USE.ELEC.KH.PC", "SH.TOT.MRTS")
+    WB_TTL = 3600.0
+    WB_CACHE = {}
+
+    def do_worldbank(self, cc):
+        cc = (cc or "").upper()
+        if len(cc) != 2 or not cc.isalpha():
+            return self._json({"error": "bad country code"}, 400)
+        now = time.time()
+        hit = self.WB_CACHE.get(cc)
+        if hit and now - hit["at"] < self.WB_TTL:
+            return self._json(hit["body"], 200, {"X-Cache": "HIT"})
+
+        def one(ind):
+            url = f"https://api.worldbank.org/v2/country/{cc}/indicator/{ind}?format=json&per_page=1&sort=desc"
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                doc = json.loads(r.read().decode("utf-8"))
+            rows = doc[1] if isinstance(doc, list) and len(doc) > 1 and isinstance(doc[1], list) else []
+            row = next((x for x in rows if isinstance(x, dict) and x.get("value") is not None
+                        and str(x.get("value")).replace(".", "", 1).replace("-", "", 1).isdigit()), None)
+            if not row:
+                return None
+            return {"id": ind, "name": (row.get("indicator") or {}).get("value"),
+                    "value": float(row["value"]), "date": str(row.get("date")),
+                    "country": (row.get("country") or {}).get("value"),
+                    "iso3": row.get("countryiso3code")}
+
+        try:
+            with ThreadPoolExecutor(max_workers=10) as ex:
+                results = [r for r in ex.map(one, self.WB_INDICATORS) if r]
+        except Exception as e:                         # noqa: BLE001
+            return self._json({"error": str(e)}, 502)
+        if not results:
+            return self._json({"error": "worldbank-unavailable"}, 502)
+        body = {"country": results[0].get("country") or cc, "iso2": cc,
+                "iso3": next((r["iso3"] for r in results if r.get("iso3")), None),
+                "indicators": results}
+        self.WB_CACHE[cc] = {"at": now, "body": body}
+        return self._json(body, 200, {"X-Cache": "MISS"})
 
     def do_fetch(self, url, window=0, encoding=""):
         if not url or not valid_url(url) or len(url) > 2000:
