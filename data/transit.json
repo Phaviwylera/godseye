@@ -696,6 +696,7 @@
       "kind": "positions",
       "attribution": "GCRTA GTFS-Realtime (public feed, no key)",
       "page": "https://www.riderta.com/developers",
+      "badge": "RTA",
       "cors": false,
       "center": [
         -81.6944,
@@ -709,6 +710,127 @@
       "note": "GTFS-Realtime is the format most of the world's bus agencies publish, so the layer carries a small protobuf reader for it rather than a per-agency adapter: any agency that publishes a keyless VehiclePositions URL can be added here with adapter \"gtfsrt\" and no new code. Positions are the agency's own; ones older than ten minutes are dropped. The bundled static GTFS extract supplies line geometry and station dots; its refresh workflow only retains public routes, shapes and stops.",
       "static": "data/gcrta-static.json",
       "staticSource": "https://www.riderta.com/sites/default/files/gtfs/latest/google_transit.zip"
+    },
+    {
+      "id": "delhi-dtc",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "DTC & cluster buses — every GPS-fitted bus in Delhi",
+      "operator": "Delhi Transport Corporation · DIMTS (via Open Transit Data, Government of NCT of Delhi)",
+      "city": "Delhi",
+      "country": "IN",
+      "kind": "positions",
+      "attribution": "Open Transit Data — Government of NCT of Delhi (otd.delhi.gov.in)",
+      "page": "https://otd.delhi.gov.in",
+      "signup": "otd.delhi.gov.in — free registration, key is emailed",
+      "badge": "DTC",
+      "cors": false,
+      "center": [
+        77.209,
+        28.6139
+      ],
+      "zoom": 11,
+      "base": "https://otd.delhi.gov.in/api/realtime/VehiclePositions.pb?key=GKEvDAgBh27i4lIYgVwWsVfy9hOojM1M",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 1800,
+      "note": "Delhi's Open Transit Data portal is India's only public live transit feed: real bus GPS updated roughly every ten seconds as GTFS-Realtime VehiclePositions — no TripUpdates feed exists. A registered key is already in place (free from otd.delhi.gov.in; keep it rotated if the deployed site is public). Buses that stop reporting — parked at a depot for hours — stay visible for up to thirty minutes and fade as their report ages; anything older is dropped rather than drawn as if live. The same portal's DMRC area publishes only static timetable data: the Delhi Metro itself publishes no real-time train feed anywhere, and no train marker may be drawn for it until DMRC chooses to (their November 2025 MapmyIndia MoU is a closed commercial channel, not open data). Never substitute simulated trains for that feed."
+    },
+    {
+      "id": "atlanta-marta",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "MARTA buses — metro Atlanta",
+      "operator": "Metropolitan Atlanta Rapid Transit Authority",
+      "city": "Atlanta",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "MARTA GTFS-Realtime (public feed, no key)",
+      "page": "https://www.itsmarta.com",
+      "badge": "MARTA",
+      "cors": false,
+      "center": [
+        -84.388,
+        33.749
+      ],
+      "zoom": 11,
+      "base": "https://gtfs-rt.itsmarta.com/TMGTFSRealTimeWebService/vehicle/vehiclepositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "The same Trapeze GTFS-Realtime endpoint family as Cleveland's GCRTA feed, keyless and verified live: real bus GPS across Fulton, DeKalb and Clayton counties. MARTA rail positions are not part of this VehiclePositions feed, so only buses are drawn — no train marker is invented."
+    },
+    {
+      "id": "edmonton-ets",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "ETS buses & LRT trains — every vehicle reporting",
+      "operator": "Edmonton Transit Service · City of Edmonton",
+      "city": "Edmonton",
+      "country": "CA",
+      "kind": "positions",
+      "attribution": "City of Edmonton open data — GTFS-Realtime (no key)",
+      "page": "https://data.edmonton.ca",
+      "badge": "ETS",
+      "cors": false,
+      "center": [
+        -113.4909,
+        53.5444
+      ],
+      "zoom": 11,
+      "base": "https://gtfs.edmonton.ca/TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "City of Edmonton's open-data GTFS-Realtime endpoint, same Trapeze endpoint family as Cleveland, keyless and verified live ahead of registration: every reporting ETS vehicle, buses and LRT alike, drawn from the agency's own GPS stream."
+    },
+    {
+      "id": "nl-ovapi",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Qbuzz · RET · GVB · Connexxion · Arriva · EBS · HTM — nationwide bus, tram & metro",
+      "operator": "All Dutch public transport operators (via OVapi)",
+      "city": "Netherlands",
+      "country": "NL",
+      "kind": "positions",
+      "attribution": "OVapi — Dutch open transit data (ndovloket.nl)",
+      "page": "https://gtfs.ovapi.nl",
+      "badge": "NL",
+      "cors": false,
+      "center": [
+        5.27,
+        52.13
+      ],
+      "zoom": 8,
+      "base": "https://gtfs.ovapi.nl/nl/vehiclePositions.pb",
+      "pollSec": 60,
+      "budgetSec": 120,
+      "maxAgeSec": 900,
+      "note": "One national keyless GTFS-Realtime feed carries every Dutch bus, tram and metro reporting — thousands of vehicles from every operator at once, so the budget is doubled to spare a big binary payload and the layer draws the ones nearest the view. NS rail trains are not drawn: OVapi's trainUpdates feed uses a non-standard protobuf extension this reader deliberately does not guess at, and no train is ever placed without a real position."
+    },
+    {
+      "id": "my-rapid-kl",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Rapid KL buses — Klang Valley",
+      "operator": "Prasarana Malaysia (via data.gov.my)",
+      "city": "Kuala Lumpur",
+      "country": "MY",
+      "kind": "positions",
+      "attribution": "Open Government Data Malaysia — data.gov.my GTFS-Realtime (no key)",
+      "page": "https://developer.data.gov.my/realtime-api/gtfs-realtime",
+      "badge": "RKL",
+      "cors": false,
+      "center": [
+        101.6869,
+        3.139
+      ],
+      "zoom": 11,
+      "base": "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana?category=rapid-bus-kl",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 1800,
+      "note": "Malaysia's official open-data portal publishes keyless GTFS-Realtime vehicle positions for Rapid KL buses — real GPS with fleet plates, round-numbered against the agency's own updates. Some buses report sparsely outside peak hours, so a bus stays on the map for up to thirty minutes and fades as its report ages instead of flickering out. Rail agencies on the portal publish trip updates but no vehicle positions, so no KL train markers are drawn."
     }
   ]
 }

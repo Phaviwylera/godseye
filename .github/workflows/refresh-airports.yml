@@ -1,0 +1,31 @@
+name: refresh-airports
+on:
+  schedule:
+    - cron: "41 5 * * 1"   # weekly, Mondays: aerodromes barely move
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refresh aerodrome registry
+        run: python tools/build_airports.py
+      - name: Commit snapshot
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/airports.json
+          if git diff --cached --quiet; then
+            echo "no aerodrome data changes"
+          else
+            git commit -m "chore: refresh aerodrome registry"
+            git push
+          fi

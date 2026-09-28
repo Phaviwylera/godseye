@@ -1309,6 +1309,7 @@ function wireUI() {
       Satellites.restore();
       Vessels.restore();
       Transit.restore();
+      Airports.restore();
     });
   });
   document.querySelectorAll("#styles button").forEach(b => {
@@ -1398,6 +1399,8 @@ function wireUI() {
       setTimeout(() => { el.syncMsg.textContent = ""; }, 6000);
     }
   };
+  $("#btn-airports").onclick = (e) => { e.target.classList.toggle("active", Airports.toggle()); fxBlip(); };
+  $("#airport-chip").onclick = () => Airports.openList();
   $("#iss-chip").onclick = () => {
     Intel.state.issFollow = !Intel.state.issFollow;
     $("#iss-chip").style.borderColor = Intel.state.issFollow ? "var(--amber)" : "";
@@ -1622,6 +1625,7 @@ function tickClock() {
     Satellites.init(map);
     Vessels.init(map);
     Transit.init(map);
+    Airports.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

@@ -284,12 +284,16 @@ const text = (field, value) => len(field, [...Buffer.from(value, 'utf8')]);
 const num = (field, value) => [...tag(field, 0), ...varint(value)];
 const f32 = (field, value) => { const b = Buffer.alloc(4); b.writeFloatLE(value); return [...tag(field, 5), ...b]; };
 
-function vehiclePosition({ lat, lon, bearing = 0, speed = 0, at, routeId = '10', label = 'BUS 1', id = 'veh1' }) {
+function vehiclePosition({ lat, lon, bearing = 0, speed = 0, at, routeId = '10', label = 'BUS 1', id = 'veh1', stopId }) {
   return len(4, [
-    ...len(1, [...text(1, 'trip-1'), ...text(2, routeId)]),          // TripDescriptor
+    // TripDescriptor: trip_id (1), start_time (2), start_date (3), route_id (5) — the real
+    // field layout; start_time at 2 is there to fail any parser that re-reads it as the route.
+    ...len(1, [...text(1, 'trip-1'), ...text(2, '11:28:25'), ...text(3, '20260928'), ...text(5, routeId)]),
     ...len(2, [...text(1, id), ...text(2, label)]),                  // VehicleDescriptor
     ...len(3, [...f32(1, lat), ...f32(2, lon), ...f32(3, bearing), ...f32(5, speed)]),
+    ...(stopId ? text(7, stopId) : []),                              // stop_id
     ...num(8, Math.round(at / 1000)),                                // seconds since epoch
+    ...num(11, 42),                                                  // occupancy_percentage: never a stop label
   ]);
 }
 function feedMessage(vehicles, headerAt) {
@@ -301,7 +305,7 @@ test('the protobuf reader pulls vehicle positions out of a hand-built GTFS-RT fe
   const f = feed('gcrta-bus');
   assert.equal(f.adapter, 'gtfsrt');
   const bytes = new Uint8Array(feedMessage([
-    { lat: 41.4993, lon: -81.6944, bearing: 275.5, speed: 8.3, at: NOW - 15000, routeId: '22', label: 'BUS 4412' },
+    { lat: 41.4993, lon: -81.6944, bearing: 275.5, speed: 8.3, at: NOW - 15000, routeId: '22', label: 'BUS 4412', stopId: 'STOP-1041' },
     { lat: 41.505, lon: -81.7, at: NOW - 40000, routeId: '9', label: 'BUS 9001' },
     { lat: 0, lon: 0, at: NOW - 5000 },                                        // a null island: refused
     { lat: 41.5, lon: -81.7, at: NOW - 20 * 60000, routeId: '5' },             // twenty minutes old: refused
@@ -310,7 +314,9 @@ test('the protobuf reader pulls vehicle positions out of a hand-built GTFS-RT fe
   const out = Transit.parseGtfsrtFeed(bytes, f, NOW);
   assert.equal(out.length, 2, 'null island and a twenty-minute-old report are both refused');
   const bus = out.find((v) => v.vehicle === 'BUS 4412');
-  assert.equal(bus.lineId, '22');
+  assert.equal(bus.lineId, '22', 'route_id is field 5, not the start_time at field 2');
+  assert.equal(bus.nextStop, 'STOP-1041', 'stop_id is field 7, not the occupancy at field 11');
+  assert.equal(bus.dest, '', 'a trip_id is an internal job number, never a destination label');
   assert.equal(bus.mode, 'bus');
   assert.equal(bus.kind, 'positions');
   assert.equal(bus.heading, 275.5 > 275 && bus.heading < 276 ? bus.heading : 275.5);
@@ -319,6 +325,29 @@ test('the protobuf reader pulls vehicle positions out of a hand-built GTFS-RT fe
   assert.equal(bus.speed, Math.round(8.3 * 3.6), 'm/s becomes the km/h the UI shows');
   assert.equal(bus.key, 'gtfsrt:gcrta-bus:veh1');
   assert.equal(out.find((v) => v.vehicle === 'BUS 9001').heading, 0, 'no bearing is not an invented bearing');
+});
+
+test('fleet labels are trimmed and a route-less bus falls back to the feed badge', () => {
+  const f = feed('delhi-dtc');
+  assert.equal(f.badge, 'DTC');
+  let bytes = new Uint8Array(feedMessage([
+    { lat: 28.6139, lon: 77.209, at: NOW - 5000, routeId: ' 244 ', label: ' DL1PD4567' }, // OTD really ships padded labels
+  ], NOW));
+  let [bus] = Transit.parseGtfsrtFeed(bytes, f, NOW);
+  assert.equal(bus.vehicle, 'DL1PD4567', 'whitespace in fleet labels must not leak into the UI');
+  assert.equal(bus.lineId, '244');
+  assert.equal(bus.lineName, '244');
+  // a vendor that sends no route strings at all: entity with a vehicle but a bare TripDescriptor
+  const bare = new Uint8Array([...len(1, num(3, Math.round(NOW / 1000))),
+    ...len(2, [...text(1, 'e1'), ...len(4, [
+      ...len(1, [...text(1, 'job-7755')]),
+      ...len(3, [...f32(1, 28.62), ...f32(2, 77.21)]),
+      ...num(8, Math.round((NOW - 9000) / 1000)),
+    ])])]);
+  [bus] = Transit.parseGtfsrtFeed(bare, f, NOW);
+  assert.equal(bus.lineId, '');
+  assert.equal(bus.lineName, 'DTC', 'route-less vehicles badge as the fleet, not a blank or a clock');
+  assert.equal(bus.key, 'gtfsrt:delhi-dtc:job-7755', 'the trip_id still anchors identity, never the label');
 });
 
 test('the protobuf reader refuses a truncated or empty feed instead of drawing garbage', () => {
@@ -346,4 +375,60 @@ test('the wire-format primitives decode the cases that are easy to get wrong', (
   assert.equal(fields.length, 3);
   assert.throws(() => Transit.pbFields(new Uint8Array([tag(1, 2), 9, 1])), /truncated/);
   assert.throws(() => Transit.pbFields(new Uint8Array([tag(1, 7)])), /unsupported wire type 7/);
+});
+
+/* ------------------------------------------- keyless worldwide GTFS-RT batch --
+ * Atlanta, Edmonton, the Dutch national feed and Rapid KL are the same shape as
+ * Cleveland: one keyless VehiclePositions URL each, no per-agency code. Delhi is the
+ * same again but behind a free registered key, so it ships with the SIGNUP marker
+ * already used by 511ny and must be skipped until a real key replaces it.
+ */
+test('the expansion feeds are plain gtfsrt positions feeds over keyless HTTPS', () => {
+  for (const id of ['atlanta-marta', 'edmonton-ets', 'nl-ovapi', 'my-rapid-kl']) {
+    const f = feed(id);
+    assert.ok(f, `${id} must be registered`);
+    assert.equal(f.adapter, 'gtfsrt');
+    assert.equal(f.kind, 'positions');
+    assert.equal(f.mode, 'bus');
+    assert.match(f.base, /^https:\/\//, `${id}: keyless feeds this layer fetched live are HTTPS`);
+    assert.ok(!Transit.needsKey(f), `${id} must not carry the signup placeholder`);
+    assert.ok(f.attribution && f.page && f.operator && f.city, `${id} needs full attribution`);
+    assert.match(f.note, /no key|free|keyless/i, `${id}: the note must say why it needs no key`);
+    assert.equal(f.static, undefined, `${id}: unbundled feeds draw positions only, no invented geometry`);
+  }
+  assert.match(feed('atlanta-marta').base, /TMGTFSRealTimeWebService.*vehiclepositions\.pb$/i);
+  assert.match(feed('edmonton-ets').base, /TMGTFSRealTimeWebService.*VehiclePositions\.pb$/i);
+  assert.equal(feed('nl-ovapi').base, 'https://gtfs.ovapi.nl/nl/vehiclePositions.pb');
+  assert.match(feed('my-rapid-kl').base, /^https:\/\/api\.data\.gov\.my\/gtfs-realtime\/vehicle-position\/prasarana\?category=rapid-bus-kl$/);
+  // The Dutch feed is the national one: heavy enough that its update budget must be doubled.
+  assert.ok(feed('nl-ovapi').budgetSec > feed('edmonton-ets').budgetSec,
+    'a multi-megabyte national payload must not be re-read as often as a city feed');
+});
+
+test('Delhi carries a registered operator key and is live from the first sweep', () => {
+  const f = feed('delhi-dtc');
+  assert.ok(f, 'Delhi must be registered');
+  assert.equal(f.adapter, 'gtfsrt');
+  assert.equal(f.kind, 'positions');
+  assert.match(f.base, /^https:\/\/otd\.delhi\.gov\.in\/api\/realtime\/VehiclePositions\.pb\?key=[A-Za-z0-9]{16,}$/,
+    'the realtime URL is fixed and holds a real authorised key, not the SIGNUP marker');
+  assert.ok(!Transit.needsKey(f), 'a real key must not be treated as the placeholder');
+  assert.ok(f.signup && /otd\.delhi\.gov\.in/.test(f.signup), 'the registry must still say where a key comes from');
+  assert.match(f.note, /DMRC|Metro/i, 'the note must record that no Delhi Metro live feed exists');
+  assert.match(f.note, /never substitute simulated/i,
+    'and that simulated trains must never stand in for that missing feed');
+  assert.equal(Transit.needsKey({ base: 'https://x.example/feed.pb?key=SIGNUP' }), true);
+  assert.equal(Transit.needsKey({ base: 'https://x.example/feed.pb?key=a1b2c3' }), false);
+  assert.equal(Transit.needsKey({ base: 'https://x.example/feed.pb' }), false);
+  assert.equal(Transit.needsKey(null), false);
+});
+
+test('a keyless-pending feed would be skipped by the sweep instead of failing forever', () => {
+  /* render() counts networks against the registry MINUS pending ones; refresh() polls
+   * nothing while SIGNUP sits in the URL. Both behaviours live off the exported needsKey
+   * seam, so the whole mechanism is: pending feeds are discoverable but inert. */
+  const f = feed('delhi-dtc');
+  const pending = Object.assign({}, f, { base: f.base.replace(/key=[A-Za-z0-9]{16,}$/, 'key=SIGNUP') });
+  assert.ok(Transit.needsKey(pending), 'reverting to the placeholder puts the feed back to sleep');
+  assert.ok(!Transit.needsKey(f), 'and restoring the key wakes it again — that is the whole upgrade path');
 });
