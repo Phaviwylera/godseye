@@ -31,7 +31,7 @@ const SavedViews = (() => {
         go.onclick = () => {
           const map = getMap(); if (!map) return;
           map.easeTo({center:view.center,zoom:view.zoom,pitch:view.pitch,bearing:view.bearing,duration:800});
-          document.getElementById('controls').open = false;
+          document.getElementById('map-tools-close').click();
         };
         const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Remove';
         remove.setAttribute('aria-label', `Remove saved position ${view.name}`);

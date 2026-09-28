@@ -219,6 +219,90 @@ class TestServer(unittest.TestCase):
             srv.CACHE.clear(); srv.INFLIGHT.clear()
 
 
+class TestFirmsGuard(unittest.TestCase):
+    """NASA FIRMS answers a bad MAP_KEY, an exhausted quota or a malformed request
+    with HTTP 200 and a line of prose. The relay must only treat a body as a fire
+    sweep when its header names both coordinate columns — and must never cache the
+    prose as "the world with no fires burning"."""
+
+    FIRMS_CSV = (
+        "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,"
+        "confidence,version,bright_ti5,frp,daynight\n"
+        "66.42133,58.04745,326.84,0.39,0.44,2026-09-27,0001,N,VIIRS,n,2.0NRT,274.88,2.74,N\n")
+    FIRMS_MODIS_HEADER = (
+        "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,confidence,"
+        "version,bright_t31,frp,daynight\n")
+    FIRMS_PROSE = ("Invalid MAP_KEY. Request a new MAP_KEY from "
+                   "https://firms.modaps.eosdis.nasa.gov/api/map_key/\n")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_module("server_firms", os.path.join(ROOT, "server.py"))
+
+    def test_accepts_both_real_headers_and_a_header_only_sweep(self):
+        self.assertTrue(self.srv.is_firms_csv(self.FIRMS_CSV))
+        # A header with no rows is a real answer (an upstream gap, zero detections)…
+        self.assertTrue(self.srv.is_firms_csv(self.FIRMS_CSV.splitlines()[0] + "\n"))
+        # …and the MODIS product answers a different header name for brightness.
+        self.assertTrue(self.srv.is_firms_csv(self.FIRMS_MODIS_HEADER))
+        self.assertTrue(self.srv.is_firms_csv('\ufeff"latitude","longitude",bright_ti4\n'))
+        self.assertTrue(self.srv.is_firms_csv("instrument,satellite,latitude,longitude\nVIIRS,N,1,2\n"))
+
+    def test_refuses_prose_html_and_headers_without_coordinates(self):
+        self.assertFalse(self.srv.is_firms_csv(self.FIRMS_PROSE))
+        self.assertFalse(self.srv.is_firms_csv("<html><body>Forbidden</body></html>"))
+        self.assertFalse(self.srv.is_firms_csv("latitude,brightness,scan\n1,2,3\n"))
+        self.assertFalse(self.srv.is_firms_csv(""))
+        self.assertFalse(self.srv.is_firms_csv(None))
+
+    def test_do_fires_withholds_prose_and_holds_the_last_good_sweep(self):
+        srv = self.srv
+        handler = srv.Handler.__new__(srv.Handler)
+        seen = {}
+        old = (srv.Handler._json, srv.Handler._bytes, srv.Handler._upstream)
+        old_key = os.environ.get("FIRMS_MAP_KEY")
+        srv.Handler._json = lambda self, payload, code: seen.update(json=(code, payload))
+        srv.Handler._bytes = lambda self, data, ctype, extra=None: seen.update(data=data, extra=extra)
+        prose, csv_text = self.FIRMS_PROSE, self.FIRMS_CSV
+        os.environ["FIRMS_MAP_KEY"] = "test-key"
+        srv.FIRMS_CACHE.clear()
+        try:
+            srv.Handler._upstream = lambda self, url: ("text/plain; charset=utf-8", prose.encode())
+            srv.Handler.do_fires(handler)
+            code, payload = seen["json"]
+            self.assertEqual(code, 502)
+            self.assertEqual(payload["error"], "firms-upstream-error")
+            self.assertIn("Invalid MAP_KEY", payload["detail"])
+            self.assertNotIn("entry", srv.FIRMS_CACHE, "prose must never be cached as a sweep")
+
+            srv.Handler._upstream = lambda self, url: ("text/csv; charset=utf-8", csv_text.encode())
+            srv.Handler.do_fires(handler)
+            self.assertEqual(seen["data"], csv_text.encode())
+            self.assertEqual(seen["extra"]["X-Cache"], "MISS")
+
+            # Inside the TTL the cached sweep answers without touching upstream.
+            srv.Handler._upstream = lambda self, url: (_ for _ in ()).throw(AssertionError("went upstream"))
+            srv.Handler.do_fires(handler)
+            self.assertEqual(seen["data"], csv_text.encode())
+            self.assertEqual(seen["extra"]["X-Cache"], "HIT")
+
+            # Once the TTL has passed and upstream is refusing, the last good
+            # sweep is served as stale rather than replaced by prose.
+            srv.FIRMS_CACHE["entry"]["at"] -= srv.FIRMS_TTL + 1
+            srv.Handler._upstream = lambda self, url: ("text/plain; charset=utf-8", prose.encode())
+            srv.Handler.do_fires(handler)
+            self.assertEqual(seen["data"], csv_text.encode(), "the good sweep is held")
+            self.assertEqual(seen["extra"]["X-Cache"], "STALE")
+            self.assertIn("Invalid MAP_KEY", seen["extra"]["X-Source-Error"])
+        finally:
+            srv.Handler._json, srv.Handler._bytes, srv.Handler._upstream = old
+            srv.FIRMS_CACHE.clear()
+            if old_key is None:
+                os.environ.pop("FIRMS_MAP_KEY", None)
+            else:
+                os.environ["FIRMS_MAP_KEY"] = old_key
+
+
 class TestDataset(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

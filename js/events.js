@@ -86,28 +86,116 @@ const Events = (() => {
     return out;
   }
 
-  /** FIRMS VIIRS/MODIS CSV (latitude,longitude,bright_ti4/brightness,…)
-   *  -> hotspots. Rows that fail validation are dropped, never coerced. */
+  /* ---------------------------------------------------------- FIRMS CSV -- */
+  /* The area API answers two different products with two different headers:
+   *   VIIRS  latitude,longitude,bright_ti4,…,confidence(l|n|h|low|nominal|high),…,bright_ti5,frp,daynight
+   *   MODIS  latitude,longitude,brightness,…,confidence(0-100),…,bright_t31,frp,daynight
+   * and it answers a bad MAP_KEY or an exhausted quota with HTTP 200 and a
+   * line of prose. Anything that is not a header naming both coordinate
+   * columns is refused loudly — never parsed as "no fires burning". */
+  const FIRMS_PROSE = /invalid\s*(map[_\s-]?)?key|map_key|exceeded|quota|not\s+authorized|unauthorized|forbidden|too\s+many\s+requests|\berror\b|<html/i;
+  const FIRMS_COLUMNS = {
+    lat: ["latitude", "lat"],
+    lon: ["longitude", "lon", "lng"],
+    bright: ["bright_ti4", "brightness"],           // VIIRS then MODIS
+    conf: ["confidence"],
+    date: ["acq_date"],
+    time: ["acq_time"],
+    frp: ["frp"],
+    daynight: ["daynight"],
+    instrument: ["instrument"],
+  };
+  const CONF_LABELS = { l: "low", n: "nominal", h: "high", low: "low", nominal: "nominal", high: "high" };
+
+  /** CSV row splitter that keeps quoted fields intact ("a,b",c). */
+  function splitCsvLine(line) {
+    const out = [];
+    let cur = "", quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (quoted) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') { cur += '"'; i++; } else quoted = false;
+        } else cur += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ",") { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map((v) => v.trim());
+  }
+
+  function firmsIndex(header) {
+    const idx = {};
+    for (const [key, aliases] of Object.entries(FIRMS_COLUMNS)) {
+      const i = header.findIndex((h) => aliases.includes(h));
+      if (i >= 0) idx[key] = i;
+    }
+    return idx;
+  }
+
+  /** acq_date + acq_time (HHMM, UTC, sometimes written as an integer) -> ISO. */
+  function firmsStamp(date, time) {
+    const d = String(date == null ? "" : date).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { date: d, time: "", at: "" };
+    const digits = String(time == null ? "" : time).trim().replace(/\D/g, "");
+    if (!digits) return { date: d, time: "", at: "" };
+    const hhmm = digits.padStart(4, "0").slice(-4);
+    const hh = hhmm.slice(0, 2), mm = hhmm.slice(2);
+    if (Number(hh) > 23 || Number(mm) > 59) return { date: d, time: "", at: "" };
+    return { date: d, time: hhmm, at: `${d}T${hh}:${mm}:00Z` };
+  }
+
+  /** True when a payload is a FIRMS area-CSV sweep (header naming both
+   *  coordinate columns), as opposed to an error page or plain prose. */
+  function isFirmsCsv(text) {
+    const head = String(text == null ? "" : text).replace(/^\uFEFF/, "");
+    const first = head.split(/\r?\n/).find((l) => l.trim() !== "");
+    if (!first) return false;
+    const cells = splitCsvLine(first).map((c) => c.toLowerCase());
+    return cells.includes("latitude") && cells.includes("longitude");
+  }
+
+  /** A FIRMS area-CSV sweep -> hotspots. Rows that fail validation are
+   *  dropped, never coerced; a non-CSV payload throws with the upstream text. */
   function parseFirmsCsv(text) {
-    const trimmed = String(text || "").trim();
+    const trimmed = String(text == null ? "" : text).replace(/^\uFEFF/, "").trim();
     if (!trimmed) return [];
     const lines = trimmed.split(/\r?\n/);
-    const head = lines[0].replace(/^\uFEFF/, "").split(",").map(x => x.trim().toLowerCase());
-    const idx = (...names) => names.map(name => head.indexOf(name)).find(i => i >= 0) ?? -1;
-    const iLat = idx("latitude", "lat"), iLon = idx("longitude", "lon"), iBright = idx("bright_ti4", "brightness"),
-      iConf = idx("confidence"), iDate = idx("acq_date");
-    if (iLat < 0 || iLon < 0 || iBright < 0) throw new Error("not a FIRMS csv");
+    let headAt = -1, header = null;
+    for (let i = 0; i < Math.min(lines.length, 4); i++) {
+      if (!lines[i].trim()) continue;
+      const cells = splitCsvLine(lines[i]).map((c) => c.toLowerCase());
+      if (cells.includes("latitude") && cells.includes("longitude")) { headAt = i; header = cells; break; }
+    }
+    if (headAt < 0) {
+      const prose = trimmed.slice(0, 160).replace(/\s+/g, " ");
+      throw new Error(FIRMS_PROSE.test(prose) ? "firms: " + prose : "not a FIRMS csv");
+    }
+    const idx = firmsIndex(header);
+    if (idx.lat == null || idx.lon == null || idx.bright == null) throw new Error("not a FIRMS csv");
     const rows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const f = lines[i].split(",");
-      if ([iLat, iLon, iBright].some(j => !f[j]?.trim())) continue;
-      const lat = Number(f[iLat]), lon = Number(f[iLon]), bright = Number(f[iBright]);
+    for (let i = headAt + 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const f = splitCsvLine(lines[i]);
+      const lat = Number(f[idx.lat]), lon = Number(f[idx.lon]), bright = Number(f[idx.bright]);
       if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(bright)) continue;
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
-      const rawConf = iConf >= 0 ? (f[iConf] || "").trim().toLowerCase() : "";
-      const classes = { l: "low", n: "nominal", h: "high", low: "low", nominal: "nominal", high: "high" };
-      const conf = classes[rawConf] || (rawConf && Number.isFinite(Number(rawConf)) && Number(rawConf) >= 0 && Number(rawConf) <= 100 ? Number(rawConf) : null);
-      rows.push({ lon, lat, bright, conf, date: iDate >= 0 ? f[iDate] : "" });
+      if (lat === 0 && lon === 0) continue;      // null-island artefact, not a fire
+      const rawConf = idx.conf != null ? String(f[idx.conf] || "").trim().toLowerCase() : "";
+      const confNum = Number(rawConf);
+      const confLabel = CONF_LABELS[rawConf] || null;
+      const frp = idx.frp != null ? Number(f[idx.frp]) : NaN;
+      const stamp = firmsStamp(idx.date != null ? f[idx.date] : "", idx.time != null ? f[idx.time] : "");
+      rows.push({
+        lon, lat, bright,
+        conf: rawConf !== "" && Number.isFinite(confNum) ? confNum : null,
+        confLabel,
+        frp: Number.isFinite(frp) ? frp : null,
+        date: stamp.date, time: stamp.time, at: stamp.at,
+        daynight: idx.daynight != null ? String(f[idx.daynight] || "").trim().toUpperCase().slice(0, 1) : "",
+        instrument: idx.instrument != null ? String(f[idx.instrument] || "").trim() : "",
+      });
     }
     if (rows.length > MAX_FIRE_POINTS) {
       rows.sort((a, b) => b.bright - a.bright);
@@ -135,11 +223,23 @@ const Events = (() => {
     </div>`;
   }
 
+  /** Confidence as the feed states it: low/nominal/high (VIIRS) or the
+   *  percentage MODIS publishes. Never invented when the column is absent. */
+  function fireConfidence(f) {
+    if (f.confLabel) return f.confLabel;
+    if (f.conf != null) return f.conf.toFixed(0) + "%";
+    return "";
+  }
+
   function fireCard(f) {
+    const conf = fireConfidence(f);
+    const when = f.date ? `${f.date}${f.time ? " " + f.time.slice(0, 2) + ":" + f.time.slice(2) + " UTC" : ""}` : "";
+    const sensor = f.instrument ? f.instrument + " detection" : "Satellite detection";
     return `<div class="ev-card">
       <div class="ev-q">Fire hotspot</div>
-      <div class="ev-row">brightness ${f.bright.toFixed(0)}${f.conf != null ? " · confidence " + (typeof f.conf === "number" ? f.conf.toFixed(0) + "%" : esc(f.conf)) : ""}${f.date ? " · " + f.date : ""}</div>
-      <div class="ev-row dim">Satellite detection (NASA FIRMS, VIIRS NOAA-21, last day). A thermal signal — not always a wildfire.</div>
+      <div class="ev-row">brightness temp ${f.bright.toFixed(1)} K${conf ? " · confidence " + conf : ""}${f.frp != null ? " · FRP " + f.frp.toFixed(1) + " MW" : ""}</div>
+      <div class="ev-row">${[when, f.daynight === "D" ? "daytime" : f.daynight === "N" ? "night-time" : "", sensor].filter(Boolean).join(" · ")}</div>
+      <div class="ev-row dim">NASA FIRMS satellite detection (VIIRS NOAA-21 NRT, last day). A thermal signal — not always a wildfire.</div>
     </div>`;
   }
 
@@ -231,7 +331,13 @@ const Events = (() => {
     const r = await fetch(FIRES_URL);
     if (r.status === 501 || r.status === 404) { state.firesKeyPending = true; return; }
     if (!r.ok) throw new Error("firms " + r.status);
-    state.fires = parseFirmsCsv(await r.text());
+    const ctype = String(r.headers.get("content-type") || "");
+    // A static deployment serves index.html for /api/* — that is "no server-side
+    // key here", not a fire sweep. Same labelled state as a missing key.
+    if (ctype.includes("text/html")) { state.firesKeyPending = true; return; }
+    const text = await r.text();
+    if (!isFirmsCsv(text)) throw new Error("firms: upstream is not a csv sweep");
+    state.fires = parseFirmsCsv(text);
     state.firesKeyPending = false;
     state.firesHeld = false;
     state.firesAt = Date.now();
@@ -286,6 +392,12 @@ const Events = (() => {
     }
   }
 
+  /** One hotspot as a contact-list row: intensity with the feed's own units. */
+  function fireLabel(f) {
+    const conf = fireConfidence(f);
+    return `FIRE HOTSPOT · ${f.bright.toFixed(0)} K${conf ? " · " + conf.toUpperCase() : ""}`;
+  }
+
   function openList() {
     const rows = [];
     for (const s of state.storms) {
@@ -294,8 +406,9 @@ const Events = (() => {
     }
     const hotFires = state.fires.slice().sort((a, b) => b.bright - a.bright).slice(0, 50);
     for (const f of hotFires) {
-      rows.push({ f, label: "FIRE HOTSPOT · BRIGHT " + f.bright.toFixed(0),
-        detail: `${f.lat.toFixed(2)}, ${f.lon.toFixed(2)}${f.date ? " · " + f.date : ""}` });
+      const clock = f.time ? ` ${f.time.slice(0, 2)}:${f.time.slice(2)} UTC` : "";
+      rows.push({ f, label: fireLabel(f),
+        detail: `${f.lat.toFixed(2)}, ${f.lon.toFixed(2)}${f.date ? " · " + f.date + clock : ""}` });
     }
     Contacts.open("EVENTS — storms & fire hotspots", rows, ({ s, f }) => {
       const c = s ? [s.lon, s.lat] : [f.lon, f.lat];
@@ -305,6 +418,6 @@ const Events = (() => {
 
   function init(instance) { map = instance; }
 
-  return { init, toggle, restore, openList, normalizeNws, parseFirmsCsv, ringCenter, fmtAge,
-    stormCard, fireCard, _state: state };
+  return { init, toggle, restore, openList, normalizeNws, parseFirmsCsv, isFirmsCsv, ringCenter,
+    fmtAge, splitCsvLine, firmsStamp, fireConfidence, fireLabel, stormCard, fireCard, _state: state };
 })();

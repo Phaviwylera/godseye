@@ -141,71 +141,103 @@
   <button id="btn-zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
 </div>
 
-<!-- Collapsed by default: keep the globe clear until tools are requested. -->
-<details id="controls" class="map-tools">
-  <summary id="map-tools-toggle"><span>MAP TOOLS</span><span class="tools-arrow" aria-hidden="true">▾</span></summary>
-  <div class="tools-content">
-    <details class="tool-section" open><summary>Map appearance</summary>
-<div class="btn-group" id="styles">
-    <button data-style="dark" class="active">DARK</button>
-    <button data-style="streets">STREETS</button>
-    <button data-style="satellite">SAT</button>
-  </div>
+<!-- map tools: one arrow-expandable panel grouped by purpose, so no control row
+     ever covers the globe; only the zoom pair (above) floats on the map. -->
+<div id="map-tools" class="collapsed">
+  <button id="map-tools-toggle" type="button" aria-expanded="false" aria-controls="map-tools-panel"
+          title="Show map tools (M)">
+    <span class="mt-arrow" aria-hidden="true">▸</span>
+    <span class="mt-title">MAP TOOLS</span>
+    <span id="map-tools-count" class="mt-count hidden" aria-hidden="true">0</span>
+  </button>
+  <div id="map-tools-panel" class="hidden" role="group" aria-label="Map tools">
+    <header class="mt-head">
+      <span class="mt-eyebrow">MAP TOOLS</span>
+      <span class="mt-hint">grouped by purpose · M toggles</span>
+      <button id="map-tools-close" type="button" aria-label="Collapse map tools">✕</button>
+    </header>
+
+    <section class="tools-group" aria-labelledby="tg-view">
+      <h4 id="tg-view"><span>VIEW</span><i>basemap · sensor look · relief</i></h4>
+      <div class="btn-group" id="styles">
+        <button data-style="dark" class="active">DARK</button>
+        <button data-style="streets">STREETS</button>
+        <button data-style="satellite">SAT</button>
+      </div>
       <div class="btn-group">
         <button id="btn-sensor-mode" type="button" title="Cycle visual sensor looks (0–5)">◌ SENSOR · NATURAL</button>
         <button id="btn-night">◐ NIGHT</button>
-        <button id="btn-terrain" class="active">3D TERRAIN</button>
-        <button id="btn-buildings" type="button" aria-pressed="true" title="Show building heights at zoom 15 and closer">3D BUILDINGS</button>
         <button id="btn-fx" class="active">◌ FX</button>
       </div>
-    </details>
-    <details class="tool-section"><summary>Air, sea & transport</summary>
       <div class="btn-group">
-        <button id="btn-air">△ AIR</button>
-        <button id="btn-vessels" type="button" aria-pressed="false" title="Recent AIS vessel observations in selected shipping corridors">◇ SHIPS</button>
-        <button id="btn-transit" type="button" aria-pressed="false" title="Live buses, trams and metro trains from public operator feeds">⊞ TRANSIT</button>
-        <button id="btn-airports" type="button" aria-pressed="false" title="Every aerodrome, heliport and seaplane base on the public-domain registry, tiered in by zoom">◇ AIRPORTS</button>
-        <button id="btn-route">⌇ ROUTE</button>
+        <button id="btn-terrain" class="active">3D TERRAIN</button>
+        <button id="btn-buildings" type="button" aria-pressed="true" title="Show building heights at zoom 15 and closer">3D BUILDINGS</button>
       </div>
-    </details>
-    <details class="tool-section"><summary>Space & weather</summary>
-      <div class="btn-group">
-        <button id="btn-iss">◇ ISS</button>
-        <button id="btn-satellites" title="Predicted positions of stations and GPS satellites">◇ SATELLITES</button>
-        <button id="btn-iss-passes" title="Next visible ISS passes over the current view center (SGP4 from the CelesTrak snapshot)">☄ ISS PASSES</button>
-        <button id="btn-radar">⌁ RADAR</button>
-        <button id="btn-quakes" title="Latest 24 hours of USGS earthquakes">◇ QUAKES</button>
-        <button id="btn-events" title="Active NWS storm warnings, NASA FIRMS fire hotspots and named volcanoes">⌁ EVENTS</button>
-      </div>
-    </details>
-    <details class="tool-section"><summary>World context</summary>
-      <div class="btn-group">
-        <button id="btn-infra" title="Named power plants and harbours (OSM) + open submarine-cable routes">⬡ INFRA</button>
-        <button id="btn-news" title="Geolocated world headlines (GDELT DOC 2.0), 15-min refresh, severity by headline keywords">◈ NEWS</button>
-        <button id="btn-conflict" title="UCDP/PRIO GED conflict events, last 180 days, geolocated">☒ CONFLICT</button>
-        <button id="btn-companies" title="HQs of a curated large-cap sample (Nominatim geocoded), quote link-out">▣ COMPANIES</button>
-        <button id="btn-countries" title="Clickable country boundaries + World Bank indicator cards">⊞ COUNTRIES</button>
-        <button id="btn-markets" title="Live Polymarket prediction markets by 24 h volume, pinned where place-bound">⊙ MARKETS</button>
-      </div>
-    </details>
-    <details class="tool-section"><summary>Cameras & video wall</summary>
+    </section>
+
+    <section class="tools-group" aria-labelledby="tg-playback">
+      <h4 id="tg-playback"><span>PLAYBACK</span><i>video wall · favourites · route</i></h4>
       <div class="btn-group">
         <button id="btn-wall4">▦ WALL 4</button>
         <button id="btn-wall6">▦ WALL 6</button>
         <button id="btn-wall9">▦ WALL 9</button>
         <button id="btn-wall-custom" title="Custom video wall layout">▦ WALL ▾</button>
-        <button id="btn-fav">★ FAVS</button>
       </div>
-    </details>
-    <details class="tool-section"><summary>Navigation & sharing</summary>
+      <div class="btn-group">
+        <button id="btn-fav">★ FAVS</button>
+        <button id="btn-route">⌇ ROUTE</button>
+      </div>
+    </section>
+
+    <section class="tools-group" aria-labelledby="tg-live">
+      <h4 id="tg-live"><span>LIVE LAYERS</span><i>real operator feeds only</i></h4>
+      <div class="btn-group">
+        <button id="btn-air" data-layer>△ AIR</button>
+        <button id="btn-vessels" data-layer type="button" aria-pressed="false" title="Recent AIS vessel observations in selected shipping corridors">◇ SHIPS</button>
+        <button id="btn-transit" data-layer type="button" aria-pressed="false" title="Live buses, trams and metro trains from public operator feeds">⊞ TRANSIT</button>
+      </div>
+      <div class="btn-group">
+        <button id="btn-airports" data-layer type="button" aria-pressed="false" title="Every aerodrome, heliport and seaplane base on the public-domain registry, tiered in by zoom">◇ AIRPORTS</button>
+        <button id="btn-quakes" data-layer title="Latest 24 hours of USGS earthquakes">◇ QUAKES</button>
+      </div>
+    </section>
+
+    <section class="tools-group" aria-labelledby="tg-world">
+      <h4 id="tg-world"><span>WORLD LAYERS</span><i>events · intel · infrastructure</i></h4>
+      <div class="btn-group">
+        <button id="btn-events" data-layer title="Active NWS storm warnings, NASA FIRMS fire hotspots and named volcanoes">⌁ EVENTS</button>
+        <button id="btn-news" data-layer title="Geolocated world headlines (GDELT DOC 2.0), 15-min refresh, severity by headline keywords">◈ NEWS</button>
+        <button id="btn-conflict" data-layer title="UCDP/PRIO GED conflict events, last 180 days, geolocated">☒ CONFLICT</button>
+      </div>
+      <div class="btn-group">
+        <button id="btn-markets" data-layer title="Live Polymarket prediction markets by 24 h volume, pinned where place-bound">⊙ MARKETS</button>
+        <button id="btn-infra" data-layer title="Named power plants and harbours (OSM) + open submarine-cable routes">⬡ INFRA</button>
+        <button id="btn-companies" data-layer title="HQs of a curated large-cap sample (Nominatim geocoded), quote link-out">▣ COMPANIES</button>
+        <button id="btn-countries" data-layer title="Clickable country boundaries + World Bank indicator cards">⊞ COUNTRIES</button>
+      </div>
+    </section>
+
+    <section class="tools-group" aria-labelledby="tg-space">
+      <h4 id="tg-space"><span>WEATHER &amp; SPACE</span><i>radar · stations · passes</i></h4>
+      <div class="btn-group">
+        <button id="btn-radar" data-layer>⌁ RADAR</button>
+        <button id="btn-iss" data-layer>◇ ISS</button>
+        <button id="btn-satellites" data-layer title="Predicted positions of stations and GPS satellites">◇ SATELLITES</button>
+        <button id="btn-iss-passes" data-layer title="Next visible ISS passes over the current view center (SGP4 from the CelesTrak snapshot)">☄ ISS PASSES</button>
+      </div>
+    </section>
+
+    <section class="tools-group" aria-labelledby="tg-map">
+      <h4 id="tg-map"><span>MAP</span><i>sync · share · viewpoint</i></h4>
       <div class="btn-group">
         <button id="btn-sync">⟳ SYNC</button>
         <button id="btn-share-scene" title="Copy link to this map view">↗ SHARE VIEW</button>
         <button id="btn-home">◎ WORLD</button>
         <button id="btn-context-view" type="button" aria-pressed="false" title="Save this view and open global context (G)">◎ GLOBAL VIEW</button>
       </div>
-    </details>
-    <details class="tool-section"><summary>Saved map positions</summary>
+    </section>
+
+    <details class="tools-group"><summary>Saved map positions</summary>
       <form id="saved-view-form">
         <label for="saved-view-name">Name this map position</label>
         <input id="saved-view-name" maxlength="60" required placeholder="Chennai harbour" />
@@ -214,33 +246,34 @@
       <p id="saved-view-status" role="status">Saved only on this browser; up to 12 positions.</p>
       <div id="saved-view-list"></div>
     </details>
-    <details class="tool-section" id="coverage-section"><summary>Camera coverage & sources</summary>
+    <details class="tools-group" id="coverage-section"><summary>Camera coverage & sources</summary>
       <div id="coverage-report" aria-live="polite">Expand to load catalogue coverage.</div>
     </details>
-    <details class="tool-section"><summary>Feed status & playback</summary>
-  <div id="intel-row">
-    <span id="air-chip" class="hidden">AIR</span>
-    <span id="vessel-chip" class="hidden" aria-live="polite">AIS</span>
-    <span id="transit-chip" class="hidden" aria-live="polite">TRANSIT</span>
-    <span id="airport-chip" class="hidden" aria-live="polite">AIRPORTS</span>
-    <span id="iss-chip" class="hidden">ISS</span>
-    <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
-    <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
-    <span id="events-chip" class="hidden" aria-live="polite">EVENTS</span>
-    <span id="markets-chip" class="hidden" aria-live="polite">MARKETS</span>
-    <span id="infra-chip" class="hidden" aria-live="polite">INFRA</span>
-    <span id="news-chip" class="hidden" aria-live="polite">NEWS</span>
-    <span id="conflict-chip" class="hidden" aria-live="polite">CONFLICT</span>
-    <span id="companies-chip" class="hidden" aria-live="polite">COMPANIES</span>
-    <span id="radar-ctl" class="hidden">
-      <button id="radar-play">⏸</button>
-      <input id="radar-slider" type="range" min="0" max="0" value="0" />
-      <span id="radar-time">--:--</span>
-    </span>
+    <section class="tools-group" aria-labelledby="tg-status">
+      <h4 id="tg-status"><span>STATUS</span><i>live read-outs — click a chip to open its list</i></h4>
+      <div id="intel-row">
+        <span id="air-chip" class="hidden">AIR</span>
+        <span id="vessel-chip" class="hidden" aria-live="polite">AIS</span>
+        <span id="transit-chip" class="hidden" aria-live="polite">TRANSIT</span>
+        <span id="airport-chip" class="hidden" aria-live="polite">AIRPORTS</span>
+        <span id="iss-chip" class="hidden">ISS</span>
+        <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
+        <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
+        <span id="events-chip" class="hidden" aria-live="polite">EVENTS</span>
+        <span id="markets-chip" class="hidden" aria-live="polite">MARKETS</span>
+        <span id="infra-chip" class="hidden" aria-live="polite">INFRA</span>
+        <span id="news-chip" class="hidden" aria-live="polite">NEWS</span>
+        <span id="conflict-chip" class="hidden" aria-live="polite">CONFLICT</span>
+        <span id="companies-chip" class="hidden" aria-live="polite">COMPANIES</span>
+        <span id="radar-ctl" class="hidden">
+          <button id="radar-play">⏸</button>
+          <input id="radar-slider" type="range" min="0" max="0" value="0" />
+          <span id="radar-time">--:--</span>
+        </span>
+      </div>
+    </section>
   </div>
-    </details>
-  </div>
-</details>
+</div>
 
 <section id="contacts-panel" class="hidden" aria-label="Map contacts">
   <header><strong id="contacts-title">CONTACTS</strong><button id="contacts-close" type="button" aria-label="Close contacts">✕</button></header>
@@ -366,6 +399,7 @@
     <button data-do="#btn-live">● LIVE</button>
     <button data-do="#btn-install">INSTALL</button>
     <button data-do="#btn-wall9">▦ WALL 9</button>
+    <button data-do="#btn-wall-custom">▦ WALL ▾</button>
     <button data-do="#btn-fav">★ FAVS</button>
     <button data-do="#btn-fx">◌ FX</button>
     <button data-do="#btn-night">◐ NIGHT</button>
@@ -387,6 +421,7 @@
     <button data-do="#btn-radar">⌁ RADAR</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
     <button data-do="#btn-terrain">3D</button>
+    <button data-do="#btn-buildings">BLDGS</button>
     <button data-do="#btn-sync">⟳ SYNC</button>
     <button data-do="#btn-share-scene">↗ SHARE VIEW</button>
     <button data-do="#btn-home">◎ WORLD</button>

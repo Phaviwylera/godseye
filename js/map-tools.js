@@ -1,18 +1,5 @@
-/* Native details supplies keyboard and expanded-state semantics without JS. */
+/* Lazy source coverage, separate from the existing drawer controller. */
 (() => {
-  const tools = document.getElementById("controls");
-  const toggle = document.getElementById("map-tools-toggle");
-  if (!tools || !toggle) return;
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && tools.open) {
-      tools.open = false;
-      toggle.focus();
-      event.stopImmediatePropagation();
-    }
-  }, true);
-  document.addEventListener("pointerdown", (event) => {
-    if (tools.open && !tools.contains(event.target)) tools.open = false;
-  });
   const coverage = document.getElementById('coverage-section');
   let loading = false, loaded = false;
   if (coverage) coverage.addEventListener('toggle', async () => {
