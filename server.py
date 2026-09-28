@@ -182,6 +182,24 @@ def cacheable(data):
     return parsed.get("error") is None and parsed.get("errorMessage") is None
 
 
+def is_firms_csv(text):
+    """True when a FIRMS body is an area-CSV sweep: its first non-empty line is a
+    header naming both coordinate columns.
+
+    FIRMS answers a bad MAP_KEY, an exhausted quota or a malformed request with
+    HTTP 200 and a line of prose, so the content type is not enough — that prose
+    must never be cached as a fire sweep, and the client must never draw it.
+    """
+    if not text:
+        return False
+    for line in text.lstrip("\ufeff").splitlines():
+        if not line.strip():
+            continue
+        cells = {c.strip().strip('"').lower() for c in line.split(",")}
+        return "latitude" in cells and "longitude" in cells
+    return False
+
+
 def rewrite_m3u8(text, base_url):
     """Wrap every URI line of an HLS playlist in the proxy."""
     base = base_url
@@ -467,11 +485,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 502)
         if not data or len(data) > 16 * 1024 * 1024:
             return self._json({"error": "source-too-large"}, 502)
-        if "csv" not in (ctype or ""):
-            head = data[:80].decode("utf-8", "replace")
-            return self._json({"error": "firms-upstream-error", "detail": head}, 502)
-        FIRMS_CACHE["entry"] = {"at": now, "ctype": ctype, "data": data}
-        return self._bytes(data, ctype, {"X-Cache": "MISS"})
+        text = data.decode("utf-8", "replace")
+        if not is_firms_csv(text):
+            # Upstream prose (bad key / spent quota) or a partial download. Keep the
+            # last good sweep inside its TTL and say so; never cache the prose.
+            detail = " ".join(text.split())[:160]
+            if hit:
+                return self._bytes(hit["data"], hit["ctype"],
+                                   {"X-Cache": "STALE", "X-Source-Error": detail[:120]})
+            return self._json({"error": "firms-upstream-error", "detail": detail}, 502)
+        FIRMS_CACHE["entry"] = {"at": now, "ctype": ctype or "text/csv; charset=utf-8", "data": data}
+        return self._bytes(data, FIRMS_CACHE["entry"]["ctype"], {"X-Cache": "MISS"})
 
     def do_gdelt(self):
         """GDELT DOC 2.0 geolocated world news (PointData GeoJSON), 15-min cache.

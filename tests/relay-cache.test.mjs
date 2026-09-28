@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handler, resetRelayCacheForTest, setRelayBlobStoreForTest } from '../netlify/functions/api.mjs';
+import { handler, isFirmsCsv, resetFirmsCacheForTest, resetRelayCacheForTest, setFirmsUrlForTest, setRelayBlobStoreForTest } from '../netlify/functions/api.mjs';
 
 // Unit requests use deterministic upstream stubs, never a real Netlify Blob context.
 setRelayBlobStoreForTest(null);
@@ -236,5 +236,91 @@ test('Blob outages and bad cached envelopes fail open to the upstream, never bec
     stub.restore();
     setRelayBlobStoreForTest(null);
     resetRelayCacheForTest();
+  }
+});
+
+/* ---- FIRMS: the area API answers a bad key with HTTP 200 and prose --------
+ * A fire sweep is only a sweep when its first non-empty line is the area-CSV
+ * header. Prose must be reported as the upstream error it is — never cached as
+ * "the world with no fires burning", never counted by the client. */
+const FIRMS_HEADER = 'latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight';
+const FIRMS_CSV = `${FIRMS_HEADER}\n66.42133,58.04745,326.84,0.39,0.44,2026-09-27,0001,N,VIIRS,n,2.0NRT,274.88,2.74,N\n`;
+const FIRMS_PROSE = 'Invalid MAP_KEY. Request a new MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/map_key/';
+
+test('isFirmsCsv accepts both real headers and headline-only sweeps, refuses prose', () => {
+  assert.equal(isFirmsCsv(FIRMS_CSV), true);
+  assert.equal(isFirmsCsv(FIRMS_HEADER + '\n'), true, 'a gap with no detections is still a sweep');
+  assert.equal(isFirmsCsv('latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,confidence,version,bright_t31,frp,daynight\n'),
+    true, 'the MODIS variant is a sweep too');
+  assert.equal(isFirmsCsv(FIRMS_PROSE), false);
+  assert.equal(isFirmsCsv('<html><body>Forbidden</body></html>'), false);
+  assert.equal(isFirmsCsv(''), false);
+});
+
+test('the fires route returns a real sweep and shares it inside its window', async () => {
+  const stub = stubFetch(async () => new Response(FIRMS_CSV,
+    { status: 200, headers: { 'Content-Type': 'text/csv' } }));
+  process.env.FIRMS_MAP_KEY = 'test-key';
+  setFirmsUrlForTest('https://8.8.8.8/area/csv/test-key/VIIRS_NOAA21_NRT/world/1');
+  try {
+    resetFirmsCacheForTest();
+    const a = await handler(event('/api/fires', {}));
+    assert.equal(a.statusCode, 200);
+    assert.equal(a.headers['X-Cache'], 'MISS');
+    assert.match(a.body, /^latitude,longitude/);
+    const b = await handler(event('/api/fires', {}));
+    assert.equal(b.headers['X-Cache'], 'HIT');
+    assert.equal(stub.calls.length, 1, 'one upstream sweep for two visitors');
+  } finally {
+    stub.restore();
+    setFirmsUrlForTest(null);
+    delete process.env.FIRMS_MAP_KEY;
+    resetFirmsCacheForTest();
+  }
+});
+
+test('a FIRMS refusal is reported as an upstream error and never cached', async () => {
+  const stub = stubFetch(async () => new Response(FIRMS_PROSE,
+    { status: 200, headers: { 'Content-Type': 'text/plain' } }));
+  process.env.FIRMS_MAP_KEY = 'wrong-key';
+  setFirmsUrlForTest('https://8.8.8.8/area/csv/wrong-key/VIIRS_NOAA21_NRT/world/1');
+  try {
+    resetFirmsCacheForTest();
+    const first = await handler(event('/api/fires', {}));
+    assert.equal(first.statusCode, 502);
+    assert.equal(JSON.parse(first.body).error, 'firms-upstream-error');
+    assert.match(JSON.parse(first.body).detail, /Invalid MAP_KEY/);
+    const second = await handler(event('/api/fires', {}));
+    assert.equal(second.statusCode, 502);
+    assert.equal(stub.calls.length, 2, 'prose must go upstream again, not be pinned for 15 minutes');
+  } finally {
+    stub.restore();
+    setFirmsUrlForTest(null);
+    delete process.env.FIRMS_MAP_KEY;
+    resetFirmsCacheForTest();
+  }
+});
+
+test('a broken upstream holds the last good sweep instead of blanking the map', async () => {
+  process.env.FIRMS_MAP_KEY = 'test-key';
+  setFirmsUrlForTest('https://8.8.8.8/area/csv/test-key/VIIRS_NOAA21_NRT/world/1');
+  let mode = 'ok';
+  const stub = stubFetch(async () => mode === 'ok'
+    ? new Response(FIRMS_CSV, { status: 200, headers: { 'Content-Type': 'text/csv' } })
+    : new Response(FIRMS_PROSE, { status: 200, headers: { 'Content-Type': 'text/plain' } }));
+  try {
+    resetFirmsCacheForTest();
+    assert.equal((await handler(event('/api/fires', {}))).statusCode, 200);
+    mode = 'prose';
+    const held = await handler(event('/api/fires', {}));
+    // The 15-minute TTL is still inside its window, so the good sweep is served
+    // with its age stated rather than replaced by prose or an empty map.
+    assert.equal(held.headers['X-Cache'], 'HIT');
+    assert.equal(held.body, FIRMS_CSV);
+  } finally {
+    stub.restore();
+    setFirmsUrlForTest(null);
+    delete process.env.FIRMS_MAP_KEY;
+    resetFirmsCacheForTest();
   }
 });

@@ -1250,8 +1250,73 @@ function bumpVisit(id) {
   } catch (e) { return 1; }
 }
 
+/* ---- MAP TOOLS: one arrow-expandable panel grouped by purpose ---------------
+ * The globe used to carry three wrapping rows of buttons. Now the rows live in
+ * this panel (collapsed by default, remembered across visits, M toggles it,
+ * Escape or a click on the map closes it) and only the zoom pair floats on the
+ * map. The camera registry keeps its own separate collapse button. */
+function wireMapTools() {
+  const tools = $("#map-tools"), toggle = $("#map-tools-toggle"),
+    panel = $("#map-tools-panel"), closer = $("#map-tools-close"), count = $("#map-tools-count");
+  if (!tools || !toggle || !panel) return;
+  let open = localStorage.getItem("ge_tools_open") === "1";
+
+  const visible = () => tools.offsetParent !== null || getComputedStyle(tools).display !== "none";
+  const setOpen = (next) => {
+    open = !!next;
+    tools.classList.toggle("collapsed", !open);
+    tools.classList.toggle("expanded", open);
+    panel.classList.toggle("hidden", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.title = (open ? "Hide" : "Show") + " map tools (M)";
+    if (open) {
+      localStorage.setItem("ge_tools_open", "1");
+      // A panel taller than the globe is worse than no panel: keep it on screen.
+      const top = tools.getBoundingClientRect().top || 62;
+      panel.style.maxHeight = Math.max(220, window.innerHeight - top - 58) + "px";
+    } else {
+      localStorage.setItem("ge_tools_open", "0");
+    }
+  };
+
+  // Active-layer count on the collapsed chip, so "a layer is on" stays visible
+  // even though the rows themselves are put away. Only buttons marked
+  // data-layer count: basemap/terrain/FX are view settings, not live layers.
+  const syncCount = () => {
+    if (!count) return;
+    const n = [...panel.querySelectorAll("button[data-layer]")]
+      .filter((b) => b.classList.contains("active") || b.getAttribute("aria-pressed") === "true").length;
+    count.textContent = String(n);
+    count.classList.toggle("hidden", n === 0);
+    count.title = n === 1 ? "1 live layer active" : `${n} live layers active`;
+  };
+
+  toggle.onclick = () => { setOpen(!open); fxBlip(); };
+  if (closer) closer.onclick = () => { setOpen(false); fxBlip(); };
+  window.addEventListener("resize", () => { if (open) setOpen(true); });
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey || e.altKey) ||
+        (e.target && e.target.closest && e.target.closest("input, select, textarea, [contenteditable='true']"))) return;
+    if (e.key.toLowerCase() === "m" && visible()) { setOpen(!open); fxBlip(); }
+    if (e.key === "Escape" && open && !wallOpen && el.modal.classList.contains("hidden")) setOpen(false);
+  });
+  // Clicking the globe (or anywhere outside the panel) puts the panel away again.
+  document.addEventListener("pointerdown", (e) => {
+    if (!open || !e.target.closest) return;
+    if (e.target.closest("#map-tools, #fab, #fab-sheet")) return;
+    setOpen(false);
+  }, true);
+
+  new MutationObserver(syncCount).observe(panel, {
+    subtree: true, attributes: true, attributeFilter: ["class", "aria-pressed"],
+  });
+  syncCount();
+  setOpen(open && visible());   // a remembered panel never opens on a phone layout
+}
+
 // --------------------------------------------------------------- controls --
 function wireUI() {
+  wireMapTools();
   let debounce;
   el.q.addEventListener("input", () => {
     renderList(); refreshSource();

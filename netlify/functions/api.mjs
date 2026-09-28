@@ -133,6 +133,7 @@ let relayBlobStore; // undefined = lazily create the real store; null = disabled
 
 /* Test hook: production code never supplies a store and always uses Netlify Blobs. */
 export function setRelayBlobStoreForTest(store) { relayBlobStore = store; }
+export function resetFirmsCacheForTest() { firmsCache = null; }
 export function resetRelayCacheForTest() { CACHE.clear(); INFLIGHT.clear(); }
 
 function windowSec(param) {
@@ -334,13 +335,32 @@ async function gdeltRoute() {
     "Cache-Control": "no-store", "X-Cache": "MISS" }, body: gdeltCache.buf };
 }
 
+/* FIRMS answers a bad MAP_KEY, an exhausted quota or a malformed request with
+ * HTTP 200 and a line of prose (sometimes typed text/csv). Only a body whose
+ * first non-empty line is a header naming both coordinate columns is a sweep;
+ * prose is reported as the upstream error it is and never cached as fires. */
+export function isFirmsCsv(text) {
+  for (const line of String(text || "").replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const cells = new Set(line.split(",").map((c) => c.trim().replace(/^"|"$/g, "").toLowerCase()));
+    return cells.has("latitude") && cells.has("longitude");
+  }
+  return false;
+}
+
+/* Test hook: the FIRMS product URL is fixed in production (world, last day);
+ * tests point it at a stub upstream so the format gate is exercised offline. */
+let firmsUrlForTest = null;
+export function setFirmsUrlForTest(url) { firmsUrlForTest = url; }
+
 async function firesRoute() {
   const key = String(process.env.FIRMS_MAP_KEY || "").trim();
   if (firmsCache && Date.now() - firmsCache.at < FIRMS_TTL_MS) {
     return { statusCode: 200, headers: { ...CORS, "Content-Type": firmsCache.ctype,
       "Cache-Control": "no-store", "X-Cache": "HIT" }, body: firmsCache.buf.toString("utf8") };
   }
-  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/VIIRS_NOAA21_NRT/world/1`;
+  const url = firmsUrlForTest ||
+    `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(key)}/VIIRS_NOAA21_NRT/world/1`;
   let upstream;
   try {
     upstream = await fetchUpstream(url);
@@ -356,9 +376,16 @@ async function firesRoute() {
   if (buf.length > 16 * 1024 * 1024) {
     return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: "source-too-large" }) };
   }
-  if (!ctype.includes("csv") && !ctype.includes("text")) {
+  const text = buf.toString("utf8");
+  if (!isFirmsCsv(text)) {
+    const detail = text.replace(/\s+/g, " ").slice(0, 160);
+    if (firmsCache) {
+      return { statusCode: 200, headers: { ...CORS, "Content-Type": firmsCache.ctype,
+        "Cache-Control": "no-store", "X-Cache": "STALE", "X-Source-Error": detail.slice(0, 120) },
+        body: firmsCache.buf.toString("utf8") };
+    }
     return { statusCode: 502, headers: { ...CORS, "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "firms-upstream-error", detail: buf.toString("utf8", 0, 80) }) };
+      body: JSON.stringify({ error: "firms-upstream-error", detail }) };
   }
   firmsCache = { at: Date.now(), ctype, buf };
   return { statusCode: 200, headers: { ...CORS, "Content-Type": ctype,
