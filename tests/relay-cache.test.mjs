@@ -5,7 +5,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handler } from '../netlify/functions/api.mjs';
+import { handler, resetRelayCacheForTest, setRelayBlobStoreForTest } from '../netlify/functions/api.mjs';
+
+// Unit requests use deterministic upstream stubs, never a real Netlify Blob context.
+setRelayBlobStoreForTest(null);
+resetRelayCacheForTest();
 
 const event = (path, params) => ({ httpMethod: 'GET', headers: {}, path, queryStringParameters: params });
 const fetchEvent = (url, extra) => event('/api/fetch', { url, ...extra });
@@ -180,4 +184,57 @@ test('the window is clamped and a bad url is still refused before anything is fe
   assert.equal(bad.statusCode, 400);
   const missing = await handler(fetchEvent('', { window: '600' }));
   assert.equal(JSON.parse(missing.body).relay, true);
+});
+
+
+test('a verified operator JSON answer survives an instance reset through the Blob tier', async () => {
+  const entries = new Map();
+  const store = {
+    reads: 0, writes: 0,
+    async get(key) { this.reads++; return entries.get(key) || null; },
+    async setJSON(key, value) { this.writes++; entries.set(key, value); },
+  };
+  const stub = stubFetch(async () => json({ trains: 77 }));
+  try {
+    setRelayBlobStoreForTest(store);
+    resetRelayCacheForTest();
+    const url = 'https://api-v3.mbta.com/vehicles?page[limit]=1';
+    const first = await handler(fetchEvent(url, { window: '600' }));
+    assert.equal(first.headers['X-Cache'], 'MISS');
+    assert.equal(store.writes, 1, 'only a verified JSON body reaches Blob storage');
+
+    // Simulate the next request landing in another cold Netlify instance.
+    resetRelayCacheForTest();
+    const second = await handler(fetchEvent(url, { window: '600' }));
+    assert.equal(stub.calls.length, 1, 'the cold instance did not spend the operator again');
+    assert.equal(second.headers['X-Cache'], 'HIT');
+    assert.equal(second.headers['X-Cache-Tier'], 'blob');
+    assert.equal(JSON.parse(second.body).trains, 77);
+  } finally {
+    stub.restore();
+    setRelayBlobStoreForTest(null);
+    resetRelayCacheForTest();
+  }
+});
+
+test('Blob outages and bad cached envelopes fail open to the upstream, never become an answer', async () => {
+  const url = 'https://api-v3.mbta.com/vehicles?page[limit]=bad-cache';
+  const badStore = {
+    async get() { return { at: Date.now(), body: JSON.stringify({ errorMessage: { code: 'INFO-300' } }), ctype: 'application/json' }; },
+    async setJSON() { throw new Error('blob unavailable'); },
+  };
+  const stub = stubFetch(async () => json({ recovered: true }));
+  try {
+    setRelayBlobStoreForTest(badStore);
+    resetRelayCacheForTest();
+    const response = await handler(fetchEvent(url, { window: '600' }));
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers['X-Cache'], 'MISS');
+    assert.equal(JSON.parse(response.body).recovered, true);
+    assert.equal(stub.calls.length, 1);
+  } finally {
+    stub.restore();
+    setRelayBlobStoreForTest(null);
+    resetRelayCacheForTest();
+  }
 });

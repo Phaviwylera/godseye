@@ -610,6 +610,13 @@ const Transit = (() => {
     return Number.isFinite(n) ? n : fallback;
   }
 
+  // Number(null) and Number('') are zero, which would put a malformed station on
+  // the Gulf of Guinea. Coordinates must be explicitly present before coercion.
+  function coordinate(value) {
+    if (value == null || (typeof value === 'string' && !value.trim())) return NaN;
+    return Number(value);
+  }
+
   async function budgetedSweep(feed, targets, read, defaults) {
     const list = (targets || []).map((target) => String(target));
     if (!list.length) throw new Error('no targets configured');
@@ -676,16 +683,36 @@ const Transit = (() => {
   /* The portal caps this API at 1,000 requests a day on a key every visitor shares. */
   const SEOUL_DEFAULTS = { pollSec: 600, budgetSec: 1500, maxAgeSec: 2400 };
 
+  function parseSeoulBatch(payload, feed, table, now, meta) {
+    const replies = payload && payload.lines;
+    if (!replies || typeof replies !== 'object') throw new Error('batch unavailable');
+    const rows = [];
+    const failures = [];
+    for (const line of asArray(feed.lines)) {
+      const reply = replies[String(line.id)];
+      if (!reply) { failures.push('batch omitted a line'); continue; }
+      if (reply.error) { failures.push(String(reply.error)); continue; }
+      try {
+        rows.push(...parseSeoulPositions(reply.data, feed, table, now, meta));
+      } catch (e) {
+        failures.push(String((e && e.message) || e || 'unavailable'));
+      }
+    }
+    // INFO-200 is a successful "nothing running" response, so only an actual
+    // error makes a wholly empty batch fail and retain previous rows.
+    if (!rows.length && failures.length) throw new Error(failures[0]);
+    return rows;
+  }
+
   async function refreshSeoul(feed) {
     const table = await loadKrStations(feed);
     const list = asArray(feed.lines);
     const meta = new Map(list.map((line) => [String(line.id), line]));
-    /* The relay window is the per-line budget, so a line costs the shared key at most one
-     * request per budgetSec no matter how many people are looking at the map. */
-    const windowSec = Math.max(1, finite(feed.budgetSec, SEOUL_DEFAULTS.budgetSec));
-    return budgetedSweep(feed, list.map((line) => line.id),
-      (lineId, now) => getJson(`${feed.base}${encodeURIComponent(lineId)}`, feed.cors, windowSec)
-        .then((data) => parseSeoulPositions(data, feed, table, now, meta)), SEOUL_DEFAULTS);
+    /* One browser request fans out inside the bounded relay endpoint.  The endpoint
+     * owns the fixed public line list (no caller URL/key), while its per-line Blob
+     * cache still enforces Seoul's 1,500-second upstream budget site-wide. */
+    return budgetedSweep(feed, ['seoul-batch'],
+      (_target, now) => getSeoulBatch().then((data) => parseSeoulBatch(data, feed, table, now, meta)), SEOUL_DEFAULTS);
   }
 
   /* --------------------------------------------------- MBTA (Boston, USA) ---
@@ -749,6 +776,51 @@ const Transit = (() => {
     return out;
   }
 
+  /* MBTA exposes rail shapes as encoded polylines and stops as JSON:API records.
+   * Keep bus geometry out of this one-time request; GPS vehicles still cover every route. */
+  function parseMbtaStatic(shapesPayload, stopsPayload, feed) {
+    const routes = new Map(asArray(feed.staticRoutes).map((route) => [String(route.id), route]));
+    const linesOut = [];
+    for (const shape of asArray(shapesPayload && shapesPayload.data)) {
+      const attr = (shape && shape.attributes) || {};
+      const rel = shape && shape.relationships && shape.relationships.route;
+      const routeId = String((rel && rel.data && rel.data.id) || attr.route_id || '');
+      const route = routes.get(routeId);
+      const coords = decodePolyline(attr.polyline || attr.path || '');
+      if (!route || coords.length < 2) continue;
+      linesOut.push({ id: routeId, name: route.name || routeId, color: readable(route.color), coords });
+    }
+    const stationsOut = [];
+    const seen = new Set();
+    for (const stop of asArray(stopsPayload && stopsPayload.data)) {
+      const attr = (stop && stop.attributes) || {};
+      const lon = coordinate(attr.longitude), lat = coordinate(attr.latitude);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      const id = String(stop.id || `${lon}:${lat}`);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      stationsOut.push({ id, name: String(attr.name || id), lon, lat });
+    }
+    return { lines: linesOut, stations: stationsOut };
+  }
+
+  async function mbtaStatic(feed) {
+    const routeIds = asArray(feed.staticRoutes).map((route) => route.id).filter(Boolean);
+    if (!routeIds.length) return;
+    const filter = routeIds.map(encodeURIComponent).join(',');
+    const [shapes, stopsPayload] = await Promise.all([
+      getJson(`${feed.base}/shapes?filter[route]=${filter}&page[limit]=1000`, feed.cors, 86400),
+      getJson(`${feed.base}/stops?filter[route]=${filter}&page[limit]=1000`, feed.cors, 86400),
+    ]);
+    const parsed = parseMbtaStatic(shapes, stopsPayload, feed);
+    for (const line of parsed.lines) {
+      lines.push({ feed: feed.id, id: line.id, name: line.name, color: line.color, coords: [line.coords] });
+    }
+    for (const station of parsed.stations) {
+      pushStation(feed, station, '', feed.network, DEFAULT_COLOR.rail);
+    }
+  }
+
   /* ------------------------------------------- Digitraffic rail (Finland) ---
    * rata.digitraffic.fi is the Finnish Transport Agency's open rail API: every train running
    * in the country, keyless, with the timetable rows it has actually passed and the delay
@@ -780,12 +852,12 @@ const Transit = (() => {
       const name = String(key == null ? '' : key).trim();
       if (name && !table.has(name)) table.set(name, value);
     };
-    for (const station of asArray(payload)) {
+    for (const station of asArray((payload && payload.stations) || payload)) {
       const lon = Number(station && station.longitude);
       const lat = Number(station && station.latitude);
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
       if (Math.abs(lon) > 180 || Math.abs(lat) > 90) continue;
-      const value = { name: String(station.name || station.stationShortCode || '').trim(), lon, lat };
+      const value = { name: String(station.stationName || station.name || station.stationShortCode || '').trim(), lon, lat };
       add(station.stationShortCode, value);
       add(station.shortCode, value);
       add(station.stationUICCode, value);
@@ -853,18 +925,26 @@ const Transit = (() => {
     if (feed._stationsDone) return;
     let table = new Map();
     try {
-      table = digitrafficStations(await getJson(
-        feed.stations || 'https://rata.digitraffic.fi/api/v1/metadata/stations', feed.cors, 86400));
+      // This snapshot is deliberately the sole metadata source: do not make every viewer
+      // re-download Digitraffic's large station table when a local file is unavailable.
+      const bundled = feed.stations || 'data/fi-stations.json';
+      const response = await fetch(bundled, { cache: 'default' });
+      if (!response.ok) throw new Error('bundled station table unavailable');
+      table = digitrafficStations(await response.json());
     } catch (e) {
-      /* Without the table a train is only drawn if the feed itself carries station
-       * coordinates, which digitrafficStationOf accepts: a missing table costs coverage,
-       * never a guessed position. */
+      /* Without the table a train is only drawn if the train feed itself carries station
+       * coordinates, which digitrafficStationOf accepts: missing static data costs coverage,
+       * never an unbounded metadata request or a guessed position. */
       table = new Map();
     }
     feed._stations = table;
     feed._stationsDone = true;
-    for (const [code, station] of table) {
-      pushStation(feed, { id: `fi:${code}`, name: station.name, lon: station.lon, lat: station.lat },
+    const drawn = new Set();
+    for (const station of table.values()) {
+      const id = `fi:${station.lon}:${station.lat}`;
+      if (drawn.has(id)) continue;
+      drawn.add(id);
+      pushStation(feed, { id, name: station.name, lon: station.lon, lat: station.lat },
         '', feed.network, DEFAULT_COLOR.rail);
     }
   }
@@ -981,6 +1061,119 @@ const Transit = (() => {
       });
     }
     return keepPerStation(rows, finite(feed.perStation, 3));
+  }
+
+  /* ------------------------------------------------ static board geometry --
+   * Boards describe departures but not network topology. For Switzerland we use
+   * connection journey.passList coordinates; iRail publishes the equivalent vias.
+   * These are operator timetable points, never inferred routes. */
+  function stationPoint(value) {
+    const station = value && (value.station || value.stationinfo || value);
+    const coord = station && station.coordinate;
+    let lon = coordinate((station && (station.locationX ?? station.longitude)) ?? (coord && coord.x));
+    let lat = coordinate((station && (station.locationY ?? station.latitude)) ?? (coord && coord.y));
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+    // Some Transport API mirrors label x/y differently; accept only a valid WGS84 pair.
+    if (Math.abs(lon) <= 90 && Math.abs(lat) <= 180 && Math.abs(lat) > 90) [lon, lat] = [lat, lon];
+    if (Math.abs(lon) > 180 || Math.abs(lat) > 90) return null;
+    return { id: String((station && station.id) || (station && station.name) || `${lon}:${lat}`),
+      name: String((station && station.name) || '').trim(), lon, lat };
+  }
+
+  function distinctStations(points) {
+    const out = [], seen = new Set();
+    for (const point of points) {
+      if (!point || !Number.isFinite(point.lon) || !Number.isFinite(point.lat)) continue;
+      const id = point.id || `${point.lon}:${point.lat}`;
+      if (seen.has(id)) continue;
+      seen.add(id); out.push(point);
+    }
+    return out;
+  }
+
+  function parseOpendataChConnection(payload, pair) {
+    const connection = asArray(payload && payload.connections)[0];
+    if (!connection) return { coords: [], stations: [] };
+    const journey = connection.journey || {};
+    const points = [stationPoint(connection.from),
+      ...asArray(journey.passList).map((pass) => stationPoint(pass && (pass.station || pass))),
+      stationPoint(connection.to)];
+    const stationsOut = distinctStations(points);
+    return { coords: stationsOut.map((station) => [station.lon, station.lat]), stations: stationsOut,
+      id: String((pair && pair.id) || journey.name || 'Swiss rail'),
+      name: String((pair && pair.name) || journey.name || 'Swiss rail'),
+      color: readable((pair && pair.color) || DEFAULT_COLOR.rail) };
+  }
+
+  function parseIrailStations(payload) {
+    return distinctStations(asArray((payload && payload.station) || payload)
+      .map((station) => stationPoint(station)));
+  }
+
+  function parseIrailConnection(payload, pair) {
+    const connection = asArray(payload && payload.connection)[0];
+    if (!connection) return { coords: [], stations: [] };
+    const vias = (connection.vias && connection.vias.via) || [];
+    const points = [stationPoint(connection.departure),
+      ...asArray(vias).map((via) => stationPoint(via && (via.stationinfo || via.station || via))),
+      stationPoint(connection.arrival)];
+    const stationsOut = distinctStations(points);
+    return { coords: stationsOut.map((station) => [station.lon, station.lat]), stations: stationsOut,
+      id: String((pair && pair.id) || (connection.departure && connection.departure.vehicle) || 'Belgian rail'),
+      name: String((pair && pair.name) || (connection.departure && connection.departure.vehicle) || 'Belgian rail'),
+      color: readable((pair && pair.color) || DEFAULT_COLOR.rail) };
+  }
+
+  async function boardStatic(feed) {
+    const pairs = asArray(feed.geometry);
+    if (feed.adapter === 'irail') {
+      try {
+        const payload = await getJson(`${feed.base}stations/?format=json&lang=en`, feed.cors, 86400);
+        for (const station of parseIrailStations(payload)) {
+          pushStation(feed, station, '', feed.network, DEFAULT_COLOR.rail);
+        }
+      } catch (e) { /* connection vias below can still provide station dots */ }
+    }
+    await Promise.all(pairs.map(async (pair) => {
+      try {
+        const url = feed.adapter === 'irail'
+          ? `${feed.base}connections/?from=${encodeURIComponent(pair.from)}&to=${encodeURIComponent(pair.to)}&format=json&lang=en`
+          : `${feed.base}connections?from=${encodeURIComponent(pair.from)}&to=${encodeURIComponent(pair.to)}&limit=1`;
+        const data = await getJson(url, feed.cors, 86400);
+        const parsed = feed.adapter === 'irail'
+          ? parseIrailConnection(data, pair) : parseOpendataChConnection(data, pair);
+        if (parsed.coords.length > 1) {
+          lines.push({ feed: feed.id, id: parsed.id, name: parsed.name, color: parsed.color, coords: [parsed.coords] });
+        }
+        for (const station of parsed.stations) {
+          pushStation(feed, station, parsed.id, parsed.name, parsed.color);
+        }
+      } catch (e) { /* one route request failing never erases a board feed */ }
+    }));
+  }
+
+  function parseGtfsStatic(payload, feed) {
+    const linesOut = asArray(payload && payload.lines).map((line) => ({
+      id: String(line && line.id || ''), name: String(line && line.name || ''),
+      color: readable(line && line.color || DEFAULT_COLOR[modeFor(feed)]),
+      coords: asArray(line && line.coords).filter((point) => Array.isArray(point) &&
+        Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))),
+    })).filter((line) => line.id && line.coords.length > 1);
+    const stationsOut = distinctStations(asArray(payload && payload.stations).map((station) => ({
+      id: String(station && station.id || ''), name: String(station && station.name || ''),
+      lon: coordinate(station && station.lon), lat: coordinate(station && station.lat),
+    })));
+    return { lines: linesOut, stations: stationsOut };
+  }
+
+  async function gcrtaStatic(feed) {
+    const response = await fetch(feed.static || 'data/gcrta-static.json', { cache: 'default' });
+    if (!response.ok) throw new Error('GCRTA static table unavailable');
+    const parsed = parseGtfsStatic(await response.json(), feed);
+    for (const line of parsed.lines) {
+      lines.push({ feed: feed.id, id: line.id, name: line.name, color: line.color, coords: [line.coords] });
+    }
+    for (const station of parsed.stations) pushStation(feed, station, '', feed.network, DEFAULT_COLOR.rail);
   }
 
   /* -------------------------------------------------- GTFS-Realtime (buses) --
@@ -1154,6 +1347,12 @@ const Transit = (() => {
     return target;
   }
 
+  async function getSeoulBatch() {
+    const relay = await fetch('/api/transit/seoul', { cache: 'no-store' });
+    if (!relay.ok) throw new Error('unavailable');
+    return relay.json();
+  }
+
   async function getJson(url, direct, windowSec) {
     if (direct) {
       try {
@@ -1199,7 +1398,10 @@ const Transit = (() => {
       else if (feed.adapter === 'bart') await bartStatic(feed);
       else if (feed.adapter === 'umo') await umoStatic(feed);
       else if (feed.adapter === 'seoul') await seoulStatic(feed);
+      else if (feed.adapter === 'mbta') await mbtaStatic(feed);
       else if (feed.adapter === 'digitraffic') await digitrafficStatic(feed);
+      else if (feed.adapter === 'opendata-ch' || feed.adapter === 'irail') await boardStatic(feed);
+      else if (feed.adapter === 'gtfsrt' && feed.static) await gcrtaStatic(feed);
     } catch (e) {
       staticDone.delete(feed.id);   // let the next tick retry instead of leaving the network half-drawn
       throw e;
@@ -1867,9 +2069,10 @@ const Transit = (() => {
     parseBartStations, parseBartRoutes, parseBartRouteInfo, parseBartEtd,
     parseUmoRoutes, parseUmoVehicles,
     parseKst, parseSeoulPositions, seoulLookup, seoulStationCandidates,
-    budgetedSweep, refreshSeoul, agoText, ADAPTERS, finite,
-    parseMbtaVehicles, parseDigitrafficTrains, digitrafficStations, digitrafficStationOf,
-    parseOpendataChStationboard, parseIrailLiveboard, keepPerStation,
+    budgetedSweep, refreshSeoul, parseSeoulBatch, agoText, ADAPTERS, finite,
+    parseMbtaVehicles, parseMbtaStatic, parseDigitrafficTrains, digitrafficStations, digitrafficStationOf,
+    parseOpendataChStationboard, parseIrailLiveboard, parseOpendataChConnection, parseIrailConnection,
+    parseIrailStations, parseGtfsStatic, stationPoint, keepPerStation,
     pbFields, pbVarint, parseGtfsrtFeed,
   };
 })();

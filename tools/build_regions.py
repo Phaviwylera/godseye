@@ -23,11 +23,17 @@ def main():
         sys.exit(1)
 
     src = json.load(open(src_path))
+    # The probe's human-readable id map stays in the repository for resumable
+    # checks.  The published app gets a compact bitfield aligned to index_feats
+    # instead: one bit per row, 1 = responding and 0 = not responding.
     lv = {}
+    liveness_generated = ""
     lv_path = os.path.join(ROOT, "data", "liveness.json")
     if os.path.exists(lv_path):
         try:
-            lv = json.load(open(lv_path)).get("s") or {}
+            liveness_doc = json.load(open(lv_path))
+            lv = liveness_doc.get("s") or {}
+            liveness_generated = str(liveness_doc.get("generated") or "")
         except Exception:
             pass
 
@@ -58,8 +64,6 @@ def main():
             "lon": round(float(lon), 5),
             "lat": round(float(lat), 5),
         }
-        if live is not None:
-            idx["l"] = int(live)
         index_feats.append(idx)
 
         full = {
@@ -70,8 +74,6 @@ def main():
             "status": p.get("status") or "unknown", "page": p.get("page") or "",
             "lon": float(lon), "lat": float(lat),
         }
-        if live is not None:
-            full["live"] = int(live)
         by_cc[cc].append((region, full, idx))
 
     final_packs = defaultdict(list)
@@ -95,9 +97,10 @@ def main():
                 idx["pk"] = cc
 
     manifest = {
-        "v": 1,
+        "v": 2,
         "total": len(index_feats),
         "generated_from": src.get("generated_at"),
+        "liveness_generated": liveness_generated,
         "packs": {},
     }
     for key, rows in sorted(final_packs.items()):
@@ -106,13 +109,25 @@ def main():
             json.dump({"pack": key, "cams": rows}, f, separators=(",", ":"))
         manifest["packs"][key] = {"count": len(rows), "bytes": os.path.getsize(path)}
 
+    # Little-endian within each byte so JavaScript can decode bit i with
+    # bytes[i >> 3] >> (i & 7).  Missing liveness is only possible for non-media
+    # portal rows; the browser deliberately ignores their bit and keeps them unknown.
+    bits = bytearray((len(index_feats) + 7) // 8)
+    for i, row in enumerate(index_feats):
+        if int(lv.get(row["id"], 0)):
+            bits[i >> 3] |= 1 << (i & 7)
+    with open(os.path.join(ROOT, "data", "liveness.bin"), "wb") as f:
+        f.write(bits)
+
     with open(os.path.join(ROOT, "data", "cameras.index.json"), "w") as f:
-        json.dump({"v": 1, "count": len(index_feats), "cams": index_feats}, f, separators=(",", ":"))
+        json.dump({"v": 2, "count": len(index_feats), "lv": liveness_generated,
+                   "cams": index_feats}, f, separators=(",", ":"))
     with open(os.path.join(out_dir, "manifest.json"), "w") as f:
         json.dump(manifest, f, separators=(",", ":"))
 
     idx_sz = os.path.getsize(os.path.join(ROOT, "data", "cameras.index.json"))
     print(f"wrote cameras.index.json ({idx_sz/1e6:.2f} MB, {len(index_feats)} cams)")
+    print(f"wrote liveness.bin ({len(bits):,} bytes, one bit per index row)")
     print(f"wrote {len(final_packs)} region packs → data/regions/")
     largest = max(manifest["packs"].items(), key=lambda x: x[1]["bytes"])
     print(f"largest pack: {largest[0]} ({largest[1]['count']} cams, {largest[1]['bytes']/1e6:.2f} MB)")

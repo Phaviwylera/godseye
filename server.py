@@ -12,6 +12,7 @@ GOD'S EYE — tiny zero-dependency server (Python stdlib only).
 Run:  python3 server.py [port]      (default 8000, binds 0.0.0.0)
 """
 import os, re, sys, time, json, base64, threading, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote
@@ -115,6 +116,15 @@ CACHE_MAX_ENTRIES = 64
 CACHE_MAX_BYTES = 512 * 1024
 WINDOW_MAX_SEC = 900
 
+# The browser calls one bounded endpoint for Seoul's sixteen documented public sample
+# lines. Keeping the line list and base URL server-owned avoids a batch endpoint that
+# could otherwise be repurposed into an arbitrary multi-fetch relay.
+SEOUL_LINES = ("1호선", "2호선", "3호선", "4호선", "5호선", "6호선", "7호선", "8호선", "9호선",
+               "경의중앙선", "수인분당선", "신분당선", "공항철도", "우이신설선", "서해선", "신림선")
+SEOUL_BASE = os.environ.get("SEOUL_SUBWAY_BASE",
+    "http://swopenapi.seoul.go.kr/api/subway/sample/json/realtimePosition/0/5/")
+SEOUL_WINDOW_SEC = 1500
+
 
 def window_sec(value):
     try:
@@ -185,6 +195,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- abuse protection: same-site check + per-IP rate limit ----
     _hits = {}
+    _seoul_hits = {}
 
     def _client_ok(self):
         host = (self.headers.get("Host") or "").split(":")[0]
@@ -207,6 +218,21 @@ class Handler(BaseHTTPRequestHandler):
         Handler._hits[ip] = arr
         if len(Handler._hits) > 5000:
             Handler._hits.clear()
+        return True
+
+    def _seoul_batch_ok(self):
+        """A batch can trigger sixteen source reads on a cold cache, so keep a stricter
+        per-IP ceiling than ordinary HLS segment traffic."""
+        ip = self.client_address[0]
+        now = time.time()
+        with CACHE_LOCK:
+            arr = [t for t in Handler._seoul_hits.get(ip, []) if now - t < 60]
+            if len(arr) >= 12:
+                return False
+            arr.append(now)
+            Handler._seoul_hits[ip] = arr
+            if len(Handler._seoul_hits) > 5000:
+                Handler._seoul_hits.clear()
         return True
 
     def log_message(self, fmt, *args):
@@ -245,6 +271,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "cross-site use not allowed / rate limit"}, 403)
         if path == "/api/proxy":
             return self.do_proxy(parse_qs(parsed.query).get("url", [""])[0])
+        if path == "/api/transit/seoul":
+            if not self._seoul_batch_ok():
+                return self._json({"error": "rate limit — slow down"}, 429)
+            return self.do_seoul_batch()
         if path == "/api/fetch":
             query = parse_qs(parsed.query)
             return self.do_fetch(
@@ -307,6 +337,37 @@ class Handler(BaseHTTPRequestHandler):
             pass
         finally:
             upstream.close()
+
+    # --------------------------------------------------------- Seoul batch ----
+    def _seoul_json(self, url):
+        hit = cache_get(url, SEOUL_WINDOW_SEC)
+        if hit:
+            try:
+                return json.loads(hit["data"].decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                pass
+        try:
+            ctype, data = self._single_flight(url, lambda: self._upstream(url))
+            parsed = json.loads(data.decode("utf-8"))
+            # Exactly the same safe write rule as /api/fetch: only genuine operator
+            # JSON is kept, never a refusal envelope or relay failure.
+            if cacheable(data):
+                cache_set(url, {"at": time.time(), "ctype": ctype, "data": data})
+            return parsed
+        except Exception:
+            return None
+
+    def do_seoul_batch(self):
+        lines = {}
+        # Four workers are enough to shorten the cold load without a 16-connection burst.
+        def read(line):
+            url = SEOUL_BASE + quote(line, safe="")
+            data = self._seoul_json(url)
+            return line, ({"data": data} if data is not None else {"error": "unavailable"})
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            for line, value in ex.map(read, SEOUL_LINES):
+                lines[line] = value
+        self._json({"lines": lines})
 
     # ------------------------------------------------------------- fetch ----
     def _single_flight(self, url, fn):

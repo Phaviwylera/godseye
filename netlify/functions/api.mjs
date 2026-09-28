@@ -4,6 +4,8 @@
  */
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { createHash } from "node:crypto";
+import { getStore } from "@netlify/blobs";
 
 const BLOCKED = new Set(["localhost", "0.0.0.0", "::1"]);
 const MAX_BYTES = 16 * 1024 * 1024;
@@ -112,11 +114,26 @@ function rewriteM3u8(text, base) {
  * never a relay-level failure — so a cached answer can only ever be an answer the operator
  * really gave.
  */
-const CACHE = new Map();               // url -> { at, body, ctype }
-const INFLIGHT = new Map();            // url -> Promise<{ ok, status, ctype, buf }>
+const CACHE = new Map();               // warm instance: url -> { at, body, ctype }
+const INFLIGHT = new Map();            // warm instance: url -> Promise<{ ok, status, ctype, buf }>
 const CACHE_MAX_ENTRIES = 64;
 const CACHE_MAX_BYTES = 512 * 1024;
 const WINDOW_MAX_SEC = 900;
+
+/* Memory makes repeat reads on one warm function cheap. Blobs is the authoritative
+ * read-through tier across Netlify instances and cold starts.  It is deliberately
+ * restricted to the small set of operator APIs that use a cache window: otherwise
+ * this public relay could be used to create an unbounded persistent key space. */
+const PERSISTENT_CACHE_HOSTS = new Set([
+  'swopenapi.seoul.go.kr', 'api-v3.mbta.com', 'rata.digitraffic.fi',
+  'transport.opendata.ch', 'api.irail.be', 'api.adsb.lol',
+]);
+const RELAY_CACHE_STORE = 'relay-json-cache-v1';
+let relayBlobStore; // undefined = lazily create the real store; null = disabled in tests
+
+/* Test hook: production code never supplies a store and always uses Netlify Blobs. */
+export function setRelayBlobStoreForTest(store) { relayBlobStore = store; }
+export function resetRelayCacheForTest() { CACHE.clear(); INFLIGHT.clear(); }
 
 function windowSec(param) {
   const n = Number(param);
@@ -134,19 +151,124 @@ function cacheable(text) {
   return parsed.error == null && parsed.errorMessage == null;
 }
 
-function cacheGet(url, window) {
+function cacheGetMemory(url, window) {
   const entry = CACHE.get(url);
   if (!entry) return null;
   if (Date.now() - entry.at >= window * 1000) { CACHE.delete(url); return null; }
   return entry;
 }
 
-function cacheSet(url, entry) {
+function cacheSetMemory(url, entry) {
   CACHE.set(url, entry);
   while (CACHE.size > CACHE_MAX_ENTRIES) {
     const oldest = [...CACHE.entries()].sort((a, b) => a[1].at - b[1].at)[0][0];
     CACHE.delete(oldest);
   }
+}
+
+function persistentCacheAllowed(url) {
+  try { return PERSISTENT_CACHE_HOSTS.has(new URL(url).hostname.toLowerCase()); }
+  catch { return false; }
+}
+
+function relayCacheKey(url) {
+  return 'v1/' + createHash('sha256').update(url).digest('hex');
+}
+
+function relayStore() {
+  if (relayBlobStore !== undefined) return relayBlobStore;
+  try {
+    relayBlobStore = getStore({ name: RELAY_CACHE_STORE, consistency: 'strong' });
+  } catch {
+    relayBlobStore = null;
+  }
+  return relayBlobStore;
+}
+
+function validCacheEntry(entry, window) {
+  if (!entry || !Number.isFinite(entry.at) || typeof entry.body !== 'string' ||
+      typeof entry.ctype !== 'string' || Date.now() - entry.at >= window * 1000) return null;
+  // A corrupt or old-format Blob must never turn into an answer, and the same
+  // no-error-envelope rule is enforced on read as well as write.
+  return cacheable(entry.body) ? entry : null;
+}
+
+async function cacheGet(url, window) {
+  const warm = cacheGetMemory(url, window);
+  if (warm) return { entry: warm, tier: 'memory' };
+  if (!persistentCacheAllowed(url)) return null;
+  try {
+    const store = relayStore();
+    const saved = store && await store.get(relayCacheKey(url), { type: 'json' });
+    const entry = validCacheEntry(saved, window);
+    if (!entry) return null;
+    cacheSetMemory(url, entry);
+    return { entry, tier: 'blob' };
+  } catch {
+    // Blob availability is an optimisation, never a relay failure.
+    return null;
+  }
+}
+
+async function cacheSet(url, entry) {
+  cacheSetMemory(url, entry);
+  if (!persistentCacheAllowed(url)) return;
+  try {
+    const store = relayStore();
+    if (store) await store.setJSON(relayCacheKey(url), entry);
+  } catch {
+    // The caller still receives the verified upstream answer from this request.
+  }
+}
+
+/* OpenSky has required OAuth2 client credentials since 2026-03-18. Credentials
+ * are read only in the Function and are attached exclusively to its API host;
+ * neither browser code nor responses can expose them. Anonymous calls still work. */
+const OPENSKY_HOSTS = new Set(['opensky-network.org', 'api.opensky-network.org']);
+const OPENSKY_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
+let openskyToken = null;
+let openskyTokenFlight = null;
+
+async function openSkyAccessToken() {
+  if (openskyToken && openskyToken.expiresAt > Date.now() + 60_000) return openskyToken.value;
+  if (openskyTokenFlight) return openskyTokenFlight;
+  const clientId = process.env.OPENSKY_CLIENT_ID;
+  const clientSecret = process.env.OPENSKY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+  openskyTokenFlight = (async () => {
+    const response = await fetch(OPENSKY_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new Error('opensky token unavailable');
+    const payload = await response.json();
+    if (!payload || typeof payload.access_token !== 'string' || !payload.access_token) {
+      throw new Error('opensky token invalid');
+    }
+    const lifetime = Math.max(60, Number(payload.expires_in) || 300);
+    openskyToken = { value: payload.access_token, expiresAt: Date.now() + lifetime * 1000 };
+    return openskyToken.value;
+  })().catch(() => null).finally(() => { openskyTokenFlight = null; });
+  return openskyTokenFlight;
+}
+
+export function resetOpenSkyAuthForTest() { openskyToken = null; openskyTokenFlight = null; }
+export async function upstreamHeadersForTest(url) { return upstreamHeaders(url); }
+
+async function upstreamHeaders(url) {
+  const headers = { 'User-Agent': 'Mozilla/5.0 GodsEyeCCTV/1.0', Accept: '*/*' };
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return headers; }
+  if (OPENSKY_HOSTS.has(host)) {
+    const token = await openSkyAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 /* Follow redirects by hand so every hop is address-checked before it is fetched. */
@@ -160,7 +282,7 @@ async function fetchUpstream(url) {
     r = await fetch(current, {
       redirect: "manual",
       signal: AbortSignal.timeout(8000),
-      headers: { "User-Agent": "Mozilla/5.0 GodsEyeCCTV/1.0", Accept: "*/*" },
+      headers: await upstreamHeaders(current),
     }).catch((te) => { throw Object.assign(new Error("source-timeout-or-unreachable"), { detail: String(te), timeout: true }); });
     if (![301, 302, 303, 307, 308].includes(r.status)) break;
     const location = r.headers.get("location");
@@ -181,6 +303,61 @@ async function fetchUpstream(url) {
 const TEXTUAL = (ctype) => ctype.includes("json") || ctype.includes("text") ||
   ctype.includes("xml") || ctype.includes("csv") || ctype.includes("javascript");
 
+/* Seoul's public sample endpoint accepts exactly these documented line identifiers.
+ * This endpoint takes no URL, key or line parameter from the browser: callers cannot
+ * repurpose the batch worker as an arbitrary multi-fetch primitive. */
+const SEOUL_LINES = ['1호선', '2호선', '3호선', '4호선', '5호선', '6호선', '7호선', '8호선', '9호선',
+  '경의중앙선', '수인분당선', '신분당선', '공항철도', '우이신설선', '서해선', '신림선'];
+const SEOUL_BASE = process.env.SEOUL_SUBWAY_BASE ||
+  'http://swopenapi.seoul.go.kr/api/subway/sample/json/realtimePosition/0/5/';
+const SEOUL_WINDOW_SEC = 1500;
+const SEOUL_HITS = new Map();
+
+function seoulBatchRateOK(ip) {
+  const now = Date.now();
+  const arr = (SEOUL_HITS.get(ip) || []).filter((t) => now - t < 60_000);
+  if (arr.length >= 12) return false; // this one request fans out to 16 operator reads at most
+  arr.push(now); SEOUL_HITS.set(ip, arr);
+  if (SEOUL_HITS.size > 5000) SEOUL_HITS.clear();
+  return true;
+}
+
+async function windowedJson(url, window) {
+  const hit = await cacheGet(url, window);
+  if (hit) return JSON.parse(hit.entry.body);
+  let upstream;
+  if (!INFLIGHT.has(url)) INFLIGHT.set(url, fetchUpstream(url).finally(() => INFLIGHT.delete(url)));
+  upstream = await INFLIGHT.get(url);
+  if (upstream.failure) throw new Error('unavailable');
+  if (upstream.isHls || !TEXTUAL(upstream.ctype)) throw new Error('unavailable');
+  const text = upstream.buf.toString('utf8');
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('unavailable'); }
+  if (cacheable(text)) await cacheSet(url, { at: Date.now(), body: text, ctype: upstream.ctype });
+  return data;
+}
+
+async function seoulBatch() {
+  const lines = {};
+  let cursor = 0;
+  const read = async () => {
+    while (cursor < SEOUL_LINES.length) {
+      const line = SEOUL_LINES[cursor++];
+      const url = SEOUL_BASE + encodeURIComponent(line);
+      try {
+        lines[line] = { data: await windowedJson(url, SEOUL_WINDOW_SEC) };
+      } catch {
+        // Do not place a relay error envelope in any cache.  The client can retain
+        // its previous valid rows and explain that this particular line was unavailable.
+        lines[line] = { error: 'unavailable' };
+      }
+    }
+  };
+  await Promise.all([read(), read(), read(), read()]); // bound upstream fan-out to four
+  return { statusCode: 200, headers: { ...CORS, 'Content-Type': 'application/json',
+    'Cache-Control': 'no-store', 'X-Cache': 'BATCH' }, body: JSON.stringify({ lines }) };
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS, body: "" };
 
@@ -195,6 +372,13 @@ export async function handler(event) {
   }
 
   const params = event.queryStringParameters || {};
+  const path = event.path || "";
+  if (path.includes('/transit/seoul')) {
+    if (!seoulBatchRateOK(ip)) {
+      return { statusCode: 429, headers: CORS, body: JSON.stringify({ error: 'rate limit — slow down' }) };
+    }
+    return seoulBatch();
+  }
   const url = params.url || "";
   // health/liveness probe (and anything without a url) → report relay status
   if (!url) {
@@ -210,10 +394,10 @@ export async function handler(event) {
   const window = isFetch && !asBase64 ? windowSec(params.window) : 0;
 
   if (window) {
-    const hit = cacheGet(url, window);
+    const hit = await cacheGet(url, window);
     if (hit) {
-      return { statusCode: 200, headers: { ...CORS, "Content-Type": hit.ctype,
-        "Cache-Control": "no-store", "X-Cache": "HIT" }, body: hit.body };
+      return { statusCode: 200, headers: { ...CORS, "Content-Type": hit.entry.ctype,
+        "Cache-Control": "no-store", "X-Cache": "HIT", "X-Cache-Tier": hit.tier }, body: hit.entry.body };
     }
   }
 
@@ -259,7 +443,7 @@ export async function handler(event) {
 
     const text = TEXTUAL(ctype) || (isFetch && !asBase64) ? buf.toString("utf8") : buf.toString("base64");
     if (window && TEXTUAL(ctype) && cacheable(buf.toString("utf8"))) {
-      cacheSet(url, { at: Date.now(), body: buf.toString("utf8"), ctype });
+      await cacheSet(url, { at: Date.now(), body: buf.toString("utf8"), ctype });
     }
     return {
       statusCode: 200,

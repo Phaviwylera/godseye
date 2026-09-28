@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """God's Eye — tooling unit tests (stdlib unittest, no deps)."""
-import http.client, json, os, re, sys, time, unittest, urllib.parse, urllib.request, importlib.util
+import base64, concurrent.futures, http.client, json, os, re, sys, threading, time, unittest, urllib.parse, urllib.request, importlib.util
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -14,10 +15,6 @@ def load_module(name, path):
 
 
 class TestServer(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.srv = load_module("server", os.path.join(ROOT, "server.py"))
-
     def test_valid_url_blocks_local(self):
         self.assertFalse(self.srv.valid_url("http://127.0.0.1/x"))
         self.assertFalse(self.srv.valid_url("http://localhost:8000/x"))
@@ -111,6 +108,116 @@ class TestServer(unittest.TestCase):
                              "the newest answer survives eviction")
         srv.CACHE.clear()
 
+    # ------------------------------------------------------ HTTP relay contract --
+    # Keep this real HTTP exercise separate from unit-level cache checks.  It catches
+    # response framing and thread behavior that a direct do_fetch call cannot see.
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_module("server", os.path.join(ROOT, "server.py"))
+        super().setUpClass()
+        class StubUpstream(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            hits = {}
+            lock = threading.Lock()
+            started = threading.Event()
+            release = threading.Event()
+
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                path = urllib.parse.urlparse(self.path).path
+                with self.lock:
+                    self.hits[path] = self.hits.get(path, 0) + 1
+                    hit = self.hits[path]
+                if path == "/block":
+                    self.started.set()
+                    self.release.wait(4)
+                if path == "/binary":
+                    body, ctype, code = bytes([0, 1, 2, 255]), "application/octet-stream", 200
+                elif path == "/envelope":
+                    body, ctype, code = b'{"errorMessage":{"code":"INFO-300"}}', "application/json", 200
+                else:
+                    body = json.dumps({"hit": hit, "path": path}, separators=(",", ":")).encode()
+                    ctype, code = "application/json", 200
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        cls.stub_handler = StubUpstream
+        cls.upstream = ThreadingHTTPServer(("127.0.0.1", 0), StubUpstream)
+        cls.upstream_thread = threading.Thread(target=cls.upstream.serve_forever, daemon=True)
+        cls.upstream_thread.start()
+        cls.relay = cls.srv.Server(("127.0.0.1", 0), cls.srv.Handler)
+        cls.relay_thread = threading.Thread(target=cls.relay.serve_forever, daemon=True)
+        cls.relay_thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.relay.shutdown(); cls.relay.server_close(); cls.relay_thread.join(timeout=3)
+        cls.upstream.shutdown(); cls.upstream.server_close(); cls.upstream_thread.join(timeout=3)
+        super().tearDownClass()
+
+    def _stub_url(self, path):
+        return "http://127.0.0.1:%d%s" % (self.upstream.server_port, path)
+
+    def _relay_get(self, target, **params):
+        query = urllib.parse.urlencode({"url": target, **params})
+        conn = http.client.HTTPConnection("127.0.0.1", self.relay.server_port, timeout=8)
+        try:
+            conn.request("GET", "/api/fetch?" + query)
+            response = conn.getresponse()
+            return response.status, dict(response.getheaders()), response.read()
+        finally:
+            conn.close()
+
+    def test_http_fetch_contract_caches_single_flights_and_base64s(self):
+        srv = self.srv
+        original_valid_url = srv.valid_url
+        # The production relay rejects localhost by design.  This isolated test has its
+        # own stub upstream, so let its otherwise-real Handler talk to that ephemeral port.
+        srv.valid_url = lambda _url: True
+        srv.CACHE.clear(); srv.INFLIGHT.clear(); srv.Handler._hits.clear()
+        stub = self.stub_handler
+        stub.hits.clear(); stub.started.clear(); stub.release.set()
+        try:
+            target = self._stub_url("/json")
+            one = self._relay_get(target, window="600")
+            two = self._relay_get(target, window="600")
+            self.assertEqual(one[0], 200); self.assertEqual(two[0], 200)
+            self.assertEqual(one[1].get("X-Cache"), "MISS")
+            self.assertEqual(two[1].get("X-Cache"), "HIT")
+            self.assertEqual(stub.hits.get("/json"), 1, "a cache window makes one upstream HTTP call")
+            self.assertEqual(one[2], two[2])
+
+            binary = self._relay_get(self._stub_url("/binary"), encoding="base64", window="600")
+            self.assertEqual(binary[0], 200)
+            self.assertEqual(binary[1].get("X-Cache"), "SKIP", "binary payloads are never JSON-cached")
+            self.assertEqual(binary[2], base64.b64encode(bytes([0, 1, 2, 255])))
+
+            # A valid HTTP 200 error envelope must not be replayed as a cached answer.
+            self._relay_get(self._stub_url("/envelope"), window="600")
+            self._relay_get(self._stub_url("/envelope"), window="600")
+            self.assertEqual(stub.hits.get("/envelope"), 2)
+
+            stub.release.clear()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(self._relay_get, self._stub_url("/block"), window="600")
+                self.assertTrue(stub.started.wait(2), "the upstream request started")
+                second = pool.submit(self._relay_get, self._stub_url("/block"), window="600")
+                time.sleep(0.08)
+                self.assertEqual(stub.hits.get("/block"), 1, "two relay clients share one in-flight HTTP fetch")
+                stub.release.set()
+                results = [first.result(timeout=5), second.result(timeout=5)]
+            self.assertTrue(all(result[0] == 200 for result in results))
+            self.assertEqual(results[0][2], results[1][2])
+        finally:
+            stub.release.set()
+            srv.valid_url = original_valid_url
+            srv.CACHE.clear(); srv.INFLIGHT.clear()
+
 
 class TestDataset(unittest.TestCase):
     @classmethod
@@ -148,6 +255,27 @@ class TestContract(unittest.TestCase):
              set(re.findall(r'getElementById\("([\w-]+)"\)', app + intel))
         missing = [i for i in ids if f'id="{i}"' not in html]
         self.assertEqual(missing, [], f"missing ids in index.html: {missing}")
+
+    def test_offline_shell_caches_every_html_app_script(self):
+        """An installed PWA must not silently lose a newly added UI layer."""
+        html = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+        worker = open(os.path.join(ROOT, "sw.js"), encoding="utf-8").read()
+        scripts = set(re.findall(r'<script[^>]+src=["\'](js/[^"\']+\.js)["\']', html))
+        core = set(re.findall(r'["\']\./(js/[^"\']+\.js)["\']', worker))
+        self.assertTrue(scripts, "index.html should load app scripts")
+        self.assertEqual(scripts - core, set(), f"not precached by sw.js CORE: {sorted(scripts - core)}")
+        self.assertIn("js/transit.js", core)
+
+    def test_liveness_is_a_compact_bitfield_aligned_to_the_camera_index(self):
+        index = json.load(open(os.path.join(ROOT, "data", "cameras.index.json")))
+        packed = open(os.path.join(ROOT, "data", "liveness.bin"), "rb").read()
+        self.assertEqual(len(packed), (len(index["cams"]) + 7) // 8)
+        self.assertLess(len(packed), 4000, "24k liveness flags should be a few KB, not an id map")
+        self.assertNotIn("l", index["cams"][0], "liveness belongs in the bitfield, not every index row")
+        self.assertTrue(index.get("lv"), "one generated timestamp marks the weekly baseline")
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        self.assertIn('fetch("data/liveness.bin"', app)
+        self.assertNotIn('fetch("data/liveness.json"', app)
 
     def test_manifest_valid(self):
         m = json.load(open(os.path.join(ROOT, "manifest.json")))

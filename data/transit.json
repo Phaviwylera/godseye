@@ -1,5 +1,5 @@
 {
-  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept. 'station' = the operator publishes which station a train is at and no coordinates at all; the train is drawn at that station's coordinate from a bundled station list. adapter: oba | tfl | bart | umo | seoul | mbta | digitraffic | opendata-ch | irail | gtfsrt. For quota-limited feeds pollSec / budgetSec / maxAgeSec are one contract: maxAgeSec >= budgetSec + pollSec and targets × 86400 / budgetSec <= dailyBudget (default 10000), asserted by tests/transit.test.mjs.",
+  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept. 'station' = the operator publishes which station a train is at and no coordinates at all; the train is drawn at that station's coordinate from a bundled station list. adapter: oba | tfl | bart | umo | seoul | mbta | digitraffic | opendata-ch | irail | gtfsrt. Static geometry is sourced from operator shapes/stops, connection pass lists/vias, or compact GTFS extracts. For quota-limited feeds pollSec / budgetSec / maxAgeSec are one contract: maxAgeSec >= budgetSec + pollSec and targets × 86400 / budgetSec <= dailyBudget (default 10000), asserted by tests/transit.test.mjs.",
   "updated": "2026-09-28",
   "feeds": [
     {
@@ -413,7 +413,7 @@
           "color": "#6789CA"
         }
       ],
-      "note": "This is the portal's public sample key, so it is capped at five trains per line: what is drawn is a sample of the fleet, not the whole of it. The endpoint reports which station a train is at, never a position, so each train sits on its station's coordinate and a train at a station the table cannot resolve — or a name shared by two stations, such as 양평 — is not drawn at all. The sample key is limited to 1,000 requests a day for everyone together, so this feed is budgeted, not polled: pollSec / budgetSec / maxAgeSec are one contract (16 lines × 86400/1500 = 921 requests a day at worst, held for 40 minutes so a refused poll never blanks the map) and tests/transit.test.mjs fails if they are retuned apart. The relay caches each line's answer for budgetSec, so every visitor shares one request per window instead of spending the key per tab. Register a free key at data.seoul.go.kr and put it in `base` in place of `sample` for full coverage and a larger budget. Korean buses and the metro of Busan, Daegu, Daejeon and Gwangju publish no keyless feed, so they are absent."
+      "note": "This is the portal's public sample key, so it is capped at five trains per line: what is drawn is a sample of the fleet, not the whole of it. The endpoint reports which station a train is at, never a position, so each train sits on its station's coordinate and a train at a station the table cannot resolve — or a name shared by two stations, such as 양평 — is not drawn at all. The sample key is limited to 1,000 requests a day for everyone together, so this feed is budgeted, not polled: pollSec / budgetSec / maxAgeSec are one contract (16 lines × 86400/1500 = 921 requests a day at worst, held for 40 minutes so a refused poll never blanks the map) and tests/transit.test.mjs fails if they are retuned apart. The browser makes one bounded relay call for all sixteen lines; the relay's fixed allowlist and per-line cache share each answer for budgetSec, so every visitor shares one request per window instead of spending the key per tab. Register a free key at data.seoul.go.kr and put it in `base` in place of `sample` for full coverage and a larger budget. Korean buses and the metro of Busan, Daegu, Daejeon and Gwangju publish no keyless feed, so they are absent."
     },
     {
       "id": "mbta",
@@ -438,7 +438,49 @@
       "budgetSec": 60,
       "maxAgeSec": 600,
       "windowSec": 30,
-      "note": "One keyless call returns every vehicle MBTA is running — subway, Green Line, Silver Line and the whole bus fleet — with GPS positions, so this is the layer's densest source. The marker follows the GTFS route type of the route the vehicle is on, so the same feed draws both trains and buses. Positions older than ten minutes are dropped rather than held: a vehicle that stopped reporting is off the map, not frozen on it."
+      "note": "One keyless call returns every vehicle MBTA is running — subway, Green Line, Silver Line and the whole bus fleet — with GPS positions, so this is the layer's densest source. The marker follows the GTFS route type of the route the vehicle is on, so the same feed draws both trains and buses. Positions older than ten minutes are dropped rather than held: a vehicle that stopped reporting is off the map, not frozen on it. Rail line paths and stops load once from MBTA shapes and stops; buses remain live-position-only so the static request stays small.",
+      "staticRoutes": [
+        {
+          "id": "Red",
+          "name": "Red Line",
+          "color": "#DA291C"
+        },
+        {
+          "id": "Orange",
+          "name": "Orange Line",
+          "color": "#ED8B00"
+        },
+        {
+          "id": "Blue",
+          "name": "Blue Line",
+          "color": "#003DA5"
+        },
+        {
+          "id": "Green-B",
+          "name": "Green Line B",
+          "color": "#00843D"
+        },
+        {
+          "id": "Green-C",
+          "name": "Green Line C",
+          "color": "#00843D"
+        },
+        {
+          "id": "Green-D",
+          "name": "Green Line D",
+          "color": "#00843D"
+        },
+        {
+          "id": "Green-E",
+          "name": "Green Line E",
+          "color": "#00843D"
+        },
+        {
+          "id": "Mattapan",
+          "name": "Mattapan Trolley",
+          "color": "#DA291C"
+        }
+      ]
     },
     {
       "id": "fi-rail",
@@ -458,12 +500,12 @@
       ],
       "zoom": 6,
       "base": "https://rata.digitraffic.fi/api/v1/",
-      "stations": "https://rata.digitraffic.fi/api/v1/metadata/stations",
+      "stations": "data/fi-stations.json",
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 900,
       "windowSec": 30,
-      "note": "Digitraffic publishes every train in the country and which station it has actually reached, but no coordinates, so each train is drawn at that station using the agency's own station table (loaded once per session and cached a day by the relay). The delay shown is the feed's actual time against its scheduled time. A train whose last report is older than fifteen minutes is dropped."
+      "note": "Digitraffic publishes every train in the country and which station it has actually reached, but no coordinates, so each train is drawn at that station using the agency's own station table (bundled in `data/fi-stations.json` and refreshed weekly from the agency). The delay shown is the feed's actual time against its scheduled time. A train whose last report is older than fifteen minutes is dropped."
     },
     {
       "id": "ch-rail",
@@ -497,9 +539,68 @@
         "8502113",
         "8504100",
         "8506197",
-        "8500090"
+        "8500090",
+        "8506000",
+        "8500309",
+        "8501008",
+        "8502204",
+        "8505300",
+        "8506310",
+        "8506302",
+        "8507492"
       ],
-      "note": "Keyless nationwide Swiss departures with the live delay, one board per hub re-read every five minutes, and at most three departures drawn per station so the map stays readable. Departures that have already left are dropped; a marker is a scheduled departure at the station it leaves from, not a GPS position."
+      "note": "Keyless nationwide Swiss departures with the live delay, one board per hub re-read every five minutes, and at most three departures drawn per station so the map stays readable. Departures that have already left are dropped; a marker is a scheduled departure at the station it leaves from, not a GPS position. Static network paths use the operator connection journey passList coordinates; station dots come from those same published timetable points.",
+      "geometry": [
+        {
+          "id": "ch-zurich-bern",
+          "name": "Zürich–Bern",
+          "from": "8503000",
+          "to": "8507000",
+          "color": "#005ca9"
+        },
+        {
+          "id": "ch-bern-lausanne",
+          "name": "Bern–Lausanne",
+          "from": "8507000",
+          "to": "8501120",
+          "color": "#005ca9"
+        },
+        {
+          "id": "ch-lausanne-geneva",
+          "name": "Lausanne–Genève",
+          "from": "8501120",
+          "to": "8500090",
+          "color": "#005ca9"
+        },
+        {
+          "id": "ch-zurich-basel",
+          "name": "Zürich–Basel",
+          "from": "8503000",
+          "to": "8500010",
+          "color": "#005ca9"
+        },
+        {
+          "id": "ch-zurich-lugano",
+          "name": "Zürich–Lugano",
+          "from": "8503000",
+          "to": "8502113",
+          "color": "#005ca9"
+        },
+        {
+          "id": "ch-zurich-stgallen",
+          "name": "Zürich–St. Gallen",
+          "from": "8503000",
+          "to": "8506302",
+          "color": "#005ca9"
+        },
+        {
+          "id": "ch-bern-interlaken",
+          "name": "Bern–Interlaken",
+          "from": "8507000",
+          "to": "8507492",
+          "color": "#005ca9"
+        }
+      ]
     },
     {
       "id": "be-rail",
@@ -521,7 +622,7 @@
       "base": "https://api.irail.be/",
       "perStation": 3,
       "pollSec": 60,
-      "budgetSec": 300,
+      "budgetSec": 360,
       "maxAgeSec": 900,
       "dailyBudget": 3000,
       "stations": [
@@ -529,9 +630,60 @@
         "Antwerpen-Centraal",
         "Gent-Sint-Pieters",
         "Liège-Guillemins",
-        "Brugge"
+        "Brugge",
+        "Brussels-Central",
+        "Brussels-North",
+        "Leuven",
+        "Namur",
+        "Charleroi-Central",
+        "Kortrijk",
+        "Hasselt"
       ],
-      "note": "iRail republishes SNCB/NMBS departure boards as open data with no key: delay in seconds, platform and station coordinates. Cancelled and already-departed services are dropped. Five hubs re-read every five minutes."
+      "note": "iRail republishes SNCB/NMBS departure boards as open data with no key: delay in seconds, platform and station coordinates. Cancelled and already-departed services are dropped. Twelve hubs re-read every six minutes. Static lines use iRail connection vias and station dots use iRail’s published station list.",
+      "geometry": [
+        {
+          "id": "be-brussels-antwerp",
+          "name": "Brussels–Antwerp",
+          "from": "Brussels-South",
+          "to": "Antwerpen-Centraal",
+          "color": "#005ca9"
+        },
+        {
+          "id": "be-brussels-ghent",
+          "name": "Brussels–Ghent",
+          "from": "Brussels-South",
+          "to": "Gent-Sint-Pieters",
+          "color": "#005ca9"
+        },
+        {
+          "id": "be-brussels-liege",
+          "name": "Brussels–Liège",
+          "from": "Brussels-South",
+          "to": "Liège-Guillemins",
+          "color": "#005ca9"
+        },
+        {
+          "id": "be-ghent-bruges",
+          "name": "Ghent–Bruges",
+          "from": "Gent-Sint-Pieters",
+          "to": "Brugge",
+          "color": "#005ca9"
+        },
+        {
+          "id": "be-brussels-namur",
+          "name": "Brussels–Namur",
+          "from": "Brussels-Central",
+          "to": "Namur",
+          "color": "#005ca9"
+        },
+        {
+          "id": "be-antwerp-hasselt",
+          "name": "Antwerp–Hasselt",
+          "from": "Antwerpen-Centraal",
+          "to": "Hasselt",
+          "color": "#005ca9"
+        }
+      ]
     },
     {
       "id": "gcrta-bus",
@@ -554,7 +706,9 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 600,
-      "note": "GTFS-Realtime is the format most of the world's bus agencies publish, so the layer carries a small protobuf reader for it rather than a per-agency adapter: any agency that publishes a keyless VehiclePositions URL can be added here with adapter \"gtfsrt\" and no new code. Positions are the agency's own; ones older than ten minutes are dropped."
+      "note": "GTFS-Realtime is the format most of the world's bus agencies publish, so the layer carries a small protobuf reader for it rather than a per-agency adapter: any agency that publishes a keyless VehiclePositions URL can be added here with adapter \"gtfsrt\" and no new code. Positions are the agency's own; ones older than ten minutes are dropped. The bundled static GTFS extract supplies line geometry and station dots; its refresh workflow only retains public routes, shapes and stops.",
+      "static": "data/gcrta-static.json",
+      "staticSource": "https://www.riderta.com/sites/default/files/gtfs/latest/google_transit.zip"
     }
   ]
 }

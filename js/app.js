@@ -505,7 +505,6 @@ function applyIndexCam(row) {
     detail: false,
     pk: row.pk || row.c,
   };
-  if (row.l !== undefined) c.live = row.l;
   return c;
 }
 
@@ -699,12 +698,14 @@ async function loadBundled() {
   setLoadStatus("loading index…");
   // Prefer compact index for fast first paint; fall back to full GeoJSON.
   let usedIndex = false;
+  let livenessGenerated = "";
   try {
     const idx = await fetch("data/cameras.index.json").then(r => {
       if (!r.ok) throw new Error("no index");
       return r.json();
     });
     cams = (idx.cams || []).map(applyIndexCam);
+    livenessGenerated = String(idx.lv || "");
     cams.forEach(c => byId.set(c.id, c));
     usedIndex = true;
     setLoadStatus(`index ${fmtNum(cams.length)} · regional on zoom`);
@@ -721,19 +722,25 @@ async function loadBundled() {
   }
   window.GE_CAMS = Object.fromEntries(byId);
 
-  // merge weekly liveness (authoritative baseline until live probe)
+  /* The weekly probe writes one bit per index row (1 = responds, 0 = down).  The
+   * compact index and this byte array share their order, reducing the old 2.7 MB
+   * id-to-boolean JSON fetch to roughly 3 KB.  Only probeable media types consume a
+   * bit; portals and YouTube remain honestly unverified rather than becoming "down".
+   */
   try {
-    const lv = await fetch("data/liveness.json").then(r => r.ok ? r.json() : null);
-    if (lv && lv.s) {
-      cams.forEach(c => {
-        if (c.id in lv.s) {
-          c.live = lv.s[c.id];
-          c._probedAt = 0; // allow fresh re-probe soon
-          c._lastCheckedAt = Number(lv.t && lv.t[c.id]) * 1000 || 0;
-        }
+    const response = await fetch("data/liveness.bin", { cache: "default" });
+    const bytes = response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+    const expected = Math.ceil(cams.length / 8);
+    if (bytes && bytes.length === expected) {
+      const checkedAt = Date.parse((usedIndex && typeof livenessGenerated !== "undefined" && livenessGenerated) || "");
+      cams.forEach((c, i) => {
+        if (!PROBE_TYPES.has(c.stype)) return;
+        c.live = (bytes[i >> 3] >> (i & 7)) & 1;
+        c._probedAt = 0; // permit an in-session re-probe
+        c._lastCheckedAt = Number.isFinite(checkedAt) ? checkedAt : 0;
       });
     }
-  } catch (e) {}
+  } catch (e) { /* liveness is advisory; the registry still works offline. */ }
 
   const countries = [...new Set(cams.map(c => c.country).filter(Boolean))].sort();
   el.fCountry.innerHTML = '<option value="all">world</option>' +

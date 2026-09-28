@@ -1,0 +1,31 @@
+name: refresh-fi-stations
+on:
+  schedule:
+    - cron: "27 4 * * 1" # weekly, Monday 04:27 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Refresh Digitraffic station snapshot
+        run: python tools/refresh_fi_stations.py
+      - name: Commit snapshot
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/fi-stations.json
+          if git diff --cached --quiet; then
+            echo "no station changes"
+          else
+            git commit -m "chore: refresh Finland station table"
+            git push origin "HEAD:${GITHUB_REF}"
+          fi
