@@ -1,5 +1,5 @@
 {
-  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept.",
+  "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept. 'station' = the operator publishes which station a train is at and no coordinates at all; the train is drawn at that station's coordinate from a bundled station list.",
   "updated": "2026-09-28",
   "feeds": [
     {
@@ -306,6 +306,112 @@
       "agency": "portland-sc",
       "maxAgeSec": 180,
       "note": "CORS on this host is not guaranteed: the layer tries the browser first and falls back to the /api/fetch relay."
+    },
+    {
+      "id": "seoul-metro",
+      "adapter": "seoul",
+      "mode": "rail",
+      "network": "Seoul Metropolitan Subway — lines 1–9, Gyeongui–Jungang, Suin–Bundang, Shinbundang, AREX, Ui, Seohae, Sillim",
+      "operator": "Seoul Metro · Korail · AREX · Neo Trans · Ui Light Rail",
+      "city": "Seoul",
+      "country": "KR",
+      "kind": "station",
+      "attribution": "Seoul Metropolitan Government open API (실시간 지하철 열차 위치) · station coordinates: Wikidata (CC0)",
+      "page": "https://data.seoul.go.kr",
+      "cors": false,
+      "center": [
+        126.978,
+        37.5665
+      ],
+      "zoom": 10,
+      "base": "http://swopenapi.seoul.go.kr/api/subway/sample/json/realtimePosition/0/5/",
+      "stations": "data/kr-stations.json",
+      "rotate": 2,
+      "maxAgeSec": 900,
+      "sample": true,
+      "lines": [
+        {
+          "id": "1호선",
+          "name": "Line 1",
+          "color": "#0052A4"
+        },
+        {
+          "id": "2호선",
+          "name": "Line 2",
+          "color": "#00A84D"
+        },
+        {
+          "id": "3호선",
+          "name": "Line 3",
+          "color": "#EF7C1C"
+        },
+        {
+          "id": "4호선",
+          "name": "Line 4",
+          "color": "#00A4E3"
+        },
+        {
+          "id": "5호선",
+          "name": "Line 5",
+          "color": "#996CAC"
+        },
+        {
+          "id": "6호선",
+          "name": "Line 6",
+          "color": "#CD7C2F"
+        },
+        {
+          "id": "7호선",
+          "name": "Line 7",
+          "color": "#747F00"
+        },
+        {
+          "id": "8호선",
+          "name": "Line 8",
+          "color": "#E6186C"
+        },
+        {
+          "id": "9호선",
+          "name": "Line 9",
+          "color": "#BDB092"
+        },
+        {
+          "id": "경의중앙선",
+          "name": "Gyeongui–Jungang",
+          "color": "#77C4A3"
+        },
+        {
+          "id": "수인분당선",
+          "name": "Suin–Bundang",
+          "color": "#F5A200"
+        },
+        {
+          "id": "신분당선",
+          "name": "Shinbundang",
+          "color": "#D4003B"
+        },
+        {
+          "id": "공항철도",
+          "name": "AREX",
+          "color": "#0090D2"
+        },
+        {
+          "id": "우이신설선",
+          "name": "Uisinseol",
+          "color": "#B7C450"
+        },
+        {
+          "id": "서해선",
+          "name": "Seohae",
+          "color": "#8FC31F"
+        },
+        {
+          "id": "신림선",
+          "name": "Sillim",
+          "color": "#6789CA"
+        }
+      ],
+      "note": "This is the portal's public sample key, so it is capped at five trains per line: what is drawn is a sample of the fleet, not the whole of it. The endpoint reports which station a train is at, never a position, so each train sits on its station's coordinate and a train at a station the table cannot resolve — or a name shared by two stations, such as 양평 — is not drawn at all. The sample key is limited to 1,000 requests a day for everyone together, so after the first poll only two lines are re-polled per minute and each keeps its last report for up to 15 minutes. Register a free key at data.seoul.go.kr and put it in `base` in place of `sample` for full coverage and no rotation. Korean buses and the metro of Busan, Daegu, Daejeon and Gwangju publish no keyless feed, so they are absent."
     }
   ]
 }

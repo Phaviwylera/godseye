@@ -14,8 +14,8 @@ const feed = (id) => registry.feeds.find((f) => f.id === id);
 test('registry only declares supported adapters, modes and attribution', () => {
   assert.ok(registry.feeds.length >= 6);
   for (const f of registry.feeds) {
-    assert.ok(['oba', 'tfl', 'bart', 'umo'].includes(f.adapter), `unknown adapter ${f.adapter}`);
-    assert.ok(['positions', 'arrivals'].includes(f.kind), `unknown kind ${f.kind}`);
+    assert.ok(['oba', 'tfl', 'bart', 'umo', 'seoul'].includes(f.adapter), `unknown adapter ${f.adapter}`);
+    assert.ok(['positions', 'arrivals', 'station'].includes(f.kind), `unknown kind ${f.kind}`);
     assert.ok(['rail', 'bus', 'tram'].includes(f.mode), `unknown mode ${f.mode}`);
     for (const key of ['id', 'network', 'operator', 'city', 'attribution', 'page']) {
       assert.ok(f[key], `${f.id} missing ${key}`);
@@ -267,4 +267,109 @@ test('a feed with no tram prefix keeps every vehicle on its declared mode', () =
   assert.equal(items.length, 1);
   assert.equal(items[0].mode, 'bus');
   assert.equal(items[0].lineName, 'Route 501', 'unknown tags fall back to the route tag');
+});
+
+/* ------------------------------------------------------------------ Seoul --
+ * Korea's only keyless live feed: the Seoul open API reports the station a train is
+ * at, never a position, so the adapter's job is to place it honestly or not at all.
+ */
+
+const stationTable = JSON.parse(readFileSync(new URL('../data/kr-stations.json', import.meta.url), 'utf8'));
+
+test('the Seoul feed is declared as a sampled, station-snapped network', () => {
+  const f = feed('seoul-metro');
+  assert.ok(f, 'the Seoul network must be registered');
+  assert.equal(f.adapter, 'seoul');
+  assert.equal(f.kind, 'station');
+  assert.equal(f.cors, false, 'the host is http-only, so the relay has to fetch it');
+  assert.ok(f.sample, 'the public sample key must be flagged so the UI says so');
+  assert.equal(f.stations, 'data/kr-stations.json');
+  assert.ok(f.lines.length >= 12, 'enough lines to be a network, not a demo');
+  assert.ok(f.rotate >= 1 && f.rotate < f.lines.length, 'lines must be polled in rotation, not all at once');
+  for (const line of f.lines) {
+    assert.ok(line.id && line.name, 'each line needs the Korean id the API takes and a display name');
+    assert.match(line.color, /^#[0-9a-f]{6}$/i);
+  }
+  assert.match(f.note, /sample key/i, 'the note must say the data is a sample');
+  assert.match(f.note, /1,000 requests/, 'and why the polling is throttled');
+});
+
+test('the bundled station table is real coordinates, and ambiguous names are refused', () => {
+  assert.ok(stationTable.count >= 600, 'the capital area has more stations than that');
+  assert.equal(Object.keys(stationTable.stations).length, stationTable.count);
+  assert.ok(stationTable.ambiguous.includes('양평'), '양평 is on two lines 47 km apart and must not be guessed');
+  for (const [name, point] of Object.entries(stationTable.stations)) {
+    assert.ok(!stationTable.ambiguous.includes(name), `${name} cannot be both placed and refused`);
+    assert.ok(point[0] > 125.5 && point[0] < 129 && point[1] > 35 && point[1] < 39, `${name} is not in Korea`);
+  }
+  assert.equal(stationTable.license.includes('CC0'), true);
+  assert.ok(stationTable.regenerate.length > 40, 'a regeneration query must ship with the data');
+});
+
+test('Seoul report times are read as KST, not as whatever zone the viewer is in', () => {
+  const ms = Transit.parseKst('2026-09-28 09:56:29');
+  assert.equal(new Date(ms).toISOString(), '2026-09-28T00:56:29.000Z');
+  assert.equal(Number.isNaN(Transit.parseKst('')), true);
+  assert.equal(Number.isNaN(Transit.parseKst('2026-09-28')), true);
+  assert.equal(Number.isNaN(Transit.parseKst(null)), true);
+});
+
+test('station names are matched through aliases and without the trailing 역', () => {
+  const candidates = Transit.seoulStationCandidates('대흥(서강대앞)');
+  assert.equal(candidates.length, 3);
+  assert.equal(candidates[0], '대흥(서강대앞)');
+  assert.equal(candidates[1], '대흥');
+  assert.equal(candidates[2], '서강대앞');
+  const table = new Map([['강남', [127.027583, 37.497928]], ['이수', [126.981611, 37.4765]]]);
+  assert.equal(Transit.seoulLookup(table, '강남').lat, 37.497928);
+  // 총신대입구(이수) is the same station as 이수역; either label has to resolve.
+  assert.equal(Transit.seoulLookup(table, '총신대입구(이수)').lon, 126.981611);
+  assert.equal(Transit.seoulLookup(table, '없는역'), null, 'an unknown station must resolve to nothing');
+});
+
+test('Seoul trains are snapped to their station, and never to a guess', () => {
+  const f = Object.assign({}, feed('seoul-metro'), { maxAgeSec: 900 });
+  const table = new Map([
+    ['강남', [127.027583, 37.497928]],
+    ['천호', [127.115528, 37.516336]],
+  ]);
+  const meta = new Map([['1002', { name: 'Line 2', color: '#00A84D' }]]);
+  const fresh = '2026-09-28 09:56:29';
+  const now = Date.parse('2026-09-28T00:56:29.000Z');
+  const payload = { realtimePositionList: [
+    // kept: in the table, found through its alias. dropped: unknown station, 20 minutes stale,
+    { subwayId: '1002', subwayNm: '2호선', statnNm: '강남', trainNo: '2112', recptnDt: fresh, statnTnm: '성수종착', trainSttus: '2' },
+    { subwayId: '1002', subwayNm: '2호선', statnNm: '천호(풍납토성)', trainNo: '2113', recptnDt: fresh, statnTnm: '성수(하선)', trainSttus: '1' },
+    { subwayId: '1002', subwayNm: '2호선', statnNm: '없는역', trainNo: '2114', recptnDt: fresh, statnTnm: '성수', trainSttus: '1' },
+    // one hour in the future (clock skew) and a report time that is not a time at all
+    { subwayId: '1002', subwayNm: '2호선', statnNm: '강남', trainNo: '2115', recptnDt: '2026-09-28 09:36:29', statnTnm: '성수', trainSttus: '1' },
+    { subwayId: '1002', subwayNm: '2호선', statnNm: '강남', trainNo: '2116', recptnDt: '2026-09-28 10:56:29', statnTnm: '성수', trainSttus: '1' },
+    { subwayId: '1002', subwayNm: '2호선', statnNm: '강남', trainNo: '2117', recptnDt: 'not a time', statnTnm: '성수', trainSttus: '1' },
+  ] };
+  const items = Transit.parseSeoulPositions(payload, f, table, now, meta);
+  assert.equal(items.length, 2, `stale, future and unknown-station reports must drop out: got ${items.length}`);
+  assert.equal(items[0].kind, 'station');
+  assert.equal(items[0].mode, 'rail');
+  assert.equal(items[0].lineName, 'Line 2');
+  assert.equal(items[0].color, '#00a84d');
+  assert.equal(items[0].atStation, '강남');
+  assert.equal(items[0].where, 'departed 강남');
+  assert.equal(items[0].dest, '성수종착', 'terminal names are shown as the feed writes them');
+  assert.equal(items[0].lon, 127.027583);
+  assert.equal(items[0].heading, 0, 'the feed publishes no bearing, so none may be invented');
+  // atStation is the resolved name, not the feed string, so clicking that station finds this train.
+  assert.equal(items[1].atStation, '천호');
+  assert.equal(items[1].where, 'stopped at 천호');
+  assert.equal(items[1].dest, '성수', 'a bracketed note on the terminal is dropped');
+  assert.ok(items.every((v) => v.attribution.includes('Seoul')));
+});
+
+test('a line with nothing running reports nothing, and a failing key says so', () => {
+  const f = feed('seoul-metro');
+  const table = new Map([['강남', [127.027583, 37.497928]]]);
+  const now = Date.parse('2026-09-28T00:56:29.000Z');
+  const empty = Transit.parseSeoulPositions({ status: 500, code: 'INFO-200', message: '데이터가 없습니다.' }, f, table, now, new Map());
+  assert.equal(empty.length, 0, 'no train right now is not a feed failure');
+  assert.throws(() => Transit.parseSeoulPositions({ status: 500, code: 'ERROR-337' }, f, table, now, new Map()), /request limit|feed returned/);
+  assert.throws(() => Transit.parseSeoulPositions({ errorMessage: { code: 'INFO-300' } }, f, table, now, new Map()), /request limit/);
 });

@@ -1,11 +1,13 @@
 /* TRANSIT — live metro, light rail, tram and bus networks.
  *
- * Every network here is a feed the operator publishes openly for riders. Two kinds
+ * Every network here is a feed the operator publishes openly for riders. Three kinds
  * of feed are supported and they are labelled differently in the UI:
  *
  *   positions — live vehicle coordinates (OneBusAway, Umo IQ)
  *   arrivals  — live arrival predictions with no vehicle coordinates; the vehicle is
  *               drawn at the stop it is next due at (TfL, BART)
+ *   station   — the operator publishes which station a train is at, with no coordinates
+ *               at all; the train is drawn at that station (Seoul)
  *
  * Rail line geometry and stations load once per session; only vehicle positions are
  * polled. Nothing is fabricated: a network whose feed fails is reported as
@@ -463,6 +465,165 @@ const Transit = (() => {
     return out;
   }
 
+  /* ------------------------------------------------------------ Seoul (Korea) --
+   * The Seoul open API reports which station a train is at and nothing else — no GPS,
+   * no bearing — so a train is drawn at the coordinate of that station, taken from a
+   * static Wikidata extract in data/kr-stations.json. A train at a station the table
+   * does not know is skipped rather than placed at a guess.
+   */
+
+  const SEOUL_STATUS = { 0: 'arriving at', 1: 'stopped at', 2: 'departed', 3: 'last reported at' };
+  let krStations = null;
+
+  /* recptnDt is KST wall clock with no zone marker: read it as +09:00 or every age shown is wrong. */
+  function parseKst(value) {
+    const parts = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/
+      .exec(String(value == null ? '' : value).trim());
+    if (!parts) return NaN;
+    return Date.parse(`${parts[1]}-${parts[2]}-${parts[3]}T${parts[4]}:${parts[5]}:${parts[6]}+09:00`);
+  }
+
+  /* "대흥(서강대앞)" — the feed carries an alias in brackets. Try the whole name, then the
+   * name without the alias, then the alias: whichever one Wikidata labels the station by. */
+  function seoulStationCandidates(name) {
+    const raw = String(name == null ? '' : name).trim();
+    const alias = /\(([^)]*)\)/.exec(raw);
+    const candidates = [raw, raw.replace(/\([^)]*\)/g, '').trim()];
+    if (alias) candidates.push(alias[1].trim());
+    return candidates.filter(Boolean);
+  }
+
+  function seoulLookup(table, name) {
+    if (!table) return null;
+    for (const candidate of seoulStationCandidates(name)) {
+      const key = candidate.replace(/\s+/g, '').replace(/역$/, '');
+      const hit = table.get(key);
+      if (hit) return { name: candidate, lon: hit[0], lat: hit[1] };
+    }
+    return null;
+  }
+
+  function parseSeoulPositions(payload, feed, table, now, meta) {
+    const rows = payload && Array.isArray(payload.realtimePositionList) ? payload.realtimePositionList : null;
+    if (!rows) {
+      const info = (payload && payload.errorMessage) || payload || {};
+      const code = String(info.code || '').trim();
+      // INFO-200 means "nothing on this line right now"; anything else is the feed failing.
+      if (code && code !== 'INFO-000' && code !== 'INFO-200') {
+        throw new Error(code === 'INFO-300' || code === 'ERROR-337' ? 'daily request limit reached' : `feed returned ${code}`);
+      }
+      return [];
+    }
+    const maxAge = Number.isFinite(feed.maxAgeSec) ? feed.maxAgeSec : 900;
+    const index = meta || new Map();
+    const out = [];
+    for (const row of rows) {
+      const here = seoulLookup(table, row.statnNm);
+      if (!here) continue;                            // no coordinate for this station, so no marker
+      const observed = parseKst(row.recptnDt);
+      if (!Number.isFinite(observed)) continue;
+      const age = (now - observed) / 1000;
+      if (age < -120 || age > maxAge) continue;       // future-dated is clock skew, not a live train
+      const line = index.get(String(row.subwayId || '')) || index.get(String(row.subwayNm || '')) || null;
+      out.push({
+        key: `${feed.id}:${row.subwayNm || ''}:${row.trainNo || ''}`,
+        feed: feed.id,
+        network: feed.network,
+        operator: feed.operator,
+        city: feed.city,
+        kind: 'station',
+        mode: 'rail',
+        lineId: String(row.subwayId || row.subwayNm || ''),
+        lineName: (line && line.name) || String(row.subwayNm || '').trim() || feed.network,
+        color: readable((line && line.color) || DEFAULT_COLOR.rail),
+        lon: here.lon,
+        lat: here.lat,
+        heading: 0,                                   // the feed publishes no bearing; do not invent one
+        speed: null,
+        dest: String(row.statnTnm || '').replace(/\([^)]*\)/g, '').trim(),
+        nextStop: '',
+        atStation: here.name,
+        etaSec: null,
+        delaySec: null,
+        vehicle: String(row.trainNo || ''),
+        express: String(row.directAt) === '1',
+        lastTrain: String(row.lstcarAt) === '1',
+        where: `${SEOUL_STATUS[String(row.trainSttus)] || 'reported at'} ${here.name}`,
+        observed,
+        attribution: feed.attribution,
+      });
+    }
+    return out;
+  }
+
+  async function loadKrStations(feed) {
+    if (krStations) return krStations;
+    const url = (feed && feed.stations) || 'data/kr-stations.json';
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('station table unavailable');
+    const payload = await response.json();
+    const raw = (payload && payload.stations) || {};
+    const table = new Map();
+    for (const key of Object.keys(raw)) {
+      const point = raw[key];
+      if (!Array.isArray(point) || point.length < 2) continue;
+      const lon = Number(point[0]);
+      const lat = Number(point[1]);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      if (Math.abs(lon) > 180 || Math.abs(lat) > 90) continue;
+      const name = String(key).replace(/\s+/g, '');
+      if (name && !table.has(name)) table.set(name, [lon, lat]);
+    }
+    if (!table.size) throw new Error('station table empty');
+    krStations = table;
+    return table;
+  }
+
+  async function seoulStatic(feed) {
+    const table = await loadKrStations(feed);
+    if (feed._stationsDone) return;
+    feed._stationsDone = true;
+    for (const entry of table) {
+      pushStation(feed, { id: `kr:${entry[0]}`, name: entry[0], lon: entry[1][0], lat: entry[1][1] },
+        '', feed.network, DEFAULT_COLOR.rail);
+    }
+  }
+
+  /* The portal caps this API at 1,000 requests a day on a key every user shares, so the first
+   * poll covers every line at once and after that only `rotate` lines are re-polled per refresh;
+   * each line keeps its last report until it comes round again (or for maxAgeSec). */
+  async function refreshSeoul(feed) {
+    const table = await loadKrStations(feed);
+    const list = asArray(feed.lines);
+    if (!list.length) throw new Error('no lines configured');
+    const meta = new Map(list.map((line) => [String(line.id), line]));
+    if (!feed._byLine) feed._byLine = new Map();
+    const rotate = Math.max(1, Math.min(list.length, Number(feed.rotate) || list.length));
+    const batch = feed._byLine.size ? rotate : list.length;
+    const cursor = Number.isFinite(feed._cursor) ? feed._cursor : 0;
+    const queue = [];
+    for (let i = 0; i < batch; i++) queue.push(list[(cursor + i) % list.length]);
+    feed._cursor = (cursor + batch) % list.length;
+    const now = Date.now();
+    let failure = '';
+    await Promise.all(queue.map(async (line) => {
+      try {
+        const data = await getJson(`${feed.base}${encodeURIComponent(String(line.id))}`, feed.cors);
+        feed._byLine.set(String(line.id), { items: parseSeoulPositions(data, feed, table, now, meta) });
+      } catch (e) {
+        failure = String((e && e.message) || e || 'unavailable');
+      }
+    }));
+    if (!feed._byLine.size) throw new Error(failure || 'unavailable');
+    const maxAge = (Number.isFinite(feed.maxAgeSec) ? feed.maxAgeSec : 900) * 1000;
+    const out = [];
+    for (const entry of feed._byLine.values()) {
+      for (const item of entry.items) if (now - item.observed <= maxAge) out.push(item);
+    }
+    if (!out.length) throw new Error(failure || 'no trains reported right now');
+    return out;
+  }
+
   /* ------------------------------------------------------------- networking */
 
   async function getJson(url, direct) {
@@ -496,6 +657,7 @@ const Transit = (() => {
       else if (feed.adapter === 'tfl') await tflStatic(feed);
       else if (feed.adapter === 'bart') await bartStatic(feed);
       else if (feed.adapter === 'umo') await umoStatic(feed);
+      else if (feed.adapter === 'seoul') await seoulStatic(feed);
     } catch (e) {
       staticDone.delete(feed.id);   // let the next tick retry instead of leaving the network half-drawn
       throw e;
@@ -652,6 +814,7 @@ const Transit = (() => {
         `${feed.base}?command=vehicleLocations&a=${encodeURIComponent(feed.agency)}&t=0`, feed.cors);
       return parseUmoVehicles(data, feed, feed._routeNames, feed.maxAgeSec);
     }
+    if (feed.adapter === 'seoul') return refreshSeoul(feed);
     return [];
   }
 
@@ -874,7 +1037,7 @@ const Transit = (() => {
     if (!chip()) return;
     const rows = registry.map((feed) => {
       const count = feed._count || 0;
-      const detail = feed._error ? `unavailable (${feed._error})` : `${count} live`;
+      const detail = feed._error ? `unavailable (${feed._error})` : `${count} live${feed.sample ? ' · sample' : ''}`;
       return `${feed.city} — ${feed.network}: ${detail}`;
     });
     const notes = [];
@@ -889,6 +1052,12 @@ const Transit = (() => {
     }
     notes.push(`${trains} rail/tram · ${buses} bus · ${lineCount} lines`);
     notes.push('Networks marked arrivals show the stop a vehicle is next due at, not a GPS position.');
+    if (registry.some((feed) => feed.kind === 'station')) {
+      notes.push('Networks marked station show a train at the station it last reported from, placed with a bundled station list.');
+    }
+    if (registry.some((feed) => feed.sample)) {
+      notes.push('Sampled networks carry only what a rate-limited key returns — a slice of the fleet, not all of it.');
+    }
     notes.push(...registry.map((feed) => `${feed.city} data: ${feed.attribution}`));
     chip().title = rows.concat(notes).join('\n');
   }
@@ -976,6 +1145,8 @@ const Transit = (() => {
     const meta = document.createElement('div');
     meta.textContent = `${vehicle.operator} · ${vehicle.city}`
       + (vehicle.vehicle ? ` · unit ${vehicle.vehicle}` : '')
+      + (vehicle.express ? ' · express' : '')
+      + (vehicle.lastTrain ? ' · last train of the night' : '')
       + (vehicle.delaySec ? ` · ${vehicle.delaySec > 0 ? '+' : ''}${Math.round(vehicle.delaySec / 60)} min vs schedule` : '');
     box.append(title, detail, meta);
     if (vehicle.where) {
@@ -986,7 +1157,9 @@ const Transit = (() => {
     const note = document.createElement('div');
     note.textContent = vehicle.kind === 'positions'
       ? 'Live position reported by the operator feed.'
-      : 'Drawn at the stop this vehicle is next due at — this feed publishes arrival predictions, not vehicle coordinates.';
+      : vehicle.kind === 'station'
+        ? 'Drawn at the station this train last reported from — the feed publishes station positions, not GPS coordinates.'
+        : 'Drawn at the stop this vehicle is next due at — this feed publishes arrival predictions, not vehicle coordinates.';
     box.append(note);
     const credit = document.createElement('div');
     credit.textContent = vehicle.attribution;
@@ -1000,13 +1173,15 @@ const Transit = (() => {
     title.textContent = station.name;
     box.append(title);
     const due = vehicles
-      .filter((vehicle) => vehicle.feed === station.feed && vehicle.nextStop === station.name)
+      .filter((vehicle) => vehicle.feed === station.feed
+        && (vehicle.nextStop === station.name || vehicle.atStation === station.name))
       .sort((a, b) => (a.etaSec == null ? 1e9 : a.etaSec) - (b.etaSec == null ? 1e9 : b.etaSec))
       .slice(0, 4);
     if (due.length) {
       for (const vehicle of due) {
         const row = document.createElement('div');
-        row.textContent = `${vehicle.lineName} → ${vehicle.dest || '—'} · ${etaText(vehicle) || 'due'}`;
+        const when = vehicle.kind === 'station' ? ageText(vehicle) : (etaText(vehicle) || 'due');
+        row.textContent = `${vehicle.lineName} → ${vehicle.dest || '—'} · ${when}`;
         box.append(row);
       }
     } else {
@@ -1099,7 +1274,9 @@ const Transit = (() => {
       - (Math.abs(b.lon - center.lng) + Math.abs(b.lat - center.lat)));
     Contacts.open(`${vehicles.length} VEHICLES · LIVE TRANSIT`, rows.map((vehicle) => ({
       label: `${vehicle.lineName}${vehicle.dest ? ` → ${vehicle.dest}` : ''}`,
-      detail: `${vehicle.city} · ${vehicle.mode}${vehicle.nextStop ? ` · ${vehicle.nextStop}` : ''}`
+      detail: `${vehicle.city} · ${vehicle.mode}`
+        + `${vehicle.nextStop ? ` · ${vehicle.nextStop}` : ''}`
+        + `${vehicle.atStation ? ` · at ${vehicle.atStation}` : ''}`
         + `${etaText(vehicle) ? ` · ${etaText(vehicle)}` : ''} · ${vehicle.operator}`,
       vehicle,
     })), (row) => {
@@ -1119,5 +1296,6 @@ const Transit = (() => {
     parseTflSequence, parseTflStatus, parseTflArrivals,
     parseBartStations, parseBartRoutes, parseBartRouteInfo, parseBartEtd,
     parseUmoRoutes, parseUmoVehicles,
+    parseKst, parseSeoulPositions, seoulLookup, seoulStationCandidates,
   };
 })();
