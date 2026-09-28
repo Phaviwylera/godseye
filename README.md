@@ -46,8 +46,15 @@ to AISStream for 18 seconds every two minutes and stores a shared snapshot in Ne
 Blobs; the public reader rejects snapshots older than five minutes. This is sampled
 coverage, not continuous global vessel tracking. Set `AISSTREAM_API_KEY` in the
 Netlify project environment variables with **Functions** scope (Production context),
-then redeploy; never place the key in `netlify.toml` or client code. Until configured,
-the layer displays “AIS UNAVAILABLE” rather than fabricated vessel positions.
+then redeploy; never place the key in `netlify.toml` or client code.
+
+When that collector has not answered — no key configured, or the app served locally by
+`python3 server.py`, where Netlify Functions do not exist — the layer falls back to
+[Digitraffic's open AIS feed](https://www.digitraffic.fi/en/maritime-traffic/), which is
+keyless and covers Finnish waters, and the chip says which source the positions came from.
+Only when neither source answers does it display “AIS UNAVAILABLE”, and even then a failed
+poll holds the last good sweep and reports its age (`◇ 142 VESSELS · HELD · 3 MIN AGO`)
+rather than emptying the ocean.
 Ships use a teal vessel symbol; selecting one shows only its actually observed positions
 from the last 30 minutes as a dashed trail and waypoint dots. A trail appears after
 a second distinct position arrives.
@@ -73,6 +80,14 @@ table (`data/kr-stations.json`, a CC0 extract of Wikidata) is bundled to place t
 | `omnitrans` | San Bernardino — Omnitrans | Umo IQ | 🚌 bus | live GPS bus positions |
 | `portland-sc` | Portland Streetcar | Umo IQ | 🚊 tram | live GPS tram positions |
 | `seoul-metro` | Seoul — Metropolitan Subway, lines 1–9 + Gyeongui–Jungang, Suin–Bundang, Shinbundang, AREX, Ui, Seohae, Sillim | Seoul open API (public sample key) + bundled Wikidata stations | 🚆 rail | trains at the station they last reported (max 5 per line — the sample key's cap) |
+| `mbta` | Boston — MBTA subway, Green Line, Silver Line and the whole bus fleet | [MBTA V3 API](https://api-v3.mbta.com/) (keyless) | 🚌/🚆 | **live GPS positions for every vehicle the agency runs** |
+| `fi-rail` | Finland — every train running in the country (VR, commuter, freight) | [Digitraffic / rata.digitraffic.fi](https://www.digitraffic.fi/en/railway-traffic/) (keyless, CC 4.0) | 🚆 rail | trains at the station they actually reached + delay vs schedule |
+| `ch-rail` | Switzerland — SBB, BLS, PostBus, trams: eight hub departure boards | [transport.opendata.ch](https://transport.opendata.ch/) (keyless) | 🚆/🚊 | live departures with the delay and platform |
+| `be-rail` | Belgium — SNCB/NMBS live boards at five hubs | [iRail](https://api.irail.be/) (keyless, CC0) | 🚆 rail | live departures with delay and platform |
+| `gcrta-bus` | Cleveland — Greater Cleveland RTA buses & rail | GCRTA GTFS-Realtime (keyless) | 🚌 bus | live GPS positions via the GTFS-RT protobuf reader |
+
+All ten of the new and existing feeds are read from operator-published endpoints; five of
+them (`mbta`, `fi-rail`, `ch-rail`, `be-rail`, `gcrta-bus`) need no key and no signup at all.
 
 Three kinds of feed are supported and labelled differently in every popup:
 
@@ -81,10 +96,12 @@ Three kinds of feed are supported and labelled differently in every popup:
   and selecting one shows the positions observed for it in the last 30 minutes. Umo
   vehicles that stop reporting are dropped rather than left frozen on the map.
 * **arrivals** — the operator publishes arrival predictions but no vehicle coordinates
-  (TfL, BART). Each vehicle is drawn at the stop it is next due at; TfL trains are
-  de-duplicated by vehicle id so one train appears once, and BART — which publishes no
-  vehicle ids at all — is sampled to the departures due within five minutes, so one
-  marker is one departure rather than one unique train.
+  (TfL, BART, and the two European departure-board feeds). Each vehicle is drawn at the stop
+  it is next due at; TfL trains are de-duplicated by vehicle id so one train appears once, and
+  BART — which publishes no vehicle ids at all — is sampled to the departures due within five
+  minutes, so one marker is one departure rather than one unique train. A station board
+  (`ch-rail`, `be-rail`) keeps at most three departures per station so a hub does not stack
+  a dozen markers on one pixel, and a departure that has already left is dropped.
 * **station** — the operator publishes which station a train is at, and no coordinates at
   all (Seoul). The train is drawn at that station's coordinate from the bundled table; a
   train at a station the table cannot resolve, or at a name two stations share, is skipped
@@ -92,28 +109,78 @@ Three kinds of feed are supported and labelled differently in every popup:
   is the feed's, not the viewer's clock, and future-dated reports are treated as skew.
 
 Rail line geometry and stations load once per session; only vehicle positions are polled,
-every 60 seconds. Seoul is the exception the shared key forces: the portal caps this API at
-1,000 requests a day for everyone, so the first poll covers all sixteen lines and afterwards
-two lines are re-polled per refresh, each line keeping its last report until it comes round
-again or for 15 minutes, whichever is sooner. Markers fade as their last report ages, so a
-stale vehicle reads as stale. Past 2,500 vehicles the layer draws the ones nearest the view
-and says so in the chip tooltip. A network whose feed fails is reported as unavailable in the
-chip tooltip and never back-filled with guesses.
+every 60 seconds. Markers fade as their last report ages, so a stale vehicle reads as stale.
+Past 2,500 vehicles the layer draws the ones nearest the view and says so in the chip
+tooltip. A network whose feed fails is reported as unavailable in the chip tooltip and never
+back-filled with guesses.
+
+### Quota budgeting: `pollSec` / `budgetSec` / `maxAgeSec`
+
+Some operators cap requests per key or per IP, and every visitor of a public site shares the
+same key *and* the same egress address. Those feeds are budgeted rather than polled, and the
+three numbers in `data/transit.json` are one contract:
+
+| knob | meaning | Seoul |
+|------|---------|-------|
+| `pollSec` | how often the feed is swept. A sweep that finds nothing due costs **zero** requests | 600 |
+| `budgetSec` | how often one target (line, station, endpoint) may be re-read upstream | 1500 |
+| `maxAgeSec` | how long a report stays on the map before it is refused as stale | 2400 |
+
+`tests/transit.test.mjs` asserts `maxAgeSec >= budgetSec + pollSec` (or the map blanks between
+polls of the same target) and `targets × 86400 / budgetSec <= dailyBudget` — Seoul's sixteen
+lines cost 921 requests a day at worst, inside the portal's 1,000 — so retuning one knob
+without the others fails CI instead of spending the site's key before noon.
+
+Two more rules make the budget survive reality:
+
+* **A failed poll holds the last good sweep.** The chip reads
+  `held (daily request limit reached) · 24 min ago` instead of emptying the map, and the rows
+  are dropped only once they exceed `maxAgeSec`. A sweep where *no* target answered is still
+  reported as the failure it is — leftover rows are never presented as a fresh success, so a
+  dead key cannot advertise a fleet it has not reported.
+* **A dead target backs off.** After a failure the retry gap doubles (`pollSec`, `2×`, `4×`)
+  up to `budgetSec`, so a dead key costs no more than a live one, while a transient blip is
+  retried on the very next sweep.
+
+The relay (`netlify/functions/api.mjs`, mirrored by `server.py`) is what makes the budget hold
+across visitors: `GET /api/fetch?url=…&window=N` answers every caller from one shared upstream
+fetch per window, single-flights concurrent identical URLs, and stores only an HTTP-200 JSON
+body under 512 KB — never a playlist, never a relay failure, and never an operator's error
+envelope (`{"errorMessage": …}`), so a capped key that recovers is not locked out by the
+cache. Seoul asks for a window equal to `budgetSec`; the aircraft layer asks for 20 s.
+
+### Adding a GTFS-Realtime feed (any city)
+
+`js/transit.js` carries a small protobuf reader for GTFS-Realtime, so any agency that
+publishes a keyless `VehiclePositions` URL can be added with **no new code**:
+
+```json
+{ "id": "my-city-bus", "adapter": "gtfsrt", "mode": "bus", "kind": "positions",
+  "base": "https://…/vehiclepositions.pb", "pollSec": 60, "budgetSec": 60, "maxAgeSec": 600,
+  "network": "…", "operator": "…", "city": "…", "country": "…",
+  "attribution": "…", "page": "…" }
+```
+
+Binary payloads travel through `GET /api/fetch?url=…&encoding=base64` so the bytes survive
+intact. The reader is unit-tested against a hand-built FeedMessage, including truncated
+frames and unknown fields, in `tests/world-transit.test.mjs`.
 
 Colours follow the operator's own brand colour where the feed publishes one (TfL, BART,
 Sound Transit); where it does not, markers use the app palette — cyan for rail, teal for
 trams, amber for buses. Keep each operator's attribution, which is shown in the chip
 tooltip and in every vehicle popup. To add a network, append a feed to
-`data/transit.json` and, if it is not OneBusAway / TfL / BART / Umo / Seoul, a parser +
-adapter in `js/transit.js` — the parsers are pure functions and are unit-tested in
-`tests/transit.test.mjs`.
+`data/transit.json` and, if it is not one of the supported adapters (`oba`, `tfl`, `bart`,
+`umo`, `seoul`, `mbta`, `digitraffic`, `opendata-ch`, `irail`, `gtfsrt`), a parser + adapter
+in `js/transit.js` — the parsers are pure functions and are unit-tested in
+`tests/transit.test.mjs` and `tests/world-transit.test.mjs`.
 
 Not included, and why: MTA, WMATA, CTA, TfNSW, TransLink, LTA Singapore, Taipei and Tokyo all
 require a registered API key — as do Korean buses and the metros of Busan, Daegu, Daejeon and
 Gwangju, which is why Korea appears only as Seoul, and only through the portal's public sample
 key: it caps every line at five trains, so the layer draws a sample of the fleet and says so.
-A key registered at data.seoul.go.kr lifted into `base` in place of `sample` removes both the
-cap and the rotation. Amtrak's live map returns an encrypted payload; Chennai's CMRL publishes
+A key registered at data.seoul.go.kr lifted into `base` in place of `sample` removes the
+five-trains-per-line cap, and `budgetSec` can then be lowered to whatever the key's own daily
+limit allows — the contract test in `tests/transit.test.mjs` checks the arithmetic. Amtrak's live map returns an encrypted payload; Chennai's CMRL publishes
 no real-time feed at all. King County Metro is left out on purpose — its `vehicles-for-agency`
 payload is over a megabyte per poll.
 
@@ -131,7 +198,7 @@ payload is over a megabyte per poll.
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
  ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, a dedicated tracked-aircraft pin, follow mode and an oblique cockpit view |
- 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 10 public operator feeds (Seoul's through a rate-limited sample key) |
+ 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 15 public operator feeds across four continents — five of them keyless — with quota budgeting so a shared API key survives being public |
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |

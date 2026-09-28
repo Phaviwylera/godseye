@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """God's Eye — tooling unit tests (stdlib unittest, no deps)."""
-import json, os, re, sys, unittest, importlib.util
+import http.client, json, os, re, sys, time, unittest, urllib.parse, urllib.request, importlib.util
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -35,6 +35,81 @@ class TestServer(unittest.TestCase):
         out = self.srv.rewrite_m3u8('#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTM3U\n',
                                     "https://host/live/p.m3u8")
         self.assertIn("/api/proxy?url=", out)
+
+    # ----------------------------------------------------------- encode_iri --
+    # parse_qs hands do_fetch a percent-*decoded* URL and http.client writes the request line
+    # as ASCII, so a non-ASCII target used to fail with "'ascii' codec can't encode characters"
+    # — indistinguishable from the operator being down.
+    def test_encode_iri_makes_a_non_ascii_target_sendable(self):
+        url = "http://cam.example.kr/stream/한국어.m3u8"
+        encoded = self.srv.encode_iri(url)
+        encoded.encode("ascii")                      # must not raise
+        self.assertEqual(encoded,
+                         "http://cam.example.kr/stream/%ED%95%9C%EA%B5%AD%EC%96%B4.m3u8")
+        self.assertEqual(urllib.parse.unquote(encoded), url)
+
+    def test_encode_iri_leaves_ascii_and_existing_escapes_alone(self):
+        for url in ("https://example.com/a.m3u8",
+                    "https://example.com/a?b=1&c=%ED%95%9C",
+                    "http://swopenapi.seoul.go.kr/api/subway/sample/json/realtimePosition/0/5/%ED%98%B8"):
+            self.assertEqual(self.srv.encode_iri(url), url, url)
+
+    def test_encode_iri_keeps_query_structure_and_encodes_only_the_value(self):
+        out = self.srv.encode_iri("https://api.example/x?key=abc&line=1호선")
+        out.encode("ascii")
+        self.assertIn("key=abc", out)
+        self.assertIn("line=1%ED%98%B8%EC%84%A0", out)   # the ASCII digit is left alone
+        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(out).query)["line"], ["1호선"])
+
+    def test_encode_iri_handles_host_userinfo_port_and_space(self):
+        self.assertEqual(self.srv.encode_iri("http://пример.рф/путь"),
+                         "http://xn--e1afmkfd.xn--p1ai/%D0%BF%D1%83%D1%82%D1%8C")
+        self.assertTrue(self.srv.encode_iri("https://user:pw@пример.рф:8443/a b").startswith(
+            "https://user:pw@xn--e1afmkfd.xn--p1ai:8443/a%20b"))
+
+    def test_encode_iri_output_is_something_urllib_will_send(self):
+        # This is the call that used to raise UnicodeEncodeError for a non-ASCII target.
+        for url in ("http://cam.example.kr/stream/한국어.m3u8",
+                    "https://api.example/x?line=1호선"):
+            req = urllib.request.Request(self.srv.encode_iri(url))
+            conn = http.client.HTTPConnection("127.0.0.1", 1)
+            conn.putrequest("GET", req.selector)      # would raise before the fix
+
+    # ------------------------------------------------- shared upstream cache --
+    def test_cache_window_is_clamped_and_rejects_nonsense(self):
+        self.assertEqual(self.srv.window_sec("600"), 600)
+        self.assertEqual(self.srv.window_sec("999999"), 900)
+        self.assertEqual(self.srv.window_sec("0"), 0)
+        self.assertEqual(self.srv.window_sec("-5"), 0)
+        self.assertEqual(self.srv.window_sec("abc"), 0)
+        self.assertEqual(self.srv.window_sec(None), 0)
+
+    def test_cache_stores_only_a_small_json_answer(self):
+        self.assertTrue(self.srv.cacheable(b'{"trains": 77}'))
+        self.assertTrue(self.srv.cacheable(b'{"a": [1, 2, 3]}'))
+        self.assertFalse(self.srv.cacheable(b'{"error": "source returned HTTP 502"}'),
+                         "a relay failure must not be served again as if it were an answer")
+        self.assertFalse(self.srv.cacheable(b'{"errorMessage": {"code": "INFO-300"}}'),
+                         "a capped key must not be pinned for the whole window")
+        self.assertFalse(self.srv.cacheable(b"[1,2,3]"))
+        self.assertFalse(self.srv.cacheable(b"not json at all"))
+        self.assertFalse(self.srv.cacheable(b""))
+        self.assertFalse(self.srv.cacheable(b'{"blob": "%s"}' % b"x" * (513 * 1024)))
+
+    def test_cache_entries_expire_with_the_window_and_are_bounded(self):
+        srv = self.srv
+        srv.CACHE.clear()
+        srv.cache_set("https://a/x", {"at": time.time(), "ctype": "application/json", "data": b"{}"})
+        self.assertIsNotNone(srv.cache_get("https://a/x", 600))
+        srv.CACHE["https://a/x"]["at"] = time.time() - 601
+        self.assertIsNone(srv.cache_get("https://a/x", 600), "an answer older than the window is gone")
+        for i in range(srv.CACHE_MAX_ENTRIES + 25):
+            srv.cache_set("https://bulk/%d" % i,
+                          {"at": time.time(), "ctype": "application/json", "data": b"{}"})
+        self.assertLessEqual(len(srv.CACHE), srv.CACHE_MAX_ENTRIES)
+        self.assertIsNotNone(srv.cache_get("https://bulk/%d" % (srv.CACHE_MAX_ENTRIES + 24), 600),
+                             "the newest answer survives eviction")
+        srv.CACHE.clear()
 
 
 class TestDataset(unittest.TestCase):

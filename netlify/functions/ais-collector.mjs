@@ -1,6 +1,11 @@
-/* One shared AISStream connection per scheduled run; never expose the provider key. */
-import WebSocket from 'ws';
-import { getStore } from '@netlify/blobs';
+/* One shared AISStream connection per scheduled run; never expose the provider key.
+ *
+ * `ws` and `@netlify/blobs` are optional at import time: they are only needed by the scheduled
+ * collector, while parseVessel / collect / attachObservedTracks are unit tested on a checkout
+ * that has not run `npm install`. A bare top-level import would fail the whole suite there.
+ */
+let WebSocket = null;
+try { ({ default: WebSocket } = await import('ws')); } catch { /* optional outside Netlify */ }
 
 export const config = { schedule: '*/2 * * * *' };
 const URL = 'wss://stream.aisstream.io/v0/stream';
@@ -60,7 +65,12 @@ export function attachObservedTracks(vessels, previous, now = Date.now()) {
   return { vessels: observed, history: Object.fromEntries(recentEntries) };
 }
 
-export async function collect(key, durationMs = 18000, connect = (url, options) => new WebSocket(url, options)) {
+function connectAISStream(url, options) {
+  if (!WebSocket) throw new Error('the "ws" package is required to open the AIS stream');
+  return new WebSocket(url, options);
+}
+
+export async function collect(key, durationMs = 18000, connect = connectAISStream) {
   return new Promise((resolve, reject) => {
     const vessels = new Map();
     let settled = false, opened = false, confirmed = false;
@@ -96,6 +106,7 @@ export default async () => {
   if (!key) { console.warn('AISSTREAM_API_KEY is not configured'); return; }
   try {
     const vessels = await collect(key);
+    const { getStore } = await import('@netlify/blobs');
     const store = getStore({ name: 'ais-vessels', consistency: 'strong' });
     const previous = await store.get('latest', { type: 'json' });
     const snapshot = { observed: new Date().toISOString(),

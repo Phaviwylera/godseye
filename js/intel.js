@@ -12,10 +12,16 @@ const Intel = (() => {
     air: false, airTimer: null, airMoveTimer: null, airLoading: false, airHandlersBound: false, airMoveBound: false,
     airTrack: null, airFollow: false, airCockpit: false, airSavedCamera: null, airFeatures: [],
     airHistory: new Map(),
+    airLast: 0,
     airScope: "nearby",
     airPopup: null,
     quakes: false, quakesTimer: null, quakesLoading: false,
   };
+
+  /* How long one aircraft answer is shared site-wide by the relay. The provider rate-limits by
+   * IP and every visitor shares the relay's address, so this is what keeps the layer alive
+   * under load instead of spending the limit once per tab. */
+  const AIR_WINDOW_SEC = 20;
 
   // ================================================================ SUN ====
   const rad = Math.PI / 180, dayMs = 864e5, J1970 = 2440588, J2000 = 2451545, e = rad * 23.4397;
@@ -681,12 +687,27 @@ const Intel = (() => {
     setAirTrackData();
   }
 
+  function airAgeText(stamp) {
+    const seconds = Math.max(0, Math.round((Date.now() - stamp) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+    return `${(seconds / 3600).toFixed(1)} h`;
+  }
+
+  /* A failed poll keeps the aircraft already drawn — the layer is stale, not empty — so the
+   * chip says how old the sweep is rather than announcing that the feed does not exist. */
   function showAirError(error) {
     const chip = document.getElementById("air-chip");
-    if (chip) {
-      chip.textContent = "✈ AIR FEED UNAVAILABLE";
-      chip.title = String(error && error.message || error);
+    if (!chip) return;
+    const reason = String(error && error.message || error);
+    if (state.airFeatures.length && state.airLast) {
+      const age = airAgeText(state.airLast);
+      chip.textContent = `✈ ${state.airFeatures.length} AIRCRAFT · HELD ${age.toUpperCase()}`;
+      chip.title = `${reason}. Showing the last sweep that succeeded, ${age} ago.`;
+      return;
     }
+    chip.textContent = "✈ AIR FEED UNAVAILABLE";
+    chip.title = reason;
   }
 
   /** Major airports (IATA, name, lat, lon) for the nearest-field readout. */
@@ -874,13 +895,21 @@ const Intel = (() => {
       : [localQuery];
     const pull = async (target) => {
       const q = typeof target === "string" ? target : `${target[0].toFixed(2)}/${target[1].toFixed(2)}/220`;
-      const d = await Sources.fetchJSON("https://api.adsb.lol/v2/point/" + q);
+      // The relay window collapses every visitor's poll into one upstream request: the
+      // provider rate-limits by IP, and every visitor shares the function's address.
+      const d = await Sources.fetchJSON("https://api.adsb.lol/v2/point/" + q, AIR_WINDOW_SEC);
       if (!Array.isArray(d.ac)) throw new Error("no ac array");
       return d.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon)).slice(0, regional ? 90 : 350);
     };
     const responses = await Promise.allSettled(targets.map(pull));
     const successful = responses.filter(result => result.status === "fulfilled");
-    if (!successful.length) throw new Error("Aircraft provider unavailable");
+    if (!successful.length) {
+      // Say which provider error this was: a rate limit and a dead host need different fixes.
+      const reason = responses.map(result => result.reason).find(Boolean);
+      throw new Error(reason
+        ? `Aircraft provider unavailable (${String(reason && reason.message || reason)})`
+        : "Aircraft provider unavailable");
+    }
     if (!state.air) return;
     state.airScope = regional ? "regions" : "nearby";
     const ac = [...new Map(successful.flatMap(result => result.value)
@@ -904,6 +933,7 @@ const Intel = (() => {
     }));
     rememberAircraft(features);
     state.airFeatures = features;
+    state.airLast = Date.now();
     src.setData({ type: "FeatureCollection", features });
     if (state.airTrack) {
       const tracked = features.find(feature => feature.properties.hex === state.airTrack.hex);
@@ -1115,6 +1145,6 @@ const Intel = (() => {
   }
 
   return { init, toggleNight, toggleISS, toggleRadar, toggleAir, toggleAirFollow, toggleAirCockpit, selectAirTrack, openAirList, restoreAirLayer, toggleQuakes, restoreQuakeLayer, playRadar, pauseRadar, applyRadarFrame, sweepRoute, clearRoute,
-    airTelemetrySeries, nearestAirport, paintAirTelemetry,
+    airTelemetrySeries, nearestAirport, paintAirTelemetry, fetchAirData, showAirError,
            get state() { return state; } };
 })();

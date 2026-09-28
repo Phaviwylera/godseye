@@ -4,9 +4,13 @@
  */
 const Sources = (() => {
 
-  const fetchJSON = async (url) => {
+  /* windowSec asks the relay to answer from its own short-lived cache: every visitor then
+   * shares one upstream request per window instead of spending the source's quota per tab. */
+  const fetchJSON = async (url, windowSec) => {
+    const relayUrl = "/api/fetch?url=" + encodeURIComponent(url)
+      + (Number(windowSec) > 0 ? "&window=" + Math.round(Number(windowSec)) : "");
     try {
-      const r = await fetch("/api/fetch?url=" + encodeURIComponent(url));
+      const r = await fetch(relayUrl);
       if (r.ok) return await r.json();
     } catch (e) { /* static hosting: fall back to direct (works when the source sends CORS) */ }
     const r2 = await fetch(url);

@@ -14,7 +14,7 @@ const feed = (id) => registry.feeds.find((f) => f.id === id);
 test('registry only declares supported adapters, modes and attribution', () => {
   assert.ok(registry.feeds.length >= 6);
   for (const f of registry.feeds) {
-    assert.ok(['oba', 'tfl', 'bart', 'umo', 'seoul'].includes(f.adapter), `unknown adapter ${f.adapter}`);
+    assert.ok(Transit.ADAPTERS.includes(f.adapter), `unknown adapter ${f.adapter}`);
     assert.ok(['positions', 'arrivals', 'station'].includes(f.kind), `unknown kind ${f.kind}`);
     assert.ok(['rail', 'bus', 'tram'].includes(f.mode), `unknown mode ${f.mode}`);
     for (const key of ['id', 'network', 'operator', 'city', 'attribution', 'page']) {
@@ -285,13 +285,50 @@ test('the Seoul feed is declared as a sampled, station-snapped network', () => {
   assert.ok(f.sample, 'the public sample key must be flagged so the UI says so');
   assert.equal(f.stations, 'data/kr-stations.json');
   assert.ok(f.lines.length >= 12, 'enough lines to be a network, not a demo');
-  assert.ok(f.rotate >= 1 && f.rotate < f.lines.length, 'lines must be polled in rotation, not all at once');
+  assert.equal(f.rotate, undefined,
+    'line rotation fought maxAgeSec and only existed because the browser was throttling: the budget replaces it');
+  assert.equal(f.pollSec, 600);
+  assert.equal(f.budgetSec, 1500);
+  assert.equal(f.maxAgeSec, 2400);
+  assert.equal(f.dailyBudget, 1000);
   for (const line of f.lines) {
     assert.ok(line.id && line.name, 'each line needs the Korean id the API takes and a display name');
     assert.match(line.color, /^#[0-9a-f]{6}$/i);
   }
   assert.match(f.note, /sample key/i, 'the note must say the data is a sample');
   assert.match(f.note, /1,000 requests/, 'and why the polling is throttled');
+});
+
+/* pollSec / budgetSec / maxAgeSec are one contract: a report has to outlive the next poll of
+ * the line that produced it, and the worst-case request rate has to fit the operator's cap.
+ * Retuning one of them without the others must fail here, not in production at noon. */
+test('every quota-limited feed respects the poll / budget / maxAge contract', () => {
+  const budgeted = registry.feeds.filter((f) => Number.isFinite(f.budgetSec));
+  assert.ok(budgeted.some((f) => f.id === 'seoul-metro'), 'the capped Seoul key must be budgeted');
+  for (const f of budgeted) {
+    const targets = f.lines ? f.lines.length
+      : (f.stations && !String(f.stations).startsWith('http') && !String(f.stations).startsWith('data/'))
+        ? f.stations.length
+        : (f.endpoints ? f.endpoints.length : 1);
+    const pollSec = Number(f.pollSec);
+    assert.ok(Number.isFinite(pollSec) && pollSec > 0, `${f.id}: pollSec must be set`);
+    assert.ok(Number.isFinite(f.maxAgeSec) && f.maxAgeSec > 0, `${f.id}: maxAgeSec must be set`);
+    assert.ok(f.budgetSec >= pollSec,
+      `${f.id}: budgetSec ${f.budgetSec} must not be shorter than pollSec ${pollSec}`);
+    assert.ok(f.maxAgeSec >= f.budgetSec + pollSec,
+      `${f.id}: maxAgeSec ${f.maxAgeSec} must cover budgetSec + pollSec (${f.budgetSec + pollSec}) ` +
+      'or the map blanks between polls of the same target');
+    const cap = Number.isFinite(f.dailyBudget) ? f.dailyBudget : 10000;
+    const worst = targets * 86400 / f.budgetSec;
+    assert.ok(worst <= cap,
+      `${f.id}: ${targets} targets at one request per ${f.budgetSec}s is ${worst.toFixed(0)} requests a day, over the ${cap} cap`);
+  }
+  // The Seoul key is shared by every visitor, so its budget is the tight one and it is asserted exactly.
+  const seoul = feed('seoul-metro');
+  assert.ok(seoul.lines.length * 86400 / seoul.budgetSec <= 1000,
+    'the shared Seoul sample key must stay inside 1,000 requests a day');
+  assert.ok(seoul.lines.length * 86400 / seoul.budgetSec > 900,
+    'and it should spend most of that budget rather than going stale on purpose');
 });
 
 test('the bundled station table is real coordinates, and ambiguous names are refused', () => {
