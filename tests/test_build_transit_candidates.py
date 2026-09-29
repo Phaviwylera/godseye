@@ -130,6 +130,15 @@ class SchemaDrift(unittest.TestCase):
         self.assertEqual([c["base"] for c in picked], ["https://steady.example/vp.pb"])
         self.assertEqual(counts["unstable"], 1)
 
+    def test_a_blank_country_code_cannot_swallow_the_whole_selection(self):
+        rows = [row(mdb_source_id=str(i), location__country_code="",
+                    urls__direct_download=f"https://host{i}.example/vp.pb") for i in range(10)]
+        rows.append(row(mdb_source_id="99", location__country_code="IS",
+                        urls__direct_download="https://is.example/vp.pb"))
+        picked = builder.select_candidates(rows, per_country=1, unknown_limit=4)
+        self.assertEqual(len(picked), 5, "4 unknown-country feeds plus the Icelandic one")
+        self.assertIn("IS", [c["country"] for c in picked])
+
     def test_the_filter_counts_explain_why_the_selection_is_small(self):
         counts = {}
         rows = [row(), row(urls__authentication_type="1"),

@@ -86,7 +86,8 @@ def fetch_catalog(url: str = CATALOG, timeout: float = 120.0) -> str:
 
 
 def select_candidates(rows: list[dict], registered: list[dict] | None = None,
-                      per_country: int = 1, limit: int = 40, counts: dict | None = None) -> list[dict]:
+                      per_country: int = 1, limit: int = 40, counts: dict | None = None,
+                      unknown_limit: int = 25) -> list[dict]:
     """Filter the catalog down to keyless, HTTPS vehicle-position feeds the app can draw.
 
     Purity matters here: this runs over a third-party CSV whose schema drifts, and a feed that
@@ -142,6 +143,8 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
             "mdbId": str(row.get("id") or "").strip(),
             "country": country,
             "city": place or provider or "Unknown",
+            "subdivision": str(row.get("subdivision") or "").strip(),
+            "municipality": str(row.get("municipality") or "").strip(),
             "operator": provider or place or "Unknown",
             "network": str(row.get("name") or "").strip() or f"{provider} vehicle positions",
             "base": url,
@@ -153,9 +156,10 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
     for country in sorted(by_country):
         bucket = by_country[country]
         bucket.sort(key=lambda c: (not c.get("official"), str(c.get("city") or "")))
-        # "UNKNOWN" is a value the catalog really uses; it is a bucket like any other, so it
-        # cannot swallow the whole selection.
-        out.extend(bucket[:max(1, per_country)])
+        # This catalog export ships location.country_code blank for most rows, so the unknown
+        # bucket is most of the world: cap it separately or the whole selection collapses to it.
+        cap = unknown_limit if country in ("XX", "UNKNOWN", "") else max(1, per_country)
+        out.extend(bucket[:cap])
     if counts is not None:
         counts.update(tally)
         counts["byCountry"] = {c: len(v) for c, v in
@@ -169,7 +173,9 @@ def main(argv=None) -> int:
     parser.add_argument("--registry", default=str(REGISTRY))
     parser.add_argument("--out", default=str(OUT))
     parser.add_argument("--per-country", type=int, default=1, help="how many feeds per country")
-    parser.add_argument("--limit", type=int, default=40)
+    parser.add_argument("--limit", type=int, default=60)
+    parser.add_argument("--unknown-limit", type=int, default=25,
+                        help="how many feeds with no country code to keep")
     args = parser.parse_args(argv)
 
     text = Path(args.csv).read_text(encoding="utf-8") if args.csv else fetch_catalog()
@@ -182,7 +188,8 @@ def main(argv=None) -> int:
     registry = json.loads(Path(args.registry).read_text(encoding="utf-8"))
     counts: dict = {}
     candidates = select_candidates(rows, registry.get("feeds", []),
-                                   per_country=args.per_country, limit=args.limit, counts=counts)
+                                   per_country=args.per_country, limit=args.limit,
+                                   counts=counts, unknown_limit=args.unknown_limit)
     payload = {
         "note": "Candidate keyless GTFS-Realtime vehicle feeds selected from the Mobility Database "
                 "catalogs CSV. Nothing here is drawn: a candidate is promoted into data/transit.json "
