@@ -1,5 +1,21 @@
 # Consolidated upgrade status
 
+## 2026-09-29 — worldwide transit expansion, driven by measurement
+
+- **Eleven new networks, every one keyless and measured before promotion.** Helsinki HSL (913
+  vehicles), Turin GTT (391), Austin Capital Metro (272), Connecticut CTtransit (224), Hamilton
+  HSR (133), Broward County (110), Parma TEP (62), Venice ACTV (50), Guelph (33), Calabria
+  Autolinee Federico (30), Portland Maine Metro (10). The registry goes 20 → 31 feeds, 26 of
+  them keyless, 11 countries.
+- **The candidate pipeline, not guesswork.** `tools/build_transit_candidates.py` selects keyless
+  HTTPS vehicle-position feeds from the Mobility Database catalog (3,511 rows → 1,035 GTFS-RT →
+  386 with vehicle positions → 234 keyless → 182 HTTPS → 172 not already registered → 105 one
+  per operator host → 29 selected), and `tools/probe_transit.py --candidates` probes them.
+  17 of 29 answered with real fleets; 11 were promoted, the rest stayed candidates rather than
+  being guessed into the map. Both tools are unit-tested offline (29 new tests).
+- **A documented claim corrected.** CTtransit was recorded as dead and kept out; probed live it
+  answered with 224 vehicles, so it is in and the README's rejection note is replaced.
+
 ## 2026-09-29 — Delhi visibility, feed honesty
 
 Why a network can be live and still draw nothing, and what now makes that visible:
@@ -49,6 +65,14 @@ The full local suite has two pre-existing DNS-dependent relay-cache failures (`t
 identically on a clean checkout of `main`. The new targeted tests pass. GitHub CI is the
 independent full-suite check. Local browser navigation was blocked, so responsive visual and globe
 interaction verification remain outstanding; source/unit tests are not visual verification.
+
+**Feed liveness is measured in CI, not asserted here.** The probe runs weekly and on dispatch;
+`data/transit-probe.json` and `data/transit-probe-candidates.json` are the record, and each
+promoted network's note states the vehicle count measured on the day it was promoted. Two
+registry feeds are currently failing that sweep: `gcrta-bus` (unreachable) and `my-rapid-kl`
+(answers with no vehicle entities). They are left in place for now — the layer reports them as
+unavailable per sweep, which is honest — but a second failing sweep is the trigger to remove or
+replace them, not to keep apologising for them.
 
 **This environment has no outbound network at all** (every HTTPS connection, including
 otd.delhi.gov.in, fails at TLS connect). No feed was verified live here, and none of the

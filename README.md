@@ -102,13 +102,29 @@ table (`data/kr-stations.json`, a CC0 extract of Wikidata) is bundled to place t
 | `edmonton-ets` | Edmonton — ETS buses & LRT trains | City of Edmonton open data (keyless) | 🚌 bus | live GPS positions for every reporting vehicle |
 | `nl-ovapi` | Netherlands — Qbuzz, RET, GVB, Connexxion, Arriva, EBS, HTM: bus · tram · metro | OVapi national feed (keyless) | 🚌/🚊/🚇 | live GPS for thousands of vehicles in one stream |
 | `my-rapid-kl` | Kuala Lumpur — Rapid KL buses, Klang Valley | data.gov.my open data (keyless) | 🚌 bus | live GPS bus positions |
+| `hsl-helsinki` | Helsinki — HSL buses, trams and metro, the whole region | HSL open data (keyless) | 🚌/🚊/🚇 | live GPS for the entire regional fleet (913 vehicles measured) |
+| `gtt-turin` | Turin — GTT buses and trams | Gruppo Torinese Trasporti (keyless) | 🚌/🚊 | live GPS from the operator's own endpoint (391 measured) |
+| `capmetro-austin` | Austin — Capital Metro buses | Capital Metro via the Texas open data portal (keyless) | 🚌 bus | live GPS bus positions (272 measured) |
+| `cttransit` | Hartford — CTtransit buses, statewide | CTtransit GTFS-Realtime (keyless) | 🚌 bus | live GPS bus positions (224 measured) |
+| `hsr-hamilton` | Hamilton — HSR buses | City of Hamilton open data (keyless) | 🚌 bus | live GPS bus positions (133 measured) |
+| `broward-bct` | Fort Lauderdale — Broward County Transit | Broward County Transit (keyless) | 🚌 bus | live GPS bus positions (110 measured) |
+| `tep-parma` | Parma — TEP buses | TEP Parma (keyless) | 🚌 bus | live GPS bus positions (62 measured) |
+| `actv-venice` | Venice — ACTV buses and water buses | ACTV Venezia (keyless) | 🚌/⛴ | live GPS, including the lagoon fleet (50 measured) |
+| `federico-calabria` | Calabria — Autolinee Federico | Autolinee Federico (keyless) | 🚌 bus | live GPS bus positions (30 measured) |
+| `guelph-transit` | Guelph — Guelph Transit buses | City of Guelph (keyless) | 🚌 bus | live GPS bus positions (33 measured) |
+| `gpmetro-portland` | Portland, Maine — Greater Portland Metro | Greater Portland Metro (keyless) | 🚌 bus | live GPS bus positions (10 measured) |
 
-Nine of the feeds (`mbta`, `fi-rail`, `ch-rail`, `be-rail`, `gcrta-bus`, `atlanta-marta`,
-`edmonton-ets`, `nl-ovapi`, `my-rapid-kl`) need no key and no signup at all: they were each
-verified live before being added to the registry. Two proposed US feeds were checked with
-the same rigour and rejected — Louisville TARC and Connecticut CTtransit now answer only at
-dead or undocumented endpoints, so they are not in the registry rather than in it and
-permanently unavailable.
+**26 of the 31 feeds need no key and no signup at all** — every GTFS-Realtime network added on
+2026-09-29 is keyless, and each one was measured live before it was allowed into the registry
+(see *Checking the feeds* below). Only five carry a key: three OneBusAway Seattle feeds
+(public `TEST`), BART's public demo key, and Delhi's registered OTD key — and Delhi's now comes
+from the server's own environment when it is configured there.
+
+Nothing here is taken on trust. Louisville TARC was checked and rejected — it answers only at
+a dead endpoint. **Connecticut CTtransit was rejected for the same reason in an earlier pass and
+is now back in**: probed on 2026-09-29 it answered with 224 drawable vehicles from a live
+endpoint, so the earlier note was wrong and has been replaced. The rule is the same in both
+directions — a network is listed only while its own feed answers.
 
 ### Checking the feeds
 
@@ -124,7 +140,17 @@ atlanta-marta  Atlanta          200   38,210        180    178  current   live (
 
 It needs network access, so it is run by hand or by `.github/workflows/probe-transit.yml`
 (weekly, and any time you dispatch it), which commits the report to
-`data/transit-probe.json`. The protobuf reader is dependency-free and is unit-tested offline
+`data/transit-probe.json`.
+
+The same job also selects **candidates** — keyless, HTTPS vehicle-position feeds from the
+[Mobility Database](https://database.mobilitydata.org/) catalog, deduplicated by operator host
+and skipping whatever the catalog itself flags as an unstable URL
+(`tools/build_transit_candidates.py`) — and probes those into
+`data/transit-probe-candidates.json`. A candidate is a proposal, not a registry entry: it is
+promoted into `data/transit.json` only after the probe has watched it answer with real
+vehicles. That is how the eleven networks added on 2026-09-29 were chosen — 29 candidates
+probed, 17 answered with real fleets, 11 promoted with a city and a centre they could be
+placed at, and the other six left as candidates rather than guessed into the map. The protobuf reader is dependency-free and is unit-tested offline
 in `tests/test_probe_transit.py` against hand-built frames for **both** field maps —
 `position 2 / timestamp 5 / vehicle 8` (google/transit master, the gtfs.org v2.0 reference)
 and the numbering older producer libraries emit (`vehicle 2 / position 3 / stop_id 5 /
@@ -391,7 +417,7 @@ half-world.
  🔎 **Search** | filter cameras by road/city/country + geocoding place search (Nominatim) |
  ⟳ **Live sync** | background re-sync from official APIs — new cameras merge automatically |
  ✈ **Aircraft tracking** | live aircraft layer with selectable contacts, recent flight trails, a dedicated tracked-aircraft pin, follow mode and an oblique cockpit view |
- 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 15 public operator feeds across four continents — five of them keyless — with quota budgeting so a shared API key survives being public |
+ 🚇 **Live transit layer** | buses, trams and metro trains with line geometry, stations, contact list and a live status chip, from 31 public operator feeds across 11 countries on three continents — 26 of them keyless — with quota budgeting so a shared API key survives being public |
  🎛️ **Sensor looks** | switch between CRT, night vision, simulated FLIR, noir and snow modes; include the look in shareable scene links |
  🌐 **Global context** | jump from a detailed map view to the globe and restore the exact saved camera with one action |
  🕹️ **God's Eye HUD** | radar sweep, boot sequence, scanlines, live counters, UTC clock |
