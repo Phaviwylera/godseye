@@ -883,7 +883,7 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 600,
-      "note": "Keyless VehiclePositions straight from the operator, no portal or key involved. Measured 391 drawable vehicles when it was promoted on 2026-09-29 — a full city fleet, not a sample."
+      "note": "Keyless VehiclePositions straight from the operator, no portal or key involved. Measured 391 drawable vehicles when it was promoted on 2026-09-29 — a full city fleet, not a sample. Intermittent: the same URL answered 404 on two later sweeps that morning and on a direct check, so this endpoint comes and goes — the chip reports it per sweep instead of the registry pretending it is always there."
     },
     {
       "id": "capmetro-austin",
@@ -1003,7 +1003,7 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 600,
-      "note": "The operator publishes its VehiclePositions file into an S3 bucket rather than an API host, which is why the endpoint is not the operator’s own domain — it is the feed the Mobility Database catalog lists for them. Measured 62 drawable vehicles when it was promoted on 2026-09-29."
+      "note": "The operator publishes its VehiclePositions file into an S3 bucket rather than an API host, which is why the endpoint is not the operator’s own domain — it is the feed the Mobility Database catalog lists for them. Measured 62 drawable vehicles when it was promoted on 2026-09-29. Intermittent: the object it publishes returned NoSuchKey on two later sweeps that morning and on a direct check, so it is absent much of the time — reported per sweep, never assumed live."
     },
     {
       "id": "actv-venice",
@@ -1075,7 +1075,7 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 600,
-      "note": "Portland, Maine — not Portland, Oregon, which publishes no keyless vehicle feed. Measured 10 drawable vehicles when it was promoted on 2026-09-29."
+      "note": "Portland, Maine — not Portland, Oregon, which publishes no keyless vehicle feed. Measured 10 drawable vehicles when it was promoted on 2026-09-29. Intermittent: this host answered 503 on two later sweeps that morning and on a direct check — reported per sweep, and the smallest fleet in the registry (10 buses measured)."
     },
     {
       "id": "guelph-transit",

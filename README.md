@@ -142,6 +142,14 @@ It needs network access, so it is run by hand or by `.github/workflows/probe-tra
 (weekly, and any time you dispatch it), which commits the report to
 `data/transit-probe.json`.
 
+A network is **retired** (kept in the registry with the date and reason, no longer polled) once
+its operator stops publishing — `gcrta-bus` was retired this way when gtfs.gcrta.org stopped
+answering on both http and https. A feed that merely blips is not retired: the probe carries a
+`failedSweeps` streak across runs, so one bad sweep is a blip and three in a row is a decision.
+Three networks added on 2026-09-29 (`gtt-turin`, `tep-parma`, `gpmetro-portland`) measured real
+fleets and then answered 404/503 on later sweeps the same morning: they stay in, their notes say
+they are intermittent, and the chip reports them per sweep.
+
 The same job also selects **candidates** — keyless, HTTPS vehicle-position feeds from the
 [Mobility Database](https://database.mobilitydata.org/) catalog, deduplicated by operator host
 and skipping whatever the catalog itself flags as an unstable URL
