@@ -723,6 +723,7 @@
       "attribution": "Open Transit Data — Government of NCT of Delhi (otd.delhi.gov.in)",
       "page": "https://otd.delhi.gov.in",
       "signup": "otd.delhi.gov.in — free registration, key is emailed",
+      "keyEnv": "DELHI_OTD_KEY",
       "badge": "DTC",
       "cors": false,
       "center": [
@@ -734,7 +735,7 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 1800,
-      "note": "Delhi's Open Transit Data portal is India's only public live transit feed: real bus GPS updated roughly every ten seconds as GTFS-Realtime VehiclePositions — no TripUpdates feed exists. A registered key is already in place (free from otd.delhi.gov.in; keep it rotated if the deployed site is public). Buses that stop reporting — parked at a depot for hours — stay visible for up to thirty minutes and fade as their report ages; anything older is dropped rather than drawn as if live. The same portal's DMRC area publishes only static timetable data: the Delhi Metro itself publishes no real-time train feed anywhere, and no train marker may be drawn for it until DMRC chooses to (their November 2025 MapmyIndia MoU is a closed commercial channel, not open data). Never substitute simulated trains for that feed."
+      "note": "Delhi's Open Transit Data portal is India's only public live transit feed: real bus GPS updated roughly every ten seconds as GTFS-Realtime VehiclePositions — no TripUpdates feed exists. A registered key is already in place (free from otd.delhi.gov.in; keep it rotated if the deployed site is public). keyEnv names the server-side environment variable the relay publishes the key from: set DELHI_OTD_KEY in the Netlify project (Functions scope) or the local environment and the layer uses that value instead of the key in this public file, which should then be treated as exposed and rotated at otd.delhi.gov.in. Buses that stop reporting — parked at a depot for hours — stay visible for up to thirty minutes and fade as their report ages; anything older is dropped rather than drawn as if live. The same portal's DMRC area publishes only static timetable data: the Delhi Metro itself publishes no real-time train feed anywhere, and no train marker may be drawn for it until DMRC chooses to (their November 2025 MapmyIndia MoU is a closed commercial channel, not open data). Never substitute simulated trains for that feed."
     },
     {
       "id": "atlanta-marta",

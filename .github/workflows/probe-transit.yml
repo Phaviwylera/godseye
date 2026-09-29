@@ -1,0 +1,47 @@
+name: probe-transit
+# The TRANSIT layer only draws what an operator publishes, and the failure mode is a silent
+# empty city: a rotated key, a moved endpoint or a producer that switched protobuf field maps
+# all look identical from the map. This sweep asks every GTFS-Realtime feed once a week and
+# commits what each one answered, so a feed that stopped carrying vehicles is a dated record
+# rather than a mystery. It is advisory on purpose — a single blip must not fail the build;
+# the report is the evidence, and a feed that is down twice is a feed to fix or remove.
+on:
+  schedule:
+    - cron: "23 3 * * 2"   # weekly, Tuesdays 03:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: probe every GTFS-Realtime transit feed
+        env:
+          # Free, registered at otd.delhi.gov.in. Without it the sweep falls back to the key
+          # in data/transit.json, which must be treated as public.
+          DELHI_OTD_KEY: ${{ secrets.DELHI_OTD_KEY }}
+        run: python3 tools/probe_transit.py --json data/transit-probe.json
+      - name: upload the probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: transit-probe
+          path: data/transit-probe.json
+          if-no-files-found: error
+      - name: commit + push if changed
+        run: |
+          git config user.name "godseye-bot"
+          git config user.email "godseye-bot@users.noreply.github.com"
+          git add data/transit-probe.json
+          if git diff --cached --quiet; then
+            echo "no probe changes"
+          else
+            git commit -m "chore: weekly transit feed probe"
+            git push
+          fi

@@ -110,16 +110,50 @@ the same rigour and rejected — Louisville TARC and Connecticut CTtransit now a
 dead or undocumented endpoints, so they are not in the registry rather than in it and
 permanently unavailable.
 
+### Checking the feeds
+
+`python3 tools/probe_transit.py` asks every GTFS-Realtime feed in the registry directly and
+prints what each one answered — HTTP status, payload size, entity count, how many vehicles
+are drawable, and which protobuf field map the bytes carry:
+
+```
+FEED           CITY            HTTP     BYTES  ENTITIES  DRAWN  MAP       VERDICT
+delhi-dtc      Delhi            200  412,904        651    651  current   live
+atlanta-marta  Atlanta          200   38,210        180    178  current   live (2 stale)
+```
+
+It needs network access, so it is run by hand or by `.github/workflows/probe-transit.yml`
+(weekly, and any time you dispatch it), which commits the report to
+`data/transit-probe.json`. The protobuf reader is dependency-free and is unit-tested offline
+in `tests/test_probe_transit.py` against hand-built frames for **both** field maps —
+`position 2 / timestamp 5 / vehicle 8` (google/transit master, the gtfs.org v2.0 reference)
+and the numbering older producer libraries emit (`vehicle 2 / position 3 / stop_id 5 /
+timestamp 7`). Getting that wrong is the one failure that draws nothing at all for a network
+that is publishing perfectly good vehicles, so the layer no longer guesses: the bytes say
+which map they carry, and the chip reports which one was used.
+
 ### Delhi: what is and is not live
 
 `delhi-dtc` is India's only public live transit feed: Delhi's Open Transit Data portal
 publishes real bus GPS (updated roughly every ten seconds) as standard GTFS-Realtime
 VehiclePositions. A registered key is already in place, so Delhi's buses come online at the
 first sweep; parked buses that stop reporting stay for up to thirty minutes and visibly fade
-as their report ages. The key lives in a public file like the Seoul sample key — rotate it
-freely (register at [otd.delhi.gov.in](https://otd.delhi.gov.in) for a fresh one any time).
-If the key is ever reverted to `SIGNUP`, the layer goes back to waiting instead of failing:
-it is shown as pending, never as dead.
+as their report ages.
+
+**Where the key lives now.** The registry entry names `keyEnv: "DELHI_OTD_KEY"`. Set that
+variable in the Netlify project (Functions scope) or in the local environment and the layer
+takes the key from `/api/transit/keys` — served by the relay, never shipped in the page. With
+no variable configured it falls back to the key in `data/transit.json`, which is public:
+treat it as exposed and rotate it at
+[otd.delhi.gov.in](https://otd.delhi.gov.in) whenever you get the chance. If the key is
+reverted to `SIGNUP`, the layer goes back to waiting instead of failing: it is shown as
+pending, never as dead.
+
+**If Delhi looks empty, the chip says why.** Every GTFS-Realtime sweep records what it saw —
+bytes, entities, how many carried a position, how many were stale, and which protobuf field
+map the bytes used — and the TRANSIT chip spells it out per network: `the operator answered
+with 412904 bytes carrying no vehicle entities` and `unavailable (HTTP 403 · …)` are
+different problems with different fixes, and neither is allowed to look like plain silence.
 
 The **Delhi Metro publishes no real-time train feed anywhere** — DMRC keeps train positions
 private, and the OTD portal's realtime API covers buses only. Its November 2025 MoU with

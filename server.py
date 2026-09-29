@@ -139,6 +139,23 @@ SEOUL_BASE = os.environ.get("SEOUL_SUBWAY_BASE",
     "http://swopenapi.seoul.go.kr/api/subway/sample/json/realtimePosition/0/5/")
 SEOUL_WINDOW_SEC = 1500
 
+# /api/transit/keys: the operator keys this server holds in its own environment, keyed by
+# the feed id in data/transit.json that names them (`keyEnv`). Only the ids present here are
+# published, so a key that has not been configured is not advertised as configured, and the
+# browser never has to ship one in a public file.
+TRANSIT_KEYS = {
+    "delhi-dtc": "DELHI_OTD_KEY",
+}
+
+
+def transit_keys():
+    keys = {}
+    for feed_id, env_name in TRANSIT_KEYS.items():
+        value = (os.environ.get(env_name) or "").strip()
+        if value:
+            keys[feed_id] = value
+    return keys
+
 
 def window_sec(value):
     try:
@@ -303,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "cross-site use not allowed / rate limit"}, 403)
         if path == "/api/proxy":
             return self.do_proxy(parse_qs(parsed.query).get("url", [""])[0])
+        if path == "/api/transit/keys":
+            return self._json({"keys": transit_keys()})
         if path == "/api/transit/seoul":
             if not self._seoul_batch_ok():
                 return self._json({"error": "rate limit — slow down"}, 429)
