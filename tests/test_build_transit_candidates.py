@@ -32,7 +32,7 @@ def row(**overrides):
     }
     # overrides arrive as column names with '.' flattened to '__' for readability
     base.update({key.replace("__", "."): value for key, value in overrides.items()})
-    return {key: base[column] for key, column in CANON.items()}
+    return {key: base.get(column, "") for key, column in CANON.items()}
 
 
 class Selection(unittest.TestCase):
@@ -114,6 +114,21 @@ class SchemaDrift(unittest.TestCase):
         rows = builder.normalise_rows(__import__("csv").DictReader(
             __import__("io").StringIO("a,b,c\n1,2,3\n")), resolved)
         self.assertEqual(builder.select_candidates(rows), [])
+
+    def test_two_rows_on_one_operator_host_are_one_candidate(self):
+        rows = [row(mdb_source_id="1", urls__direct_download="https://one.example/vp.pb"),
+                row(mdb_source_id="2", urls__direct_download="https://one.example/vp.pb?v=2"),
+                row(mdb_source_id="3", urls__direct_download="https://two.example/vp.pb")]
+        self.assertEqual(len(builder.select_candidates(rows, per_country=5)), 2)
+
+    def test_a_feed_the_catalog_flags_as_unstable_is_not_proposed(self):
+        counts = {}
+        rows = [row(urls__direct_download="https://steady.example/vp.pb"),
+                row(urls__direct_download="https://wobbly.example/vp.pb",
+                    is_producer_url_unstable="true")]
+        picked = builder.select_candidates(rows, per_country=5, counts=counts)
+        self.assertEqual([c["base"] for c in picked], ["https://steady.example/vp.pb"])
+        self.assertEqual(counts["unstable"], 1)
 
     def test_the_filter_counts_explain_why_the_selection_is_small(self):
         counts = {}

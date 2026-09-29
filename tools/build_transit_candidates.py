@@ -51,6 +51,9 @@ FIELD_ALIASES = {
     "license": ("urls.license", "license_url", "license"),
     "latest": ("urls.latest", "latest_url"),
     "status": ("status",),
+    "official": ("is_official",),
+    "unstable": ("is_producer_url_unstable",),
+    "seasonal": ("is_seasonal",),
 }
 
 
@@ -100,8 +103,10 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
             if host:
                 known_hosts.add(host)
 
-    tally = {"rows": 0, "gtfsrt": 0, "vehiclePositions": 0, "keyless": 0, "https": 0, "novel": 0}
+    tally = {"rows": 0, "gtfsrt": 0, "vehiclePositions": 0, "keyless": 0, "https": 0,
+             "novel": 0, "unstable": 0, "onePerHost": 0}
     by_country: dict[str, list[dict]] = OrderedDict()
+    seen_hosts: set[str] = set()
     for row in rows:
         tally["rows"] += 1
         if str(row.get("dataType") or "").strip().lower() not in ("gtfs-rt", "gtfs_rt", "gtfsrt"):
@@ -121,11 +126,19 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
         if url.split("?")[0].rstrip("/").lower() in known or host in known_hosts:
             continue          # already in the registry under this endpoint or operator host
         tally["novel"] += 1
+        if host in seen_hosts:
+            continue          # one candidate per operator host: two rows, one feed
+        seen_hosts.add(host)
+        tally["onePerHost"] += 1
+        if str(row.get("unstable") or "").strip().lower() == "true":
+            tally["unstable"] += 1
+            continue          # the catalog itself warns the URL will not last
         country = str(row.get("country") or "").strip().upper() or "XX"
         place = str(row.get("municipality") or row.get("subdivision") or "").strip()
         provider = str(row.get("provider") or "").strip()
         by_country.setdefault(country, []).append({
             "source": "Mobility Database catalogs CSV",
+            "official": str(row.get("official") or "").strip().lower() == "true",
             "mdbId": str(row.get("id") or "").strip(),
             "country": country,
             "city": place or provider or "Unknown",
@@ -138,9 +151,15 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
 
     out: list[dict] = []
     for country in sorted(by_country):
-        out.extend(by_country[country][:max(1, per_country)])
+        bucket = by_country[country]
+        bucket.sort(key=lambda c: (not c.get("official"), str(c.get("city") or "")))
+        # "UNKNOWN" is a value the catalog really uses; it is a bucket like any other, so it
+        # cannot swallow the whole selection.
+        out.extend(bucket[:max(1, per_country)])
     if counts is not None:
         counts.update(tally)
+        counts["byCountry"] = {c: len(v) for c, v in
+                               sorted(by_country.items(), key=lambda kv: -len(kv[1]))[:20]}
     return out[:limit]
 
 
