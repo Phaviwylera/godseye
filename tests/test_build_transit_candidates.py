@@ -13,6 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
 import build_transit_candidates as builder  # noqa: E402
 
+# the canonical CSV column for each logical field: the first alias the tool tries
+CANON = {key: aliases[0] for key, aliases in builder.FIELD_ALIASES.items()}
+
 HEADER = ("mdb_source_id,data_type,entity_type,location.country_code,location.subdivision_name,"
           "location.municipality,provider,name,urls.direct_download,urls.authentication_type,"
           "urls.license,urls.latest,status")
@@ -29,7 +32,7 @@ def row(**overrides):
     }
     # overrides arrive as column names with '.' flattened to '__' for readability
     base.update({key.replace("__", "."): value for key, value in overrides.items()})
-    return {key: base[column] for key, column in builder.FIELDS.items()}
+    return {key: base[column] for key, column in CANON.items()}
 
 
 class Selection(unittest.TestCase):
@@ -78,13 +81,50 @@ class Selection(unittest.TestCase):
         self.assertEqual(len(builder.select_candidates(rows, per_country=2, limit=2)), 2)
 
     def test_missing_or_unexpected_columns_cannot_crash_the_run(self):
-        self.assertEqual(builder.select_candidates([{key: "" for key in builder.FIELDS}]), [])
+        self.assertEqual(builder.select_candidates([{key: "" for key in CANON}]), [])
         self.assertEqual(builder.select_candidates([]), [])
 
     def test_a_catalogue_row_without_a_country_is_still_kept_but_marked(self):
         picked = builder.select_candidates([row(location__country_code="")])
         self.assertEqual(len(picked), 1)
         self.assertEqual(picked[0]["country"], "XX")
+
+
+class SchemaDrift(unittest.TestCase):
+    def test_columns_are_resolved_against_the_header_not_assumed(self):
+        resolved = builder.resolve_columns(["mdb_source_id", "data_type", "entity_type",
+                                            "location.country_code", "urls.direct_download",
+                                            "urls.authentication_type", "provider"])
+        self.assertEqual(resolved["dataType"], "data_type")
+        self.assertEqual(resolved["url"], "urls.direct_download")
+        self.assertEqual(resolved["country"], "location.country_code")
+
+    def test_a_renamed_column_is_still_found(self):
+        resolved = builder.resolve_columns(["source_id", "datatype", "entitytype",
+                                            "country_code", "direct_download_url",
+                                            "authentication_type"])
+        self.assertEqual(resolved["id"], "source_id")
+        self.assertEqual(resolved["dataType"], "datatype")
+        self.assertEqual(resolved["country"], "country_code")
+        self.assertEqual(resolved["url"], "direct_download_url")
+
+    def test_an_unrecognised_header_resolves_to_nothing_and_says_so(self):
+        resolved = builder.resolve_columns(["a", "b", "c"])
+        self.assertEqual(resolved, {})
+        rows = builder.normalise_rows(__import__("csv").DictReader(
+            __import__("io").StringIO("a,b,c\n1,2,3\n")), resolved)
+        self.assertEqual(builder.select_candidates(rows), [])
+
+    def test_the_filter_counts_explain_why_the_selection_is_small(self):
+        counts = {}
+        rows = [row(), row(urls__authentication_type="1"),
+                row(urls__direct_download="https://only-trips.example/tu.pb", entity_type="tu")]
+        builder.select_candidates(rows, counts=counts)
+        self.assertEqual(counts["rows"], 3)
+        self.assertEqual(counts["gtfsrt"], 3)
+        self.assertEqual(counts["vehiclePositions"], 2, "the trip-updates-only feed is counted out")
+        self.assertEqual(counts["keyless"], 1)
+        self.assertEqual(counts["https"], 1)
 
 
 if __name__ == "__main__":

@@ -33,22 +33,44 @@ OUT = ROOT / "data" / "transit-candidates.json"
 CATALOG = "https://storage.googleapis.com/storage/v1/b/mdb-csv/o/sources.csv?alt=media"
 USER_AGENT = "godseye-transit-candidates/1.0 (+https://github.com/Phaviwylera/godseye)"
 
-# Only these columns are needed; the CSV has ~23 and its schema has grown before.
-FIELDS = {
-    "id": "mdb_source_id",
-    "dataType": "data_type",
-    "entityType": "entity_type",
-    "country": "location.country_code",
-    "subdivision": "location.subdivision_name",
-    "municipality": "location.municipality",
-    "provider": "provider",
-    "name": "name",
-    "url": "urls.direct_download",
-    "auth": "urls.authentication_type",
-    "license": "urls.license",
-    "latest": "urls.latest",
-    "status": "status",
+# The catalog CSV has ~23 columns and its schema has grown before, so every logical field is
+# resolved against the header at run time rather than assumed. A renamed column that silently
+# resolved to nothing would quietly select zero feeds, which is why the resolved names and the
+# counts per filter are written into the output for anyone to check.
+FIELD_ALIASES = {
+    "id": ("mdb_source_id", "source_id", "id"),
+    "dataType": ("data_type", "datatype", "data type"),
+    "entityType": ("entity_type", "entitytype", "entity type"),
+    "country": ("location.country_code", "country_code", "location.country", "country"),
+    "subdivision": ("location.subdivision_name", "subdivision_name"),
+    "municipality": ("location.municipality", "municipality"),
+    "provider": ("provider", "agency", "operator"),
+    "name": ("name", "feed_name"),
+    "url": ("urls.direct_download", "direct_download_url", "url"),
+    "auth": ("urls.authentication_type", "authentication_type"),
+    "license": ("urls.license", "license_url", "license"),
+    "latest": ("urls.latest", "latest_url"),
+    "status": ("status",),
 }
+
+
+def resolve_columns(header: list[str]) -> dict:
+    """Match each logical field to the column this CSV actually ships."""
+    lowered = {str(name).strip().lower(): str(name) for name in header}
+    resolved = {}
+    for key, aliases in FIELD_ALIASES.items():
+        for alias in aliases:
+            if alias in lowered:
+                resolved[key] = lowered[alias]
+                break
+    return resolved
+
+
+def normalise_rows(reader: "csv.DictReader", resolved: dict) -> list[dict]:
+    out = []
+    for raw in reader:
+        out.append({key: (raw.get(column) or "") for key, column in resolved.items()})
+    return out
 
 # authentication_type in the catalogs CSV: 0 = no key, 1 = key required, 2 = unknown/other.
 KEYLESS = {"0", "", "none", "false", "no"}
@@ -61,7 +83,7 @@ def fetch_catalog(url: str = CATALOG, timeout: float = 120.0) -> str:
 
 
 def select_candidates(rows: list[dict], registered: list[dict] | None = None,
-                      per_country: int = 1, limit: int = 40) -> list[dict]:
+                      per_country: int = 1, limit: int = 40, counts: dict | None = None) -> list[dict]:
     """Filter the catalog down to keyless, HTTPS vehicle-position feeds the app can draw.
 
     Purity matters here: this runs over a third-party CSV whose schema drifts, and a feed that
@@ -78,20 +100,27 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
             if host:
                 known_hosts.add(host)
 
+    tally = {"rows": 0, "gtfsrt": 0, "vehiclePositions": 0, "keyless": 0, "https": 0, "novel": 0}
     by_country: dict[str, list[dict]] = OrderedDict()
     for row in rows:
+        tally["rows"] += 1
         if str(row.get("dataType") or "").strip().lower() not in ("gtfs-rt", "gtfs_rt", "gtfsrt"):
             continue
+        tally["gtfsrt"] += 1
         if "vp" not in str(row.get("entityType") or "").lower():
             continue
+        tally["vehiclePositions"] += 1
         if str(row.get("auth") or "").strip().lower() not in KEYLESS:
             continue
+        tally["keyless"] += 1
         url = str(row.get("url") or "").strip()
         if not url.lower().startswith("https://") or "key=" in url.lower():
             continue
+        tally["https"] += 1
         host = url.split("//", 1)[-1].split("/", 1)[0].lower()
         if url.split("?")[0].rstrip("/").lower() in known or host in known_hosts:
             continue          # already in the registry under this endpoint or operator host
+        tally["novel"] += 1
         country = str(row.get("country") or "").strip().upper() or "XX"
         place = str(row.get("municipality") or row.get("subdivision") or "").strip()
         provider = str(row.get("provider") or "").strip()
@@ -110,6 +139,8 @@ def select_candidates(rows: list[dict], registered: list[dict] | None = None,
     out: list[dict] = []
     for country in sorted(by_country):
         out.extend(by_country[country][:max(1, per_country)])
+    if counts is not None:
+        counts.update(tally)
     return out[:limit]
 
 
@@ -124,13 +155,15 @@ def main(argv=None) -> int:
 
     text = Path(args.csv).read_text(encoding="utf-8") if args.csv else fetch_catalog()
     reader = csv.DictReader(io.StringIO(text))
-    rows = []
-    for raw in reader:
-        rows.append({key: (raw.get(column) or "") for key, column in FIELDS.items()})
+    header = list(reader.fieldnames or [])
+    resolved = resolve_columns(header)
+    missing = sorted(set(FIELD_ALIASES) - set(resolved))
+    rows = normalise_rows(reader, resolved)
 
     registry = json.loads(Path(args.registry).read_text(encoding="utf-8"))
+    counts: dict = {}
     candidates = select_candidates(rows, registry.get("feeds", []),
-                                   per_country=args.per_country, limit=args.limit)
+                                   per_country=args.per_country, limit=args.limit, counts=counts)
     payload = {
         "note": "Candidate keyless GTFS-Realtime vehicle feeds selected from the Mobility Database "
                 "catalogs CSV. Nothing here is drawn: a candidate is promoted into data/transit.json "
@@ -139,6 +172,10 @@ def main(argv=None) -> int:
         "sourceLicense": "Mobility Database catalogs (CC BY 4.0 for the catalog metadata)",
         "selected": len(candidates),
         "from": len(rows),
+        "columns": header,
+        "resolved": resolved,
+        "unresolved": missing,
+        "counts": counts,
         "candidates": candidates,
     }
     Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
