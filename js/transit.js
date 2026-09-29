@@ -1355,6 +1355,7 @@ const Transit = (() => {
     const counts = {
       bytes: bytes.length, entities: 0, withPosition: 0, map: null,
       stale: 0, badCoords: 0, kept: 0, headerSeconds: Number(pbNum(header || [], 3)) || null,
+      explicitTimestamps: 0, newestSeconds: null,
     };
     const out = [];
     for (const entity of pbAll(message, 2)) {
@@ -1372,6 +1373,10 @@ const Transit = (() => {
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { counts.badCoords++; continue; }
       const seconds = findObservedSeconds(position, Number(fallback) / 1000);
       const observed = seconds * 1000;
+      if (TIME_FIELDS.some((n) => position.some((f) => f.field === n && f.type === 0))) counts.explicitTimestamps++;
+      if (Number.isFinite(seconds)) {
+        counts.newestSeconds = counts.newestSeconds == null ? seconds : Math.max(counts.newestSeconds, seconds);
+      }
       if (!Number.isFinite(observed) || isNaN(observed) || now - observed > maxAge) { counts.stale++; continue; }
       const trip = pbSub(position, 1) || [];
       const descriptor = findVehicleDescriptor(position) || [];
@@ -1940,7 +1945,25 @@ const Transit = (() => {
     if (report.stale) dropped.push(`${report.stale} older than ${Math.round(finite(feed.maxAgeSec, GTFSRT_DEFAULTS.maxAgeSec) / 60)} min`);
     return `${report.kept} live of ${report.entities} entities`
       + (dropped.length ? ` — ${dropped.join(', ')}` : '')
-      + (report.map ? ` — field map: ${report.map}` : '');
+      + (report.map ? ` — field map: ${report.map}` : '')
+      + (report.kept === 0 && report.stale ? ` — ${clockHint(report, Date.now() / 1000)}` : '')
+      + (report.entities && !report.explicitTimestamps ? ' — no entity carries its own timestamp, the feed header’s is used' : '');
+  }
+
+  /* A producer whose server clock is set to local time publishes timestamps that sit a whole
+   * number of hours away from POSIX — Delhi's is UTC+05:30. From the map that is
+   * indistinguishable from a dead feed: every vehicle is dropped, nothing is drawn. The
+   * offset is named here rather than corrected in the client, because silently shifting an
+   * operator's clock would be inventing freshness the feed never claimed. */
+  function clockHint(report, nowSeconds) {
+    const newest = report.newestSeconds;
+    if (!Number.isFinite(newest)) return 'no usable timestamp in the payload';
+    const age = nowSeconds - newest;                 // > 0: the feed is behind this clock
+    if (Math.abs(age) < 300) return '';
+    const hours = Math.abs(age) / 3600;
+    const correction = age > 0 ? `+${hours.toFixed(2)}` : `-${hours.toFixed(2)}`;   // what to add to the feed
+    return `the newest report is ${hours.toFixed(2)} h ${age > 0 ? 'behind' : 'ahead of'} this clock`
+      + ` — a constant ${correction} h correction would make them fresh`;
   }
 
   function render() {
@@ -2254,6 +2277,6 @@ const Transit = (() => {
     parseOpendataChStationboard, parseIrailLiveboard, parseOpendataChConnection, parseIrailConnection,
     parseIrailStations, parseGtfsStatic, stationPoint, keepPerStation,
     pbFields, pbVarint, parseGtfsrtFeed,
-    quietWhy, keyedEndpoint, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
+    quietWhy, clockHint, keyedEndpoint, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
   };
 })();

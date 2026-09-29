@@ -194,6 +194,33 @@ class Verdicts(unittest.TestCase):
         self.assertIn("651", table)
 
 
+class ClockOffsets(unittest.TestCase):
+    def test_a_feed_running_on_local_time_is_named_not_silently_corrected(self):
+        report = {"newestSeconds": NOW - 19800, "entities": 651, "kept": 0, "stale": 651}
+        hint = probe.clock_hint(report, now=NOW)
+        self.assertIn("5.50 h behind", hint)
+        self.assertIn("+5.50 h correction would make them fresh", hint)
+
+    def test_a_fresh_feed_gets_no_clock_lecture(self):
+        self.assertEqual(probe.clock_hint({"newestSeconds": NOW - 30}, now=NOW), "")
+
+    def test_a_payload_without_any_timestamp_says_so(self):
+        self.assertEqual(probe.clock_hint({"newestSeconds": None}, now=NOW), "")
+
+    def test_decoding_records_whether_entities_carry_their_own_timestamps(self):
+        payload = feed_message([
+            current_map(28.61, 77.21, NOW - 10, vid="a"),
+            current_map(28.62, 77.22, NOW - 20, vid="b"),
+        ])
+        _, report = probe.decode_vehicle_positions(payload, max_age_sec=600, now=NOW)
+        self.assertEqual(report["explicitTimestamps"], 2)
+        self.assertEqual(report["newestSeconds"], int(NOW) - 10)
+        header_only = feed_message([ld(4, ld(1, txt(1, "trip-1")) + ld(2, position(28.61, 77.21)))])
+        _, report2 = probe.decode_vehicle_positions(header_only, max_age_sec=600, now=NOW)
+        self.assertEqual(report2["explicitTimestamps"], 0, "no per-entity timestamp: the header's is used")
+        self.assertEqual(report2["kept"], 1)
+
+
 class Keys(unittest.TestCase):
     def test_a_server_side_key_replaces_only_the_key_parameter(self):
         feed = {"id": "delhi-dtc", "keyEnv": "DELHI_OTD_KEY",

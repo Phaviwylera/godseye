@@ -424,6 +424,19 @@ test('an empty or positionless payload is reported with counts, not guessed at',
   assert.match(Transit.quietWhy(Object.assign({}, f, { _error: null })), /no vehicles reported/);
 });
 
+test('a feed whose clock is set to local time is named as a clock offset, not corrected silently', () => {
+  const nowSeconds = NOW / 1000;
+  const behind = { newestSeconds: nowSeconds - 19800 };          // Delhi: UTC+05:30
+  const text = Transit.clockHint(behind, nowSeconds);
+  assert.match(text, /5\.50 h behind/, 'the offset Delhi runs on is stated, in hours');
+  assert.match(text, /\+5\.50 h correction would make them fresh/, 'and so is the correction it implies');
+  assert.match(Transit.clockHint({ newestSeconds: nowSeconds + 3600 }, nowSeconds), /ahead of/);
+  assert.equal(Transit.clockHint({ newestSeconds: nowSeconds - 30 }, nowSeconds), '',
+    'a feed that is simply fresh gets no clock lecture');
+  assert.match(Transit.clockHint({ newestSeconds: null }, nowSeconds), /no usable timestamp/,
+    'a payload with no timestamp at all says so instead of implying a clock');
+});
+
 test('a key held server-side is spliced into the endpoint, and only for the feed that named it', () => {
   const f = feed('delhi-dtc');
   assert.equal(f.keyEnv, 'DELHI_OTD_KEY', 'Delhi names the environment variable that should hold its key');

@@ -192,6 +192,7 @@ def decode_vehicle_positions(payload: bytes, max_age_sec: int = 600, now: float 
     report = {
         "bytes": len(payload), "entities": 0, "withPosition": 0, "stale": 0,
         "badCoords": 0, "kept": 0, "map": None, "headerSeconds": None,
+        "explicitTimestamps": 0, "newestSeconds": None, "oldestSeconds": None,
     }
     vehicles: list[dict] = []
     message = read_fields(payload)
@@ -217,7 +218,13 @@ def decode_vehicle_positions(payload: bytes, max_age_sec: int = 600, now: float 
         if lat is None or lon is None or (lat == 0 and lon == 0) or abs(lat) > 90 or abs(lon) > 180:
             report["badCoords"] += 1
             continue
+        explicit = any(field in TIME_FIELDS and wire == 0 for field, wire, _ in vp)
+        if explicit:
+            report["explicitTimestamps"] += 1
         seconds = find_timestamp(vp, fallback, now)
+        if seconds is not None:
+            report["newestSeconds"] = seconds if report["newestSeconds"] is None else max(report["newestSeconds"], seconds)
+            report["oldestSeconds"] = seconds if report["oldestSeconds"] is None else min(report["oldestSeconds"], seconds)
         if seconds is None or (now - seconds) > max_age_sec:
             report["stale"] += 1
             continue
@@ -256,6 +263,29 @@ def fetch(url: str, timeout: float) -> tuple[int, bytes]:
         return int(exc.code), (exc.read() or b"")[:2048]
     except Exception as exc:                                     # DNS, TLS, timeout …
         return 0, str(exc).encode("utf-8", "replace")[:512]
+
+
+def clock_hint(report: dict, now: float | None = None) -> str:
+    """When every report is too old to draw, is it a constant clock offset?
+
+    A producer whose server clock is set to local time — Delhi's is UTC+05:30 — publishes
+    timestamps that are a whole number of hours away from POSIX. From the map that looks
+    exactly like a dead feed: every vehicle is dropped, nothing is drawn. The offset has to
+    be named before it is corrected, because guessing it in the client would be inventing
+    positions the operator never timestamped.
+    """
+    newest = report.get("newestSeconds")
+    if newest is None:
+        return ""
+    now = time.time() if now is None else now
+    age = now - newest                      # > 0: the feed is behind; < 0: ahead
+    if abs(age) < 300:
+        return ""
+    hours = abs(age) / 3600.0
+    direction = "behind" if age > 0 else "ahead of"
+    correction = f"+{hours:.2f}" if age > 0 else f"-{hours:.2f}"     # what to add to the feed
+    return (f"every report is stale: the newest is {hours:.2f} h {direction} this clock "
+            f"— a constant {correction} h correction would make them fresh")
 
 
 def verdict_for(report: dict) -> str:
@@ -330,6 +360,11 @@ def main(argv=None) -> int:
         if row.get("verdict") not in ("live",) and not str(row.get("verdict", "")).startswith("live ("):
             detail = row.get("detail") or ""
             print(f"  ! {row.get('id')}: {row.get('verdict')}{(' — ' + detail) if detail else ''}")
+            hint = clock_hint(row)
+            if hint:
+                print(f"    ↳ {hint}")
+            if row.get("entities") and not row.get("explicitTimestamps"):
+                print("    ↳ no entity carries its own timestamp: the feed header's is used for every vehicle")
 
     if args.json_out:
         out = Path(args.json_out)
