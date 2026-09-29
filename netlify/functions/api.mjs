@@ -558,6 +558,19 @@ export async function handler(event) {
   if (path.includes('/worldbank')) {
     return worldbankRoute(String(params.cc || "").toUpperCase());
   }
+  if (path.includes('/transit/keys')) {
+    /* Operator keys this deployment holds in its own environment, keyed by the feed id in
+     * data/transit.json that names them (`keyEnv`). Only configured ids are published, so the
+     * browser can use a key without the site having to ship it in a public file. */
+    const names = { 'delhi-dtc': 'DELHI_OTD_KEY' };
+    const keys = {};
+    for (const [feedId, envName] of Object.entries(names)) {
+      const value = String(process.env[envName] || '').trim();
+      if (value) keys[feedId] = value;
+    }
+    return { statusCode: 200, headers: { ...CORS, 'Content-Type': 'application/json',
+      'Cache-Control': 'no-store' }, body: JSON.stringify({ keys }) };
+  }
   if (path.includes('/transit/seoul')) {
     if (!seoulBatchRateOK(ip)) {
       return { statusCode: 429, headers: CORS, body: JSON.stringify({ error: 'rate limit — slow down' }) };
@@ -632,10 +645,16 @@ export async function handler(event) {
     }
     return {
       statusCode: 200,
-      headers: { ...CORS, "Content-Type": ctype, "Cache-Control": "no-store",
+      headers: { ...CORS, "Content-Type": asBase64 ? "text/plain; charset=utf-8" : ctype,
+        "Cache-Control": "no-store",
         "X-Cache": window ? "MISS" : "SKIP" },
+      /* `encoding=base64` asks for the bytes as base64 TEXT — the flag must stay off.
+       * isBase64Encoded tells the platform to decode the body before it goes out, so
+       * flagging a body that is already base64 ships the raw protobuf instead; the browser's
+       * atob() then throws on it and every GTFS-Realtime network silently draws nothing.
+       * The flag still belongs on a binary payload fetched without the encoding parameter. */
       body: asBase64 ? buf.toString("base64") : text,
-      isBase64Encoded: asBase64 || (!TEXTUAL(ctype) && !isFetch),
+      isBase64Encoded: !asBase64 && !TEXTUAL(ctype) && !isFetch,
     };
   } catch (e) {
     if (e && e.timeout) {

@@ -80,6 +80,22 @@ const Transit = (() => {
     return /key=SIGNUP/.test(String((feed && feed.base) || ''));
   }
 
+  /* A network whose operator stopped publishing is retired rather than deleted: the entry
+   * keeps its attribution and the reason it left, and the layer neither polls it nor claims it
+   * failed. Deleting it would lose the record that it used to work and why it no longer does. */
+  function isRetired(feed) {
+    const note = feed && feed.retired;
+    if (!note) return false;
+    return typeof note === 'string' ? Boolean(note.trim()) : Boolean(note.on || note.reason);
+  }
+
+  function retiredWhy(feed) {
+    const note = (feed && feed.retired) || {};
+    return typeof note === 'string'
+      ? note.trim()
+      : [note.on ? `retired ${note.on}` : 'retired', note.reason].filter(Boolean).join(' — ');
+  }
+
   function colorFor(feed, value) {
     const hex = normColor(value);
     if (hex !== '#7ee0ff') return hex;
@@ -1251,11 +1267,16 @@ const Transit = (() => {
   }
 
   const PB_DECODER = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
-  function pbText(bytes) {
+  /* TextDecoder is missing in the bare `vm` context the unit tests use, so decode by hand
+   * when it is not there. */
+  function bytesToText(bytes) {
     if (PB_DECODER) return PB_DECODER.decode(bytes);
     let out = '';
     for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
     return out;
+  }
+  function pbText(bytes) {
+    return bytesToText(bytes);
   }
   const pbNum = (fields, n) => {
     for (const f of fields) if (f.field === n) return f.type === 5 ? pbFloat32(f.value) : (f.type === 1 ? pbDouble(f.value) : f.value);
@@ -1271,7 +1292,78 @@ const Transit = (() => {
   };
   const pbAll = (fields, n) => fields.filter((f) => f.field === n && f.type === 2).map((f) => pbFields(f.value));
 
-  function parseGtfsrtFeed(bytes, feed, now) {
+  /* ------------------------------------------- GTFS-RT VehiclePosition field map
+   * VehiclePosition's field numbers are not the same in every producer's proto:
+   *
+   *   current spec (google/transit master, the gtfs.org v2.0 reference):
+   *     position 2 · current_stop_sequence 3 · current_status 4 · timestamp 5
+   *     congestion_level 6 · stop_id 7 · vehicle 8
+   *   the numbering some long-lived producer libraries still emit:
+   *     vehicle 2 · position 3 · current_stop_sequence 4 · stop_id 5
+   *     current_status 6 · timestamp 7 · congestion_level 8
+   *
+   * Guessing wrong is the worst possible failure: it does not crash, it silently draws
+   * nothing, and the map looks empty for a network that is publishing perfectly good
+   * vehicles. So the bytes decide which map they are carrying — a Position is the only
+   * submessage whose first field is a 32-bit float, a timestamp is a varint while a
+   * stop_id is a string, and the VehicleDescriptor is whatever submessage is left
+   * holding strings. Every decode reports which map it used.
+   */
+  const POSITION_FIELDS = [2, 3];        // current spec first, legacy second
+  const TIME_FIELDS = [5, 7];            // one of these is the timestamp, the other the stop_id
+  const VEHICLE_FIELDS = [8, 2];         // ditto: the VehicleDescriptor
+
+  function looksLikePosition(fields) {
+    // Position.latitude is field 1 encoded as a 32-bit float (wire type 5)
+    return Array.isArray(fields) && fields.some((f) => f.field === 1 && f.type === 5);
+  }
+
+  function findPosition(vp) {
+    for (const n of POSITION_FIELDS) {
+      const sub = pbSub(vp, n);
+      if (sub && looksLikePosition(sub)) return { pos: sub, map: n === 2 ? 'current' : 'legacy' };
+    }
+    /* Last resort for a producer using a map neither list covers: any length-delimited
+     * submessage shaped like a Position, except field 1, which is always the TripDescriptor. */
+    for (const f of vp) {
+      if (f.type !== 2 || f.field === 1) continue;
+      let sub = null;
+      try { sub = pbFields(f.value); } catch { sub = null; }
+      if (sub && looksLikePosition(sub)) return { pos: sub, map: 'inferred' };
+    }
+    return null;
+  }
+
+  function findObservedSeconds(vp, fallbackSeconds) {
+    for (const n of TIME_FIELDS) {
+      const field = vp.find((f) => f.field === n && f.type === 0);
+      if (!field) continue;
+      const seconds = Number(field.value);
+      /* A plausible epoch: after 2000-01-01 and not more than a day ahead of the viewer. */
+      if (Number.isFinite(seconds) && seconds > 946684800 && seconds < Date.now() / 1000 + 86400) return seconds;
+    }
+    return fallbackSeconds;
+  }
+
+  function findStopId(vp) {
+    for (const n of TIME_FIELDS) {
+      const field = vp.find((f) => f.field === n && f.type === 2);
+      if (!field) continue;
+      const text = pbText(field.value).trim();
+      if (text) return text;
+    }
+    return '';
+  }
+
+  function findVehicleDescriptor(vp) {
+    for (const n of VEHICLE_FIELDS) {
+      const sub = pbSub(vp, n);
+      if (sub && !looksLikePosition(sub)) return sub;
+    }
+    return null;
+  }
+
+  function parseGtfsrtFeed(bytes, feed, now, report) {
     /* Duck-typed on purpose: a Node Buffer, a cross-realm Uint8Array and a plain typed array
        are all valid frames, and `instanceof` says no to two of them. */
     if (!bytes || typeof bytes.length !== 'number' || !bytes.length) throw new Error('empty realtime payload');
@@ -1279,27 +1371,42 @@ const Transit = (() => {
     const header = pbSub(message, 1);
     const fallback = Number(pbNum(header || [], 3)) * 1000;    // FeedHeader.timestamp, seconds
     const maxAge = finite(feed.maxAgeSec, GTFSRT_DEFAULTS.maxAgeSec) * 1000;
+    /* What this sweep actually saw. A feed that answers with zero vehicles is a different
+     * problem from a feed that never answered, and the chip says which one it is. */
+    const counts = {
+      bytes: bytes.length, entities: 0, withPosition: 0, map: null,
+      stale: 0, badCoords: 0, kept: 0, headerSeconds: Number(pbNum(header || [], 3)) || null,
+      explicitTimestamps: 0, newestSeconds: null,
+    };
     const out = [];
     for (const entity of pbAll(message, 2)) {
       const position = pbSub(entity, 4);                        // FeedEntity.vehicle
       if (!position) continue;
-      const pos = pbSub(position, 2);                           // VehiclePosition.position (GTFS-RT proto)
-      if (!pos) continue;
+      counts.entities++;
+      const found = findPosition(position);
+      if (!found) continue;
+      counts.withPosition++;
+      if (!counts.map) counts.map = found.map;
+      const pos = found.pos;
       const lat = Number(pbNum(pos, 1));
       const lon = Number(pbNum(pos, 2));
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue;
-      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
-      const seconds = Number(pbNum(position, 5)) || Number(fallback) / 1000;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) { counts.badCoords++; continue; }
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { counts.badCoords++; continue; }
+      const seconds = findObservedSeconds(position, Number(fallback) / 1000);
       const observed = seconds * 1000;
-      if (!Number.isFinite(observed) || now - observed > maxAge) continue;
+      if (TIME_FIELDS.some((n) => position.some((f) => f.field === n && f.type === 0))) counts.explicitTimestamps++;
+      if (Number.isFinite(seconds)) {
+        counts.newestSeconds = counts.newestSeconds == null ? seconds : Math.max(counts.newestSeconds, seconds);
+      }
+      if (!Number.isFinite(observed) || isNaN(observed) || now - observed > maxAge) { counts.stale++; continue; }
       const trip = pbSub(position, 1) || [];
-      const descriptor = pbSub(position, 8) || [];
+      const descriptor = findVehicleDescriptor(position) || [];
       const bearing = Number(pbNum(pos, 3));
       const speed = Number(pbNum(pos, 5));
       /* GTFS-RT field map: TripDescriptor.route_id is field 5 — field 2 is the trip's
        * start_time and reading it as a route is what put clock strings like "11:28:25"
-       * on bus labels. VehiclePosition.stop_id is field 7 (field 11 is occupancy), and
-       * TripDescriptor.trip_id is an internal job number, not a headsign — never a label. */
+       * on bus labels. TripDescriptor.trip_id is an internal job number, not a headsign
+       * — never a label. */
       const routeId = String(pbStr(trip, 5) || '').trim();
       out.push({
         key: `gtfsrt:${feed.id}:${String(pbStr(descriptor, 1) || pbStr(trip, 1) || `${lat},${lon}`).trim()}`,
@@ -1317,7 +1424,7 @@ const Transit = (() => {
         heading: Number.isFinite(bearing) && bearing >= 0 && bearing < 360 ? bearing : 0,
         speed: Number.isFinite(speed) && speed >= 0 ? Math.round(speed * 3.6) : null,   // m/s -> km/h
         dest: '',
-        nextStop: String(pbStr(position, 7) || '').trim(),
+        nextStop: findStopId(position),
         etaSec: null,
         delaySec: null,
         vehicle: String(pbStr(descriptor, 2) || pbStr(descriptor, 1) || '').trim(),
@@ -1326,14 +1433,26 @@ const Transit = (() => {
         attribution: feed.attribution,
       });
     }
+    counts.kept = out.length;
+    if (report && typeof report === 'object') Object.assign(report, counts);
     return out;
   }
 
+  /* What the last sweep saw, per feed: the chip and the registry report read this, so an
+   * empty network explains itself instead of just being quiet. */
+  const decode = new Map();
+
   async function refreshGtfsrt(feed) {
-    const targets = asArray(feed.endpoints && feed.endpoints.length ? feed.endpoints : [feed.base]);
+    await loadEnvKeys();
+    const targets = asArray(feed.endpoints && feed.endpoints.length ? feed.endpoints : [feed.base])
+      .map((target) => keyedEndpoint(feed, target));
     return budgetedSweep(feed, targets,
-      (endpoint, now) => getBinary(endpoint, feed.cors)
-        .then((bytes) => parseGtfsrtFeed(bytes, feed, now)), GTFSRT_DEFAULTS);
+      (endpoint, now) => getBinary(endpoint, feed.cors).then((bytes) => {
+        const report = {};
+        const rows = parseGtfsrtFeed(bytes, feed, now, report);
+        decode.set(feed.id, Object.assign({ at: now, endpoint }, report));
+        return rows;
+      }), GTFSRT_DEFAULTS);
   }
 
   async function refreshBoard(feed) {
@@ -1361,8 +1480,42 @@ const Transit = (() => {
 
   async function getSeoulBatch() {
     const relay = await fetch('/api/transit/seoul', { cache: 'no-store' });
-    if (!relay.ok) throw new Error('unavailable');
+    if (!relay.ok) throw new Error(await relayWhy(relay));
     return relay.json();
+  }
+
+  /* A relay answers with a status and a JSON error; "unavailable" threw both away and left a
+   * dead operator key indistinguishable from a bad URL. The status and the relay's own words
+   * are carried through to the chip instead. */
+  async function relayWhy(response) {
+    let detail = '';
+    try { detail = String(await response.text() || '').slice(0, 160); } catch { detail = ''; }
+    let reason = detail;
+    try { reason = (JSON.parse(detail) || {}).error || detail; } catch { /* plain text body */ }
+    return `HTTP ${response.status}${reason ? ` · ${reason}` : ''}`;
+  }
+
+  /* Some operators hand out a free key that must not sit in a public file forever. The relay
+   * publishes the ones it holds server-side (Netlify env / local environment); a feed that
+   * names `keyEnv` uses that value when the relay has one and the registry URL otherwise.
+   * No relay at all — a static host with no functions — is not an error, it just leaves the
+   * registry's own URL in place. */
+  let envKeys = null;
+  async function loadEnvKeys() {
+    if (envKeys) return envKeys;
+    envKeys = {};
+    try {
+      const relay = await fetch('/api/transit/keys', { cache: 'no-store' });
+      if (relay.ok) envKeys = ((await relay.json()) || {}).keys || {};
+    } catch (e) { envKeys = {}; }
+    return envKeys;
+  }
+
+  function keyedEndpoint(feed, endpoint, keys) {
+    const table = keys || envKeys;
+    const key = table && table[feed.id];
+    if (!key || !feed.keyEnv) return String(endpoint);
+    return String(endpoint).replace(/([?&]key=)[^&]*/, `$1${encodeURIComponent(key)}`);
   }
 
   async function getJson(url, direct, windowSec) {
@@ -1373,19 +1526,32 @@ const Transit = (() => {
       } catch (e) { /* fall through to the same relay the camera feeds use */ }
     }
     const relay = await fetch(relayUrl(url, windowSec), { cache: 'no-store' });
-    if (!relay.ok) throw new Error('unavailable');
+    if (!relay.ok) throw new Error(await relayWhy(relay));
     return await relay.json();
   }
 
-  /* GTFS-Realtime is binary; the relay base64s it so the bytes survive the trip intact. */
+  /* GTFS-Realtime is binary; the relay base64s it so the bytes survive the trip intact.
+   * A relay that answers with the raw protobuf instead is still usable: a FeedMessage always
+   * opens with its header tag (0x0a), which is not a character base64 can contain. Accepting
+   * both means one deployment's envelope bug cannot empty a whole city. */
+  function bytesFromRelay(buffer) {
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length && (bytes[0] === 0x0a || bytes[0] === 0x12)) return bytes;
+    const text = bytesToText(bytes).trim();
+    try {
+      const raw = atob(text);
+      const out = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    } catch (e) {
+      return bytes;                       // not base64 after all: hand back what arrived
+    }
+  }
+
   async function getBinary(url, direct) {
     const relay = await fetch(relayUrl(url, 0, true), { cache: 'no-store' });
-    if (!relay.ok) throw new Error('unavailable');
-    const text = (await relay.text()).trim();
-    const raw = atob(text);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    return bytes;
+    if (!relay.ok) throw new Error(await relayWhy(relay));
+    return bytesFromRelay(await relay.arrayBuffer());
   }
 
   async function loadRegistry() {
@@ -1395,7 +1561,8 @@ const Transit = (() => {
     const json = await response.json();
     registry = asArray(json.feeds)
       .filter((feed) => ADAPTERS.includes(feed.adapter))   // an unknown adapter draws nothing but is not a crash
-      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null, _pending: needsKey(feed) }, feed));
+      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null,
+        _pending: needsKey(feed), _retired: isRetired(feed) }, feed));
     return registry;
   }
 
@@ -1591,8 +1758,8 @@ const Transit = (() => {
     status('◇ TRANSIT CONNECTING…');
     await loadRegistry().catch(() => []);
     const results = await Promise.all(registry.map(async (feed) => {
-      if (feed._pending) {
-        /* keyless-pending: draw nothing, poll nothing, and never report a fake failure */
+      if (feed._pending || feed._retired) {
+        /* pending or retired: draw nothing, poll nothing, and never report a fake failure */
         feed._error = null;
         feed._count = 0;
         return { feed, items: [] };
@@ -1792,18 +1959,62 @@ const Transit = (() => {
     return vehicles.filter(predicate).length;
   }
 
+  /* Why a network is quiet, in the words of what its last sweep actually saw. "No vehicles"
+   * on its own is not an answer: a dead key, an empty payload, a payload whose entities carry
+   * no position and a payload whose every report is too old to draw are four different
+   * problems with four different fixes, and the chip has to say which one it is. */
+  function quietWhy(feed) {
+    /* A feed that failed states its own reason plainly — "daily request limit reached" is
+     * information, "unavailable (daily request limit reached)" is noise. The per-network rows
+     * above add the `unavailable (…)` wrapper only where the map still has other networks. */
+    if (feed._error) return String(feed._error);
+    const report = decode.get(feed.id);
+    if (!report) return 'no vehicles reported';
+    if (!report.entities) {
+      return `the operator answered with ${report.bytes} bytes carrying no vehicle entities`;
+    }
+    const dropped = [];
+    const noPosition = report.entities - report.withPosition;
+    if (noPosition > 0) dropped.push(`${noPosition} carried no position`);
+    if (report.badCoords) dropped.push(`${report.badCoords} had unusable coordinates`);
+    if (report.stale) dropped.push(`${report.stale} older than ${Math.round(finite(feed.maxAgeSec, GTFSRT_DEFAULTS.maxAgeSec) / 60)} min`);
+    return `${report.kept} live of ${report.entities} entities`
+      + (dropped.length ? ` — ${dropped.join(', ')}` : '')
+      + (report.map ? ` — field map: ${report.map}` : '')
+      + (report.kept === 0 && report.stale ? ` — ${clockHint(report, Date.now() / 1000)}` : '')
+      + (report.entities && !report.explicitTimestamps ? ' — no entity carries its own timestamp, the feed header’s is used' : '');
+  }
+
+  /* A producer whose server clock is set to local time publishes timestamps that sit a whole
+   * number of hours away from POSIX — Delhi's is UTC+05:30. From the map that is
+   * indistinguishable from a dead feed: every vehicle is dropped, nothing is drawn. The
+   * offset is named here rather than corrected in the client, because silently shifting an
+   * operator's clock would be inventing freshness the feed never claimed. */
+  function clockHint(report, nowSeconds) {
+    const newest = report.newestSeconds;
+    if (!Number.isFinite(newest)) return 'no usable timestamp in the payload';
+    const age = nowSeconds - newest;                 // > 0: the feed is behind this clock
+    if (Math.abs(age) < 300) return '';
+    const hours = Math.abs(age) / 3600;
+    const correction = age > 0 ? `+${hours.toFixed(2)}` : `-${hours.toFixed(2)}`;   // what to add to the feed
+    return `the newest report is ${hours.toFixed(2)} h ${age > 0 ? 'behind' : 'ahead of'} this clock`
+      + ` — a constant ${correction} h correction would make them fresh`;
+  }
+
   function render() {
     restore();
-    const active = registry.filter((feed) => !feed._pending);
+    const active = registry.filter((feed) => !feed._pending && !feed._retired);
     const pendingRow = (feed) =>
       `${feed.city} — ${feed.network}: awaiting a free operator key (${feed.signup || feed.page}) — replace key=SIGNUP in data/transit.json`;
+    const retiredRow = (feed) => `${feed.city} — ${feed.network}: ${retiredWhy(feed)}`;
     const ok = active.filter((feed) => !feed._error && (feed._count || 0) > 0);
     const lineCount = new Set(lines.map((line) => line.id)).size;
     if (!vehicles.length) {
-      status('◇ TRANSIT FEEDS UNAVAILABLE');
+      status(`◇ TRANSIT — NO VEHICLES DRAWN · ${ok.length}/${active.length} NETWORKS`);
       if (chip()) {
-        chip().title = active.map((feed) => `${feed.city}: ${feed._error || 'no vehicles reported'}`)
-          .concat(registry.filter((feed) => feed._pending).map(pendingRow)).join(' · ')
+        chip().title = active.map((feed) => `${feed.city}: ${quietWhy(feed)}`)
+          .concat(registry.filter((feed) => feed._pending).map(pendingRow))
+          .concat(registry.filter((feed) => feed._retired).map(retiredRow)).join(' · ')
           || 'No transit feed responded.';
       }
       return;
@@ -1813,13 +2024,16 @@ const Transit = (() => {
     status(`◇ ${vehicles.length} VEHICLES · ${ok.length}/${active.length} NETWORKS`);
     if (!chip()) return;
     const rows = registry.map((feed) => {
+      if (feed._retired) return retiredRow(feed);
       if (feed._pending) return pendingRow(feed);
       const count = feed._count || 0;
       const detail = feed._error
         ? `unavailable (${feed._error})`
         : feed._held
           ? `held (${feed._held.reason}) · ${agoText(feed._lastOk)}`
-          : `${count} live${feed.sample ? ' · sample' : ''}`;
+          : count
+            ? `${count} live${feed.sample ? ' · sample' : ''}`
+            : quietWhy(feed);
       return `${feed.city} — ${feed.network}: ${detail}`;
     });
     const notes = [];
@@ -1845,6 +2059,9 @@ const Transit = (() => {
     }
     if (registry.some((feed) => feed._pending)) {
       notes.push('Networks marked awaiting a key ship with a SIGNUP placeholder: registration at the operator portal is free, and the key drops straight into data/transit.json.');
+    }
+    if (registry.some((feed) => feed._retired)) {
+      notes.push('Retired networks are no longer polled: their operator stopped publishing, and the entry keeps the date and reason rather than pretending the network is still there.');
     }
     notes.push(...registry.map((feed) => `${feed.city} data: ${feed.attribution}`));
     chip().title = rows.concat(notes).join('\n');
@@ -2051,6 +2268,7 @@ const Transit = (() => {
       vehicles = [];
       capped = 0;
       history.clear();
+      decode.clear();
       chip()?.classList.add('hidden');
       Contacts.close();
       for (const layer of ['transit-vehicles', 'transit-station-labels', 'transit-stations',
@@ -2100,5 +2318,6 @@ const Transit = (() => {
     parseOpendataChStationboard, parseIrailLiveboard, parseOpendataChConnection, parseIrailConnection,
     parseIrailStations, parseGtfsStatic, stationPoint, keepPerStation,
     pbFields, pbVarint, parseGtfsrtFeed,
+    quietWhy, clockHint, keyedEndpoint, bytesFromRelay, isRetired, retiredWhy, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
   };
 })();

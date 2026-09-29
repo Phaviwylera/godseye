@@ -1,6 +1,6 @@
 {
   "note": "Registry of public transit feeds used by the TRANSIT layer: metro, light rail, tram and bus networks whose operators publish live vehicle data openly for riders. Nothing here is scraped or private. kind: 'positions' = live vehicle coordinates; 'arrivals' = live arrival predictions, where the vehicle is drawn at the stop it is next due at because the feed publishes no vehicle coordinates. mode: rail | bus | tram, which picks the marker and the default colour. Attribution strings are rendered in the UI and must be kept. 'station' = the operator publishes which station a train is at and no coordinates at all; the train is drawn at that station's coordinate from a bundled station list. adapter: oba | tfl | bart | umo | seoul | mbta | digitraffic | opendata-ch | irail | gtfsrt. Static geometry is sourced from operator shapes/stops, connection pass lists/vias, or compact GTFS extracts. For quota-limited feeds pollSec / budgetSec / maxAgeSec are one contract: maxAgeSec >= budgetSec + pollSec and targets × 86400 / budgetSec <= dailyBudget (default 10000), asserted by tests/transit.test.mjs.",
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "feeds": [
     {
       "id": "st-rail",
@@ -709,7 +709,11 @@
       "maxAgeSec": 600,
       "note": "GTFS-Realtime is the format most of the world's bus agencies publish, so the layer carries a small protobuf reader for it rather than a per-agency adapter: any agency that publishes a keyless VehiclePositions URL can be added here with adapter \"gtfsrt\" and no new code. Positions are the agency's own; ones older than ten minutes are dropped. The bundled static GTFS extract supplies line geometry and station dots; its refresh workflow only retains public routes, shapes and stops.",
       "static": "data/gcrta-static.json",
-      "staticSource": "https://www.riderta.com/sites/default/files/gtfs/latest/google_transit.zip"
+      "staticSource": "https://www.riderta.com/sites/default/files/gtfs/latest/google_transit.zip",
+      "retired": {
+        "on": "2026-09-29",
+        "reason": "gtfs.gcrta.org stopped answering entirely — unreachable over both http and https on two sweeps (09:34Z and 09:53Z) and on a direct check. The feed is not polled while it is retired; the bundled static geometry in data/gcrta-static.json is kept because it is still the reference for what this reader was built against."
+      }
     },
     {
       "id": "delhi-dtc",
@@ -723,6 +727,7 @@
       "attribution": "Open Transit Data — Government of NCT of Delhi (otd.delhi.gov.in)",
       "page": "https://otd.delhi.gov.in",
       "signup": "otd.delhi.gov.in — free registration, key is emailed",
+      "keyEnv": "DELHI_OTD_KEY",
       "badge": "DTC",
       "cors": false,
       "center": [
@@ -734,7 +739,7 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 1800,
-      "note": "Delhi's Open Transit Data portal is India's only public live transit feed: real bus GPS updated roughly every ten seconds as GTFS-Realtime VehiclePositions — no TripUpdates feed exists. A registered key is already in place (free from otd.delhi.gov.in; keep it rotated if the deployed site is public). Buses that stop reporting — parked at a depot for hours — stay visible for up to thirty minutes and fade as their report ages; anything older is dropped rather than drawn as if live. The same portal's DMRC area publishes only static timetable data: the Delhi Metro itself publishes no real-time train feed anywhere, and no train marker may be drawn for it until DMRC chooses to (their November 2025 MapmyIndia MoU is a closed commercial channel, not open data). Never substitute simulated trains for that feed."
+      "note": "Delhi's Open Transit Data portal is India's only public live transit feed: real bus GPS updated roughly every ten seconds as GTFS-Realtime VehiclePositions — no TripUpdates feed exists. A registered key is already in place (free from otd.delhi.gov.in; keep it rotated if the deployed site is public). keyEnv names the server-side environment variable the relay publishes the key from: set DELHI_OTD_KEY in the Netlify project (Functions scope) or the local environment and the layer uses that value instead of the key in this public file, which should then be treated as exposed and rotated at otd.delhi.gov.in. Buses that stop reporting — parked at a depot for hours — stay visible for up to thirty minutes and fade as their report ages; anything older is dropped rather than drawn as if live. The same portal's DMRC area publishes only static timetable data: the Delhi Metro itself publishes no real-time train feed anywhere, and no train marker may be drawn for it until DMRC chooses to (their November 2025 MapmyIndia MoU is a closed commercial channel, not open data). Never substitute simulated trains for that feed."
     },
     {
       "id": "atlanta-marta",
@@ -830,7 +835,271 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 1800,
-      "note": "Malaysia's official open-data portal publishes keyless GTFS-Realtime vehicle positions for Rapid KL buses — real GPS with fleet plates, round-numbered against the agency's own updates. Some buses report sparsely outside peak hours, so a bus stays on the map for up to thirty minutes and fades as its report ages instead of flickering out. Rail agencies on the portal publish trip updates but no vehicle positions, so no KL train markers are drawn."
+      "note": "Malaysia's official open-data portal publishes keyless GTFS-Realtime vehicle positions for Rapid KL buses — real GPS with fleet plates, round-numbered against the agency's own updates. Some buses report sparsely outside peak hours, so a bus stays on the map for up to thirty minutes and fades as its report ages instead of flickering out. Rail agencies on the portal publish trip updates but no vehicle positions, so no KL train markers are drawn. Measured on 2026-09-29: the endpoint answers a well-formed feed (15 bytes, header only) but has published no vehicle entities in two sweeps — the operator's own stream is empty, which the chip reports as 'answered with no vehicle entities' rather than as a fault."
+    },
+    {
+      "id": "hsl-helsinki",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "HSL buses, trams and metro — Helsinki region",
+      "operator": "Helsingin seudun liikenne (HSL)",
+      "city": "Helsinki",
+      "country": "FI",
+      "kind": "positions",
+      "attribution": "HSL open data — https://www.hsl.fi/en/hsl/open-data",
+      "page": "https://www.hsl.fi/en/hsl/open-data",
+      "badge": "HSL",
+      "cors": false,
+      "center": [
+        24.9414,
+        60.1719
+      ],
+      "zoom": 11,
+      "base": "https://realtime.hsl.fi/realtime/vehicle-positions/v2/hsl",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "Keyless GTFS-Realtime VehiclePositions for the whole HSL network — bus, tram and metro together, which is why this one feed carries more vehicles than most registries do networks. Measured 913 drawable vehicles when it was promoted on 2026-09-29. Finland’s rail positions arrive separately through the Digitraffic feed (fi-rail); nothing here is interpolated."
+    },
+    {
+      "id": "gtt-turin",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "GTT buses and trams — Turin",
+      "operator": "Gruppo Torinese Trasporti (GTT)",
+      "city": "Turin",
+      "country": "IT",
+      "kind": "positions",
+      "attribution": "Gruppo Torinese Trasporti open GTFS-Realtime",
+      "page": "https://www.gtt.to.it",
+      "badge": "GTT",
+      "cors": false,
+      "center": [
+        7.6869,
+        45.0703
+      ],
+      "zoom": 12,
+      "base": "https://percorsieorari.gtt.to.it/das_gtfsrt/vehicle_position.asp",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "Keyless VehiclePositions straight from the operator, no portal or key involved. Measured 391 drawable vehicles when it was promoted on 2026-09-29 — a full city fleet, not a sample. Intermittent: the same URL answered 404 on two later sweeps that morning and on a direct check, so this endpoint comes and goes — the chip reports it per sweep instead of the registry pretending it is always there."
+    },
+    {
+      "id": "capmetro-austin",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Capital Metro buses — Austin",
+      "operator": "Capital Metro (via the Texas open data portal)",
+      "city": "Austin",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Capital Metro / Texas Department of Transportation open data portal",
+      "page": "https://data.texas.gov",
+      "badge": "CAPMETRO",
+      "cors": false,
+      "center": [
+        -97.7431,
+        30.2672
+      ],
+      "zoom": 11,
+      "base": "https://data.texas.gov/download/eiei-9rpf/application%2Foctet-stream",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "The operator’s realtime feed republished by the state open-data portal, so the endpoint is a download URL rather than an API path — it answers with the same GTFS-Realtime bytes. Measured 272 drawable vehicles when it was promoted on 2026-09-29."
+    },
+    {
+      "id": "cttransit",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "CTtransit buses — Connecticut",
+      "operator": "Connecticut Transit (CTDOT)",
+      "city": "Hartford",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "CTtransit GTFS-Realtime (public feed, no key)",
+      "page": "https://www.cttransit.com",
+      "badge": "CTTRANSIT",
+      "cors": false,
+      "center": [
+        -72.6821,
+        41.7658
+      ],
+      "zoom": 11,
+      "base": "https://cttprdtmgtfs.ctttrpcloud.com/TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "CTtransit was recorded as dead in this registry and left out for that reason; probed on 2026-09-29 it answered with 224 drawable vehicles from this endpoint, so it is back in. The registry’s rule stands either way: a network is listed only while its own feed answers, and the weekly probe is what keeps that true."
+    },
+    {
+      "id": "hsr-hamilton",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "HSR buses — Hamilton",
+      "operator": "Hamilton Street Railway (City of Hamilton open data)",
+      "city": "Hamilton",
+      "country": "CA",
+      "kind": "positions",
+      "attribution": "City of Hamilton open data — GTFS-Realtime",
+      "page": "https://www.hamilton.ca",
+      "badge": "HSR",
+      "cors": false,
+      "center": [
+        -79.8711,
+        43.2557
+      ],
+      "zoom": 12,
+      "base": "https://opendata.hamilton.ca/GTFS-RT/GTFS_VehiclePositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "A municipal open-data endpoint with no key and no signup. Measured 133 drawable vehicles when it was promoted on 2026-09-29."
+    },
+    {
+      "id": "broward-bct",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Broward County Transit buses — Fort Lauderdale",
+      "operator": "Broward County Transit",
+      "city": "Fort Lauderdale",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Broward County Transit GTFS-Realtime (public feed, no key)",
+      "page": "https://www.broward.org/bct",
+      "badge": "BCT",
+      "cors": false,
+      "center": [
+        -80.1373,
+        26.1224
+      ],
+      "zoom": 11,
+      "base": "https://myride2.broward.org/gtfsrealtime/api/vehiclepositions",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "Keyless county feed. Measured 110 drawable vehicles when it was promoted on 2026-09-29."
+    },
+    {
+      "id": "tep-parma",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "TEP buses — Parma",
+      "operator": "TEP Parma",
+      "city": "Parma",
+      "country": "IT",
+      "kind": "positions",
+      "attribution": "TEP Parma open GTFS-Realtime",
+      "page": "https://www.tep.pr.it",
+      "badge": "TEP",
+      "cors": false,
+      "center": [
+        10.3269,
+        44.8015
+      ],
+      "zoom": 12,
+      "base": "https://s3.eu-south-1.amazonaws.com/temporeale.cl.tep.pr.it/temporeale",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "The operator publishes its VehiclePositions file into an S3 bucket rather than an API host, which is why the endpoint is not the operator’s own domain — it is the feed the Mobility Database catalog lists for them. Measured 62 drawable vehicles when it was promoted on 2026-09-29. Intermittent: the object it publishes returned NoSuchKey on two later sweeps that morning and on a direct check, so it is absent much of the time — reported per sweep, never assumed live."
+    },
+    {
+      "id": "actv-venice",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "ACTV buses and water buses — Venice",
+      "operator": "Azienda del Consorzio Trasporti Veneziano (ACTV)",
+      "city": "Venice",
+      "country": "IT",
+      "kind": "positions",
+      "attribution": "ACTV Venezia open GTFS-Realtime",
+      "page": "https://www.actv.it",
+      "badge": "ACTV",
+      "cors": false,
+      "center": [
+        12.3155,
+        45.4408
+      ],
+      "zoom": 12,
+      "base": "https://tpl.actv.it/nav/GTFSRT/vehiclePositions",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "Keyless operator feed covering the road fleet and the lagoon water buses. Measured 50 drawable vehicles when it was promoted on 2026-09-29."
+    },
+    {
+      "id": "federico-calabria",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Autolinee Federico — Calabria",
+      "operator": "Autolinee Federico",
+      "city": "Calabria",
+      "country": "IT",
+      "kind": "positions",
+      "attribution": "Autolinee Federico open GTFS-Realtime",
+      "page": "https://www.autolineefederico.it",
+      "badge": "FEDERICO",
+      "cors": false,
+      "center": [
+        16.5,
+        38.4
+      ],
+      "zoom": 9,
+      "base": "https://autolineefederico.selfip.com:8080/gtfs-rt/vehicle_positions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "A small regional operator publishing keyless VehiclePositions from its own host. Measured 30 drawable vehicles when it was promoted on 2026-09-29; the city is recorded as the region because the catalog lists no municipality for it."
+    },
+    {
+      "id": "gpmetro-portland",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Greater Portland Metro buses — Portland, Maine",
+      "operator": "Greater Portland Metro Bus",
+      "city": "Portland",
+      "country": "US",
+      "kind": "positions",
+      "attribution": "Greater Portland Metro GTFS-Realtime (public feed, no key)",
+      "page": "https://www.gpmetrobus.com",
+      "badge": "METRO",
+      "cors": false,
+      "center": [
+        -70.2606,
+        43.6591
+      ],
+      "zoom": 12,
+      "base": "https://gtfsrt.gptd.cadavl.com/ProfilGtfsRt2_0RSProducer-GPTD/VehiclePositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "Portland, Maine — not Portland, Oregon, which publishes no keyless vehicle feed. Measured 10 drawable vehicles when it was promoted on 2026-09-29. Intermittent: this host answered 503 on two later sweeps that morning and on a direct check — reported per sweep, and the smallest fleet in the registry (10 buses measured)."
+    },
+    {
+      "id": "guelph-transit",
+      "adapter": "gtfsrt",
+      "mode": "bus",
+      "network": "Guelph Transit buses — Guelph",
+      "operator": "Guelph Transit (City of Guelph)",
+      "city": "Guelph",
+      "country": "CA",
+      "kind": "positions",
+      "attribution": "Guelph Transit GTFS-Realtime (public feed, no key)",
+      "page": "https://guelph.ca",
+      "badge": "GUELPH",
+      "cors": false,
+      "center": [
+        -80.5479,
+        43.5448
+      ],
+      "zoom": 12,
+      "base": "https://glphprdtmgtfs.glphtrpcloud.com/tmgtfsrealtimewebservice/Vehicle/VehiclePositions.pb",
+      "pollSec": 60,
+      "budgetSec": 60,
+      "maxAgeSec": 600,
+      "note": "Keyless municipal feed. Measured 33 drawable vehicles when it was promoted on 2026-09-29."
     }
   ]
 }

@@ -10,8 +10,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
+/* The sandbox the module is loaded into has no DOM and no Node globals: atob is passed in
+ * because the relay path decodes base64 with it, exactly as a browser would. */
 const Transit = runInNewContext(
-  readFileSync(new URL('../js/transit.js', import.meta.url), 'utf8') + '\nTransit;', {});
+  readFileSync(new URL('../js/transit.js', import.meta.url), 'utf8') + '\nTransit;', { atob });
 const registry = JSON.parse(readFileSync(new URL('../data/transit.json', import.meta.url), 'utf8'));
 const feed = (id) => registry.feeds.find((f) => f.id === id);
 const NOW = Date.parse('2026-09-28T12:00:00.000Z');
@@ -348,6 +350,136 @@ test('fleet labels are trimmed and a route-less bus falls back to the feed badge
   assert.equal(bus.lineId, '');
   assert.equal(bus.lineName, 'DTC', 'route-less vehicles badge as the fleet, not a blank or a clock');
   assert.equal(bus.key, 'gtfsrt:delhi-dtc:job-7755', 'the trip_id still anchors identity, never the label');
+});
+
+/* The legacy field map: vehicle 2 · position 3 · current_stop_sequence 4 · stop_id 5 ·
+ * current_status 6 · timestamp 7 · congestion_level 8. It is the numbering a producer
+ * library built against the pre-2.0 proto emits, and it is the reason a network can answer
+ * with hundreds of perfectly good buses and still draw nothing — the old reader looked for
+ * the position at the wrong field and skipped every entity. The bytes say which map they
+ * carry, so both must decode. */
+function legacyVehiclePosition({ lat, lon, bearing = 0, speed = 0, at, routeId = '10', label = 'BUS 1', id = 'veh1', stopId }) {
+  return len(4, [
+    ...len(1, [...text(1, 'trip-1'), ...text(2, '11:28:25'), ...text(5, routeId)]),
+    ...len(2, [...text(1, id), ...text(2, label)]),                  // VehicleDescriptor at 2
+    ...len(3, [...f32(1, lat), ...f32(2, lon), ...f32(3, bearing), ...f32(5, speed)]),   // Position at 3
+    ...(stopId ? text(5, stopId) : []),                              // stop_id at 5
+    ...num(7, Math.round(at / 1000)),                                // timestamp at 7
+  ]);
+}
+function legacyFeedMessage(vehicles, headerAt) {
+  return [...len(1, num(3, Math.round(headerAt / 1000))),
+    ...vehicles.flatMap((v, i) => len(2, [...text(1, `entity-${i}`), ...legacyVehiclePosition(v)]))];
+}
+
+test('a producer still emitting the legacy VehiclePosition field map is decoded, not skipped', () => {
+  const f = feed('delhi-dtc');
+  const bytes = new Uint8Array(legacyFeedMessage([
+    { lat: 28.6139, lon: 77.209, bearing: 91.5, speed: 7.2, at: NOW - 15000, routeId: '244', label: 'DL1PD4567', stopId: 'STOP-77' },
+    { lat: 28.5355, lon: 77.391, at: NOW - 40000, routeId: '392', label: 'DL1PC2222' },
+  ], NOW));
+  const report = {};
+  const out = Transit.parseGtfsrtFeed(bytes, f, NOW, report);
+  assert.equal(out.length, 2, 'a legacy-mapped feed must not silently decode to zero vehicles');
+  const bus = out.find((v) => v.vehicle === 'DL1PD4567');
+  assert.ok(Math.abs(bus.lat - 28.6139) < 1e-4, `legacy latitude survives: ${bus.lat}`);
+  assert.ok(Math.abs(bus.lon - 77.209) < 1e-4, `legacy longitude survives: ${bus.lon}`);
+  assert.equal(bus.lineId, '244', 'route_id is still field 5 in both maps');
+  assert.equal(bus.nextStop, 'STOP-77', 'the legacy stop_id at field 5 is read as a stop, never as a clock');
+  assert.equal(bus.vehicle, 'DL1PD4567', 'the legacy VehicleDescriptor at field 2 supplies the fleet label');
+  assert.equal(bus.speed, Math.round(7.2 * 3.6));
+  assert.equal(report.map, 'legacy', 'the decode reports which field map the bytes used');
+  assert.equal(report.entities, 2);
+  assert.equal(report.kept, 2);
+  assert.ok(Math.abs(bus.observed - (NOW - 15000)) < 2000,
+    'the legacy timestamp at field 7 is the observed time, not the feed header’s');
+});
+
+test('the current field map is still recognised as current and never reads a stop_id as a time', () => {
+  const f = feed('gcrta-bus');
+  const bytes = new Uint8Array(feedMessage([
+    { lat: 41.4993, lon: -81.6944, at: NOW - 15000, routeId: '22', label: 'BUS 4412', stopId: '1041' },
+  ], NOW));
+  const report = {};
+  const out = Transit.parseGtfsrtFeed(bytes, f, NOW, report);
+  assert.equal(out.length, 1);
+  assert.equal(report.map, 'current');
+  assert.equal(out[0].nextStop, '1041', 'a numeric-looking stop id stays a stop id');
+  assert.ok(Math.abs(out[0].observed - (NOW - 15000)) < 2000, 'and the varint at field 5 stays the timestamp');
+});
+
+test('an empty or positionless payload is reported with counts, not guessed at', () => {
+  const f = feed('delhi-dtc');
+  const emptyReport = {};
+  assert.equal(Transit.parseGtfsrtFeed(new Uint8Array(feedMessage([], NOW)), f, NOW, emptyReport).length, 0);
+  assert.equal(emptyReport.entities, 0, 'a feed that answers with no entities must say so');
+  assert.ok(emptyReport.bytes > 0, 'and must be distinguishable from a feed that never answered at all');
+
+  const staleReport = {};
+  const stale = new Uint8Array(feedMessage([
+    { lat: 28.61, lon: 77.21, at: NOW - 45 * 60000 },      // older than the 30 min Delhi window
+  ], NOW));
+  assert.equal(Transit.parseGtfsrtFeed(stale, f, NOW, staleReport).length, 0);
+  assert.equal(staleReport.entities, 1);
+  assert.equal(staleReport.withPosition, 1);
+  assert.equal(staleReport.stale, 1, 'a payload full of stale buses is reported as stale, not as silence');
+  assert.match(Transit.quietWhy(Object.assign({}, f, { _error: null })), /no vehicles reported/);
+});
+
+test('a binary payload is accepted whether the relay base64s it or ships the raw protobuf', () => {
+  const frame = new Uint8Array(feedMessage([
+    { lat: 28.6139, lon: 77.209, at: NOW - 15000, routeId: '244', label: 'DL1PD4567' },
+  ], NOW));
+  assert.equal(frame[0], 0x0a, 'a FeedMessage opens with its header tag, which is not a base64 character');
+  const asBase64 = Buffer.from(frame).toString('base64');
+  const encoded = Buffer.from(asBase64, 'utf8');
+  const fromText = Transit.bytesFromRelay(
+    encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength));
+  assert.deepEqual([...fromText], [...frame], 'base64 text is decoded to the original bytes');
+  const fromRaw = Transit.bytesFromRelay(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength));
+  assert.deepEqual([...fromRaw], [...frame], 'and a relay that ships raw bytes still works');
+  const f = feed('delhi-dtc');
+  assert.equal(Transit.parseGtfsrtFeed(fromText, f, NOW).length, 1);
+  assert.equal(Transit.parseGtfsrtFeed(fromRaw, f, NOW).length, 1);
+});
+
+test('a feed whose clock is set to local time is named as a clock offset, not corrected silently', () => {
+  const nowSeconds = NOW / 1000;
+  const behind = { newestSeconds: nowSeconds - 19800 };          // Delhi: UTC+05:30
+  const text = Transit.clockHint(behind, nowSeconds);
+  assert.match(text, /5\.50 h behind/, 'the offset Delhi runs on is stated, in hours');
+  assert.match(text, /\+5\.50 h correction would make them fresh/, 'and so is the correction it implies');
+  assert.match(Transit.clockHint({ newestSeconds: nowSeconds + 3600 }, nowSeconds), /ahead of/);
+  assert.equal(Transit.clockHint({ newestSeconds: nowSeconds - 30 }, nowSeconds), '',
+    'a feed that is simply fresh gets no clock lecture');
+  assert.match(Transit.clockHint({ newestSeconds: null }, nowSeconds), /no usable timestamp/,
+    'a payload with no timestamp at all says so instead of implying a clock');
+});
+
+test('a network whose operator stopped publishing is retired, not polled and not deleted', () => {
+  const f = feed('gcrta-bus');
+  assert.ok(Transit.isRetired(f), 'Cleveland is retired: gtfs.gcrta.org stopped answering');
+  assert.match(Transit.retiredWhy(f), /retired 2026-09-29/, 'the date it left is kept');
+  assert.match(Transit.retiredWhy(f), /unreachable/i, 'and so is the reason');
+  assert.equal(Transit.isRetired(feed('delhi-dtc')), false, 'a live network is not retired');
+  assert.equal(Transit.isRetired({ retired: null }), false);
+  assert.equal(Transit.isRetired({ retired: '   ' }), false);
+  assert.ok(Transit.isRetired({ retired: 'operator withdrew the feed' }), 'a plain reason string is enough');
+  /* The registry keeps the entry — losing it would lose why it left and what it was. */
+  assert.ok(f.attribution && f.static, 'the retired entry still carries its attribution and static reference');
+});
+
+test('a key held server-side is spliced into the endpoint, and only for the feed that named it', () => {
+  const f = feed('delhi-dtc');
+  assert.equal(f.keyEnv, 'DELHI_OTD_KEY', 'Delhi names the environment variable that should hold its key');
+  const keys = { 'delhi-dtc': 'SERVERSIDEKEY1234' };
+  assert.match(Transit.keyedEndpoint(f, f.base, keys), /key=SERVERSIDEKEY1234$/);
+  assert.equal(Transit.keyedEndpoint(f, f.base, {}), f.base,
+    'with no relay key the registry URL stands, so a static deploy keeps working');
+  assert.equal(Transit.keyedEndpoint(f, f.base, null), f.base);
+  const other = feed('atlanta-marta');
+  assert.equal(Transit.keyedEndpoint(other, other.base, keys), other.base,
+    'a key for one feed is never spliced into another network’s URL');
 });
 
 test('the protobuf reader refuses a truncated or empty feed instead of drawing garbage', () => {

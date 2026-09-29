@@ -177,7 +177,7 @@ test('the daily cap holds the last good sweep and reports the reason and its age
   assert.match(h.chip.title, /held \(daily request limit reached\) · 35 min ago/);
 });
 
-test('an hour of failures expires the held rows to an honest TRANSIT FEEDS UNAVAILABLE', async () => {
+test('an hour of failures expires the held rows instead of advertising a fleet', async () => {
   const h = makeHarness();
   h.Transit.init(h.map);
   await h.Transit.toggle();
@@ -189,7 +189,7 @@ test('an hour of failures expires the held rows to an honest TRANSIT FEEDS UNAVA
     await h.Transit.refresh();                 // the app's own 60 s tick
   }
   assert.equal(h.drawn().length, 0, 'nothing survives past maxAgeSec');
-  assert.equal(h.chip.textContent, '◇ TRANSIT FEEDS UNAVAILABLE');
+  assert.equal(h.chip.textContent, '◇ TRANSIT — NO VEHICLES DRAWN · 0/1 NETWORKS');
   assert.match(h.chip.title, /Seoul/, 'the reason is still named');
 });
 
@@ -233,7 +233,7 @@ test('a report older than maxAgeSec is refused rather than drawn', async () => {
   h.advance(seoul.budgetSec * 1000);
   await h.Transit.refresh();
   assert.equal(h.drawn().length, 0, 'a 50-minute-old position is not a live train');
-  assert.equal(h.chip.textContent, '◇ TRANSIT FEEDS UNAVAILABLE');
+  assert.equal(h.chip.textContent, '◇ TRANSIT — NO VEHICLES DRAWN · 0/1 NETWORKS');
   assert.equal(h.chip.title, 'Seoul: nothing reported right now',
     'the feed answered but every report is too old: that is what is said, not a network fault');
 });
