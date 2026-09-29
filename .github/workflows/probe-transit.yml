@@ -9,6 +9,8 @@ on:
   schedule:
     - cron: "23 3 * * 2"   # weekly, Tuesdays 03:23 UTC
   workflow_dispatch:
+  push:
+    branches: ["arena/**"]   # temporary: run once now to capture a real report
 
 permissions:
   contents: write
