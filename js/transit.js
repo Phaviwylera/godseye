@@ -1251,11 +1251,16 @@ const Transit = (() => {
   }
 
   const PB_DECODER = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
-  function pbText(bytes) {
+  /* TextDecoder is missing in the bare `vm` context the unit tests use, so decode by hand
+   * when it is not there. */
+  function bytesToText(bytes) {
     if (PB_DECODER) return PB_DECODER.decode(bytes);
     let out = '';
     for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
     return out;
+  }
+  function pbText(bytes) {
+    return bytesToText(bytes);
   }
   const pbNum = (fields, n) => {
     for (const f of fields) if (f.field === n) return f.type === 5 ? pbFloat32(f.value) : (f.type === 1 ? pbDouble(f.value) : f.value);
@@ -1509,15 +1514,28 @@ const Transit = (() => {
     return await relay.json();
   }
 
-  /* GTFS-Realtime is binary; the relay base64s it so the bytes survive the trip intact. */
+  /* GTFS-Realtime is binary; the relay base64s it so the bytes survive the trip intact.
+   * A relay that answers with the raw protobuf instead is still usable: a FeedMessage always
+   * opens with its header tag (0x0a), which is not a character base64 can contain. Accepting
+   * both means one deployment's envelope bug cannot empty a whole city. */
+  function bytesFromRelay(buffer) {
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length && (bytes[0] === 0x0a || bytes[0] === 0x12)) return bytes;
+    const text = bytesToText(bytes).trim();
+    try {
+      const raw = atob(text);
+      const out = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    } catch (e) {
+      return bytes;                       // not base64 after all: hand back what arrived
+    }
+  }
+
   async function getBinary(url, direct) {
     const relay = await fetch(relayUrl(url, 0, true), { cache: 'no-store' });
     if (!relay.ok) throw new Error(await relayWhy(relay));
-    const text = (await relay.text()).trim();
-    const raw = atob(text);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    return bytes;
+    return bytesFromRelay(await relay.arrayBuffer());
   }
 
   async function loadRegistry() {
@@ -2277,6 +2295,6 @@ const Transit = (() => {
     parseOpendataChStationboard, parseIrailLiveboard, parseOpendataChConnection, parseIrailConnection,
     parseIrailStations, parseGtfsStatic, stationPoint, keepPerStation,
     pbFields, pbVarint, parseGtfsrtFeed,
-    quietWhy, clockHint, keyedEndpoint, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
+    quietWhy, clockHint, keyedEndpoint, bytesFromRelay, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
   };
 })();

@@ -160,7 +160,11 @@ test('a binary feed is returned base64 so a protobuf survives the trip', async (
     const url = target('vehiclepositions.pb');
     const r = await handler(fetchEvent(url, { encoding: 'base64' }));
     assert.equal(r.statusCode, 200);
-    assert.equal(r.isBase64Encoded, true);
+    /* The body is base64 TEXT on purpose. isBase64Encoded would make the platform decode it
+     * back to the raw protobuf, and the browser's atob() would then throw on those bytes —
+     * which is exactly how every GTFS-Realtime network once ended up drawing nothing. */
+    assert.equal(r.isBase64Encoded, false);
+    assert.equal(r.headers['Content-Type'], 'text/plain; charset=utf-8');
     assert.equal(r.body, Buffer.from([0x0a, 0x02, 0x08, 0x01]).toString('base64'));
     assert.equal(stub.calls.length, 1);
     // binary responses are not cached: the point of the cache is shared JSON answers

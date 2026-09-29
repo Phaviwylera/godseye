@@ -10,8 +10,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
+/* The sandbox the module is loaded into has no DOM and no Node globals: atob is passed in
+ * because the relay path decodes base64 with it, exactly as a browser would. */
 const Transit = runInNewContext(
-  readFileSync(new URL('../js/transit.js', import.meta.url), 'utf8') + '\nTransit;', {});
+  readFileSync(new URL('../js/transit.js', import.meta.url), 'utf8') + '\nTransit;', { atob });
 const registry = JSON.parse(readFileSync(new URL('../data/transit.json', import.meta.url), 'utf8'));
 const feed = (id) => registry.feeds.find((f) => f.id === id);
 const NOW = Date.parse('2026-09-28T12:00:00.000Z');
@@ -422,6 +424,23 @@ test('an empty or positionless payload is reported with counts, not guessed at',
   assert.equal(staleReport.withPosition, 1);
   assert.equal(staleReport.stale, 1, 'a payload full of stale buses is reported as stale, not as silence');
   assert.match(Transit.quietWhy(Object.assign({}, f, { _error: null })), /no vehicles reported/);
+});
+
+test('a binary payload is accepted whether the relay base64s it or ships the raw protobuf', () => {
+  const frame = new Uint8Array(feedMessage([
+    { lat: 28.6139, lon: 77.209, at: NOW - 15000, routeId: '244', label: 'DL1PD4567' },
+  ], NOW));
+  assert.equal(frame[0], 0x0a, 'a FeedMessage opens with its header tag, which is not a base64 character');
+  const asBase64 = Buffer.from(frame).toString('base64');
+  const encoded = Buffer.from(asBase64, 'utf8');
+  const fromText = Transit.bytesFromRelay(
+    encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength));
+  assert.deepEqual([...fromText], [...frame], 'base64 text is decoded to the original bytes');
+  const fromRaw = Transit.bytesFromRelay(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength));
+  assert.deepEqual([...fromRaw], [...frame], 'and a relay that ships raw bytes still works');
+  const f = feed('delhi-dtc');
+  assert.equal(Transit.parseGtfsrtFeed(fromText, f, NOW).length, 1);
+  assert.equal(Transit.parseGtfsrtFeed(fromRaw, f, NOW).length, 1);
 });
 
 test('a feed whose clock is set to local time is named as a clock offset, not corrected silently', () => {

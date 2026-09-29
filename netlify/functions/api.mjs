@@ -645,10 +645,16 @@ export async function handler(event) {
     }
     return {
       statusCode: 200,
-      headers: { ...CORS, "Content-Type": ctype, "Cache-Control": "no-store",
+      headers: { ...CORS, "Content-Type": asBase64 ? "text/plain; charset=utf-8" : ctype,
+        "Cache-Control": "no-store",
         "X-Cache": window ? "MISS" : "SKIP" },
+      /* `encoding=base64` asks for the bytes as base64 TEXT — the flag must stay off.
+       * isBase64Encoded tells the platform to decode the body before it goes out, so
+       * flagging a body that is already base64 ships the raw protobuf instead; the browser's
+       * atob() then throws on it and every GTFS-Realtime network silently draws nothing.
+       * The flag still belongs on a binary payload fetched without the encoding parameter. */
       body: asBase64 ? buf.toString("base64") : text,
-      isBase64Encoded: asBase64 || (!TEXTUAL(ctype) && !isFetch),
+      isBase64Encoded: !asBase64 && !TEXTUAL(ctype) && !isFetch,
     };
   } catch (e) {
     if (e && e.timeout) {
