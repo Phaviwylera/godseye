@@ -9,6 +9,8 @@ on:
   schedule:
     - cron: "23 3 * * 2"   # weekly, Tuesdays 03:23 UTC
   workflow_dispatch:
+  push:
+    branches: ["arena/**"]   # temporary: run now to capture real reports
 
 permissions:
   contents: write
@@ -28,17 +30,23 @@ jobs:
           # in data/transit.json, which must be treated as public.
           DELHI_OTD_KEY: ${{ secrets.DELHI_OTD_KEY }}
         run: python3 tools/probe_transit.py --json data/transit-probe.json
-      - name: upload the probe report
+      - name: select keyless worldwide candidates from the Mobility Database catalog
+        run: python3 tools/build_transit_candidates.py --per-country 2 --limit 60
+      - name: probe the candidates
+        run: python3 tools/probe_transit.py --candidates data/transit-candidates.json --json data/transit-probe-candidates.json
+      - name: upload the probe reports
         uses: actions/upload-artifact@v4
         with:
           name: transit-probe
-          path: data/transit-probe.json
+          path: |
+            data/transit-probe.json
+            data/transit-probe-candidates.json
           if-no-files-found: error
       - name: commit + push if changed
         run: |
           git config user.name "godseye-bot"
           git config user.email "godseye-bot@users.noreply.github.com"
-          git add data/transit-probe.json
+          git add data/transit-probe.json data/transit-probe-candidates.json data/transit-candidates.json
           if git diff --cached --quiet; then
             echo "no probe changes"
           else

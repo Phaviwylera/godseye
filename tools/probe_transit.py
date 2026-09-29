@@ -331,6 +331,24 @@ def probe_registry(registry: dict, only: str | None = None, timeout: float = 20.
     return [probe_feed(feed, timeout=timeout) for feed in feeds]
 
 
+def probe_candidates(path: str, timeout: float = 20.0) -> list[dict]:
+    """Probe the candidate list built by tools/build_transit_candidates.py.
+
+    A candidate is a proposal, not a registry entry: it is only promoted once this has seen it
+    answer with real vehicles, so nothing enters data/transit.json on the strength of a
+    catalogue row alone.
+    """
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    rows = []
+    for candidate in document.get("candidates", []):
+        feed = dict(candidate)
+        feed.setdefault("maxAgeSec", 600)
+        row = probe_feed(feed, timeout=timeout)
+        row["promotable"] = bool(row.get("kept")) and row.get("status") == 200
+        rows.append(row)
+    return rows
+
+
 def format_rows(rows: list[dict]) -> str:
     head = f"{'FEED':<16}{'CITY':<16}{'HTTP':>5}{'BYTES':>10}{'ENTITIES':>10}{'DRAWN':>7}  {'MAP':<9}VERDICT"
     lines = [head, "-" * len(head)]
@@ -349,12 +367,16 @@ def main(argv=None) -> int:
     parser.add_argument("--feed", help="probe one feed id only")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--json", dest="json_out", help="write the report as JSON to this path")
+    parser.add_argument("--candidates", help="probe data/transit-candidates.json instead of the registry")
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 unless every probed feed answered and drew vehicles")
     args = parser.parse_args(argv)
 
-    registry = json.loads(Path(args.registry).read_text(encoding="utf-8"))
-    rows = probe_registry(registry, only=args.feed, timeout=args.timeout)
+    if args.candidates:
+        rows = probe_candidates(args.candidates, timeout=args.timeout)
+    else:
+        registry = json.loads(Path(args.registry).read_text(encoding="utf-8"))
+        rows = probe_registry(registry, only=args.feed, timeout=args.timeout)
     print(format_rows(rows))
     for row in rows:
         if row.get("verdict") not in ("live",) and not str(row.get("verdict", "")).startswith("live ("):
