@@ -221,6 +221,29 @@ class ClockOffsets(unittest.TestCase):
         self.assertEqual(report2["kept"], 1)
 
 
+class FailureStreaks(unittest.TestCase):
+    def test_a_single_blip_is_not_a_verdict(self):
+        rows = probe.annotate_history([{"id": "a", "verdict": "live"}], None, "2026-09-29T09:00:00Z")
+        self.assertEqual(rows[0]["failedSweeps"], 0)
+        self.assertEqual(rows[0]["lastLiveAt"], "2026-09-29T09:00:00Z")
+
+    def test_consecutive_failures_accumulate_and_a_recovery_resets_them(self):
+        history = {"feeds": [{"id": "a", "verdict": "unreachable", "failedSweeps": 1,
+                              "lastLiveAt": "2026-09-28T09:00:00Z", "sweepsObserved": 4}]}
+        again = probe.annotate_history([{"id": "a", "verdict": "unreachable"}], history, "2026-09-29T09:00:00Z")
+        self.assertEqual(again[0]["failedSweeps"], 2, 'two in a row is a decision, not a blip')
+        self.assertEqual(again[0]["lastLiveAt"], "2026-09-28T09:00:00Z", 'and the last known-good sweep is kept')
+        self.assertEqual(again[0]["sweepsObserved"], 5)
+        healed = probe.annotate_history([{"id": "a", "verdict": "live"}], {"feeds": again}, "2026-09-29T10:00:00Z")
+        self.assertEqual(healed[0]["failedSweeps"], 0)
+
+    def test_a_feed_absent_from_the_previous_report_starts_clean(self):
+        rows = probe.annotate_history([{"id": "new", "verdict": "unreachable"}],
+                                      {"feeds": [{"id": "other", "verdict": "live"}]}, "now")
+        self.assertEqual(rows[0]["failedSweeps"], 1)
+        self.assertIsNone(rows[0]["lastLiveAt"])
+
+
 class Keys(unittest.TestCase):
     def test_a_server_side_key_replaces_only_the_key_parameter(self):
         feed = {"id": "delhi-dtc", "keyEnv": "DELHI_OTD_KEY",

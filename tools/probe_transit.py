@@ -288,6 +288,26 @@ def clock_hint(report: dict, now: float | None = None) -> str:
             f"— a constant {correction} h correction would make them fresh")
 
 
+def annotate_history(rows: list[dict], previous: dict | None, at: str) -> list[dict]:
+    """Carry failure streaks across sweeps.
+
+    One failed sweep is a blip — several feeds 404 or 503 for a few minutes. Two in a row is a
+    decision: replace the endpoint or retire the network. The streak is worked out from the
+    previous committed report so the record, not the memory of whoever is looking, says which.
+    """
+    seen = {}
+    for row in (previous or {}).get("feeds", []):
+        if row.get("id"):
+            seen[row["id"]] = row
+    for row in rows:
+        before = seen.get(row.get("id") or "", {})
+        live = str(row.get("verdict", "")).startswith("live")
+        row["failedSweeps"] = 0 if live else int(before.get("failedSweeps") or 0) + 1
+        row["lastLiveAt"] = at if live else before.get("lastLiveAt")
+        row["sweepsObserved"] = int(before.get("sweepsObserved") or 0) + 1
+    return rows
+
+
 def verdict_for(report: dict) -> str:
     """One verdict line per feed, straight from the counts — never a guess at why."""
     kept = int(report.get("kept") or 0)
@@ -350,13 +370,15 @@ def probe_candidates(path: str, timeout: float = 20.0) -> list[dict]:
 
 
 def format_rows(rows: list[dict]) -> str:
-    head = f"{'FEED':<16}{'CITY':<16}{'HTTP':>5}{'BYTES':>10}{'ENTITIES':>10}{'DRAWN':>7}  {'MAP':<9}VERDICT"
+    head = (f"{'FEED':<18}{'CITY':<16}{'HTTP':>5}{'BYTES':>10}{'ENTITIES':>10}{'DRAWN':>7}"
+            f"{'FAILS':>6}  {'MAP':<9}VERDICT")
     lines = [head, "-" * len(head)]
     for row in rows:
         lines.append(
-            f"{str(row.get('id') or '')[:15]:<16}{str(row.get('city') or '')[:15]:<16}"
+            f"{str(row.get('id') or '')[:17]:<18}{str(row.get('city') or '')[:15]:<16}"
             f"{row.get('status', 0):>5}{row.get('bytes', 0):>10,}{row.get('entities', 0):>10}"
-            f"{row.get('kept', 0):>7}  {str(row.get('map') or '—'):<9}{row.get('verdict', '')}"
+            f"{row.get('kept', 0):>7}{row.get('failedSweeps', 0) or 0:>6}  "
+            f"{str(row.get('map') or '—'):<9}{row.get('verdict', '')}"
         )
     return "\n".join(lines)
 
@@ -390,9 +412,17 @@ def main(argv=None) -> int:
 
     if args.json_out:
         out = Path(args.json_out)
+        at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        previous = None
+        if out.exists():
+            try:
+                previous = json.loads(out.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                previous = None
+        rows = annotate_history(rows, previous, at)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps({
-            "probedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "probedAt": at,
             "feeds": rows,
         }, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {args.json_out}")

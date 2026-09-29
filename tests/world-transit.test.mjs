@@ -456,6 +456,19 @@ test('a feed whose clock is set to local time is named as a clock offset, not co
     'a payload with no timestamp at all says so instead of implying a clock');
 });
 
+test('a network whose operator stopped publishing is retired, not polled and not deleted', () => {
+  const f = feed('gcrta-bus');
+  assert.ok(Transit.isRetired(f), 'Cleveland is retired: gtfs.gcrta.org stopped answering');
+  assert.match(Transit.retiredWhy(f), /retired 2026-09-29/, 'the date it left is kept');
+  assert.match(Transit.retiredWhy(f), /unreachable/i, 'and so is the reason');
+  assert.equal(Transit.isRetired(feed('delhi-dtc')), false, 'a live network is not retired');
+  assert.equal(Transit.isRetired({ retired: null }), false);
+  assert.equal(Transit.isRetired({ retired: '   ' }), false);
+  assert.ok(Transit.isRetired({ retired: 'operator withdrew the feed' }), 'a plain reason string is enough');
+  /* The registry keeps the entry — losing it would lose why it left and what it was. */
+  assert.ok(f.attribution && f.static, 'the retired entry still carries its attribution and static reference');
+});
+
 test('a key held server-side is spliced into the endpoint, and only for the feed that named it', () => {
   const f = feed('delhi-dtc');
   assert.equal(f.keyEnv, 'DELHI_OTD_KEY', 'Delhi names the environment variable that should hold its key');

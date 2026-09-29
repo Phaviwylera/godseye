@@ -709,7 +709,11 @@
       "maxAgeSec": 600,
       "note": "GTFS-Realtime is the format most of the world's bus agencies publish, so the layer carries a small protobuf reader for it rather than a per-agency adapter: any agency that publishes a keyless VehiclePositions URL can be added here with adapter \"gtfsrt\" and no new code. Positions are the agency's own; ones older than ten minutes are dropped. The bundled static GTFS extract supplies line geometry and station dots; its refresh workflow only retains public routes, shapes and stops.",
       "static": "data/gcrta-static.json",
-      "staticSource": "https://www.riderta.com/sites/default/files/gtfs/latest/google_transit.zip"
+      "staticSource": "https://www.riderta.com/sites/default/files/gtfs/latest/google_transit.zip",
+      "retired": {
+        "on": "2026-09-29",
+        "reason": "gtfs.gcrta.org stopped answering entirely — unreachable over both http and https on two sweeps (09:34Z and 09:53Z) and on a direct check. The feed is not polled while it is retired; the bundled static geometry in data/gcrta-static.json is kept because it is still the reference for what this reader was built against."
+      }
     },
     {
       "id": "delhi-dtc",
@@ -831,7 +835,7 @@
       "pollSec": 60,
       "budgetSec": 60,
       "maxAgeSec": 1800,
-      "note": "Malaysia's official open-data portal publishes keyless GTFS-Realtime vehicle positions for Rapid KL buses — real GPS with fleet plates, round-numbered against the agency's own updates. Some buses report sparsely outside peak hours, so a bus stays on the map for up to thirty minutes and fades as its report ages instead of flickering out. Rail agencies on the portal publish trip updates but no vehicle positions, so no KL train markers are drawn."
+      "note": "Malaysia's official open-data portal publishes keyless GTFS-Realtime vehicle positions for Rapid KL buses — real GPS with fleet plates, round-numbered against the agency's own updates. Some buses report sparsely outside peak hours, so a bus stays on the map for up to thirty minutes and fades as its report ages instead of flickering out. Rail agencies on the portal publish trip updates but no vehicle positions, so no KL train markers are drawn. Measured on 2026-09-29: the endpoint answers a well-formed feed (15 bytes, header only) but has published no vehicle entities in two sweeps — the operator's own stream is empty, which the chip reports as 'answered with no vehicle entities' rather than as a fault."
     },
     {
       "id": "hsl-helsinki",

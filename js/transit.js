@@ -80,6 +80,22 @@ const Transit = (() => {
     return /key=SIGNUP/.test(String((feed && feed.base) || ''));
   }
 
+  /* A network whose operator stopped publishing is retired rather than deleted: the entry
+   * keeps its attribution and the reason it left, and the layer neither polls it nor claims it
+   * failed. Deleting it would lose the record that it used to work and why it no longer does. */
+  function isRetired(feed) {
+    const note = feed && feed.retired;
+    if (!note) return false;
+    return typeof note === 'string' ? Boolean(note.trim()) : Boolean(note.on || note.reason);
+  }
+
+  function retiredWhy(feed) {
+    const note = (feed && feed.retired) || {};
+    return typeof note === 'string'
+      ? note.trim()
+      : [note.on ? `retired ${note.on}` : 'retired', note.reason].filter(Boolean).join(' — ');
+  }
+
   function colorFor(feed, value) {
     const hex = normColor(value);
     if (hex !== '#7ee0ff') return hex;
@@ -1545,7 +1561,8 @@ const Transit = (() => {
     const json = await response.json();
     registry = asArray(json.feeds)
       .filter((feed) => ADAPTERS.includes(feed.adapter))   // an unknown adapter draws nothing but is not a crash
-      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null, _pending: needsKey(feed) }, feed));
+      .map((feed) => Object.assign({ _stops: new Map(), _routes: [], _status: null,
+        _pending: needsKey(feed), _retired: isRetired(feed) }, feed));
     return registry;
   }
 
@@ -1741,8 +1758,8 @@ const Transit = (() => {
     status('◇ TRANSIT CONNECTING…');
     await loadRegistry().catch(() => []);
     const results = await Promise.all(registry.map(async (feed) => {
-      if (feed._pending) {
-        /* keyless-pending: draw nothing, poll nothing, and never report a fake failure */
+      if (feed._pending || feed._retired) {
+        /* pending or retired: draw nothing, poll nothing, and never report a fake failure */
         feed._error = null;
         feed._count = 0;
         return { feed, items: [] };
@@ -1986,16 +2003,18 @@ const Transit = (() => {
 
   function render() {
     restore();
-    const active = registry.filter((feed) => !feed._pending);
+    const active = registry.filter((feed) => !feed._pending && !feed._retired);
     const pendingRow = (feed) =>
       `${feed.city} — ${feed.network}: awaiting a free operator key (${feed.signup || feed.page}) — replace key=SIGNUP in data/transit.json`;
+    const retiredRow = (feed) => `${feed.city} — ${feed.network}: ${retiredWhy(feed)}`;
     const ok = active.filter((feed) => !feed._error && (feed._count || 0) > 0);
     const lineCount = new Set(lines.map((line) => line.id)).size;
     if (!vehicles.length) {
       status(`◇ TRANSIT — NO VEHICLES DRAWN · ${ok.length}/${active.length} NETWORKS`);
       if (chip()) {
         chip().title = active.map((feed) => `${feed.city}: ${quietWhy(feed)}`)
-          .concat(registry.filter((feed) => feed._pending).map(pendingRow)).join(' · ')
+          .concat(registry.filter((feed) => feed._pending).map(pendingRow))
+          .concat(registry.filter((feed) => feed._retired).map(retiredRow)).join(' · ')
           || 'No transit feed responded.';
       }
       return;
@@ -2005,6 +2024,7 @@ const Transit = (() => {
     status(`◇ ${vehicles.length} VEHICLES · ${ok.length}/${active.length} NETWORKS`);
     if (!chip()) return;
     const rows = registry.map((feed) => {
+      if (feed._retired) return retiredRow(feed);
       if (feed._pending) return pendingRow(feed);
       const count = feed._count || 0;
       const detail = feed._error
@@ -2039,6 +2059,9 @@ const Transit = (() => {
     }
     if (registry.some((feed) => feed._pending)) {
       notes.push('Networks marked awaiting a key ship with a SIGNUP placeholder: registration at the operator portal is free, and the key drops straight into data/transit.json.');
+    }
+    if (registry.some((feed) => feed._retired)) {
+      notes.push('Retired networks are no longer polled: their operator stopped publishing, and the entry keeps the date and reason rather than pretending the network is still there.');
     }
     notes.push(...registry.map((feed) => `${feed.city} data: ${feed.attribution}`));
     chip().title = rows.concat(notes).join('\n');
@@ -2295,6 +2318,6 @@ const Transit = (() => {
     parseOpendataChStationboard, parseIrailLiveboard, parseOpendataChConnection, parseIrailConnection,
     parseIrailStations, parseGtfsStatic, stationPoint, keepPerStation,
     pbFields, pbVarint, parseGtfsrtFeed,
-    quietWhy, clockHint, keyedEndpoint, bytesFromRelay, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
+    quietWhy, clockHint, keyedEndpoint, bytesFromRelay, isRetired, retiredWhy, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
   };
 })();
