@@ -48,7 +48,10 @@
     "auth": "urls.authentication_type",
     "license": "urls.license",
     "latest": "urls.latest",
-    "status": "status"
+    "status": "status",
+    "official": "is_official",
+    "unstable": "is_producer_url_unstable",
+    "seasonal": "is_seasonal"
   },
   "unresolved": [],
   "counts": {
@@ -57,51 +60,61 @@
     "vehiclePositions": 386,
     "keyless": 234,
     "https": 182,
-    "novel": 172
+    "novel": 172,
+    "unstable": 0,
+    "onePerHost": 105,
+    "byCountry": {
+      "XX": 101,
+      "UNKNOWN": 4
+    }
   },
   "candidates": [
     {
       "source": "Mobility Database catalogs CSV",
-      "mdbId": "3118",
+      "official": true,
+      "mdbId": "3449",
       "country": "UNKNOWN",
       "city": "unknown",
-      "operator": "Autolinee Federico",
-      "network": "Autolinee Federico vehicle positions",
-      "base": "https://autolineefederico.selfip.com:8080/gtfs-rt/vehicle_positions.pb",
+      "operator": "Kecskem\u00e9ti Kisvas\u00fat",
+      "network": "Kecskem\u00e9ti Kisvas\u00fat vehicle positions",
+      "base": "https://kecskemetikisvasut.hu/jk-gtfs-rt/vehicle-positions.pb",
       "license": "",
       "catalogUrl": ""
     },
     {
       "source": "Mobility Database catalogs CSV",
-      "mdbId": "3439",
+      "official": true,
+      "mdbId": "3452",
       "country": "UNKNOWN",
       "city": "unknown",
-      "operator": "Druskininkai",
-      "network": "Druskininkai vehicle positions",
-      "base": "https://www.stops.lt/druskininkai/vehicle_positions.pb",
+      "operator": "TEP PARMA",
+      "network": "TEP PARMA vehicle positions",
+      "base": "https://s3.eu-south-1.amazonaws.com/temporeale.cl.tep.pr.it/temporeale/vehicle_positions.pb",
       "license": "",
       "catalogUrl": ""
     },
     {
       "source": "Mobility Database catalogs CSV",
-      "mdbId": "1378",
+      "official": true,
+      "mdbId": "3214",
       "country": "XX",
-      "city": "BC Transit (Campbell River Transit)",
-      "operator": "BC Transit (Campbell River Transit)",
-      "network": "BC Transit (Campbell River Transit) vehicle positions",
-      "base": "https://bct.tmix.se/gtfs-realtime/vehicleupdates.pb?operatorIds=12",
+      "city": "Acadia National Park - Island Explorer",
+      "operator": "Acadia National Park - Island Explorer",
+      "network": "Acadia National Park - Island Explorer vehicle positions",
+      "base": "https://islandexplorertracker.availtec.com/InfoPoint/GTFS-Realtime.ashx?&Type=VehiclePosition&serverid=0",
       "license": "",
       "catalogUrl": ""
     },
     {
       "source": "Mobility Database catalogs CSV",
-      "mdbId": "1379",
+      "official": true,
+      "mdbId": "3422",
       "country": "XX",
-      "city": "BC Transit (Cowichan Valley Regional Transit System)",
-      "operator": "BC Transit (Cowichan Valley Regional Transit System)",
-      "network": "BC Transit (Cowichan Valley Regional Transit System) vehicle positions",
-      "base": "https://bct.tmix.se/gtfs-realtime/vehicleupdates.pb?operatorIds=10",
-      "license": "",
+      "city": "Azienda del Consorzio Trasporti Veneziano (ACTV) Navigazione",
+      "operator": "Azienda del Consorzio Trasporti Veneziano (ACTV) Navigazione",
+      "network": "Azienda del Consorzio Trasporti Veneziano (ACTV) Navigazione vehicle positions",
+      "base": "https://tpl.actv.it/nav/GTFSRT/vehiclePositions",
+      "license": "https://actv.avmspa.it/it/content/catalogo-dei-dati-metadati-e-banche-dati-actv",
       "catalogUrl": ""
     }
   ]
