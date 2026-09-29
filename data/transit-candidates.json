@@ -1,0 +1,53 @@
+{
+  "note": "Candidate keyless GTFS-Realtime vehicle feeds selected from the Mobility Database catalogs CSV. Nothing here is drawn: a candidate is promoted into data/transit.json only after tools/probe_transit.py sees it answer with real vehicles twice.",
+  "source": "https://storage.googleapis.com/storage/v1/b/mdb-csv/o/sources.csv?alt=media",
+  "sourceLicense": "Mobility Database catalogs (CC BY 4.0 for the catalog metadata)",
+  "selected": 4,
+  "from": 3511,
+  "candidates": [
+    {
+      "source": "Mobility Database catalogs CSV",
+      "mdbId": "3118",
+      "country": "UNKNOWN",
+      "city": "unknown",
+      "operator": "Autolinee Federico",
+      "network": "Autolinee Federico vehicle positions",
+      "base": "https://autolineefederico.selfip.com:8080/gtfs-rt/vehicle_positions.pb",
+      "license": "",
+      "catalogUrl": ""
+    },
+    {
+      "source": "Mobility Database catalogs CSV",
+      "mdbId": "3439",
+      "country": "UNKNOWN",
+      "city": "unknown",
+      "operator": "Druskininkai",
+      "network": "Druskininkai vehicle positions",
+      "base": "https://www.stops.lt/druskininkai/vehicle_positions.pb",
+      "license": "",
+      "catalogUrl": ""
+    },
+    {
+      "source": "Mobility Database catalogs CSV",
+      "mdbId": "1378",
+      "country": "XX",
+      "city": "BC Transit (Campbell River Transit)",
+      "operator": "BC Transit (Campbell River Transit)",
+      "network": "BC Transit (Campbell River Transit) vehicle positions",
+      "base": "https://bct.tmix.se/gtfs-realtime/vehicleupdates.pb?operatorIds=12",
+      "license": "",
+      "catalogUrl": ""
+    },
+    {
+      "source": "Mobility Database catalogs CSV",
+      "mdbId": "1379",
+      "country": "XX",
+      "city": "BC Transit (Cowichan Valley Regional Transit System)",
+      "operator": "BC Transit (Cowichan Valley Regional Transit System)",
+      "network": "BC Transit (Cowichan Valley Regional Transit System) vehicle positions",
+      "base": "https://bct.tmix.se/gtfs-realtime/vehicleupdates.pb?operatorIds=10",
+      "license": "",
+      "catalogUrl": ""
+    }
+  ]
+}
