@@ -11,7 +11,7 @@ GOD'S EYE — tiny zero-dependency server (Python stdlib only).
 
 Run:  python3 server.py [port]      (default 8000, binds 0.0.0.0)
 """
-import os, re, sys, time, json, base64, threading, urllib.request, urllib.error
+import os, re, socket, sys, time, json, base64, ipaddress, threading, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -42,17 +42,91 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) GodsEyeCCTV/1.0"
 
 
+def _is_public_ip(host):
+    """Reject loopback, private, link-local, shared and reserved address literals.
+
+    The Netlify relay resolves hostnames and checks every answer; this local server
+    at least must not treat a literal `http://192.168.1.1/` (or its IPv4-mapped IPv6
+    spelling) as a public upstream.
+    """
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    return addr.is_global
+
+
 def valid_url(url):
     try:
         p = urlparse(url)
         if p.scheme not in ("http", "https"):
             return False
+        if p.username or p.password:                  # credentials in a relayed URL
+            return False
         host = (p.hostname or "").lower()
-        if host in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or host.endswith(".local"):
+        if (not host or host in ("localhost", "0.0.0.0", "::1", "::")
+                or host.endswith((".local", ".internal", ".localhost"))):
+            return False
+        if host.isdigit():                            # decimal IPv4 (e.g. 2130706433)
+            return False
+        if "%" in host:                               # IPv6 zone id (fe80::1%eth0)
+            return False
+        public = _is_public_ip(host)
+        if public is not None and not public:
             return False
         return True
     except Exception:
         return False
+
+
+def _resolved_public(url):
+    """True when every address a hostname resolves to is public.
+
+    A literal address was already judged by valid_url(); only names need DNS.
+    Redirect targets go through this too, so a public URL that 302s to
+    169.254.169.254 cannot smuggle the relay into an internal service.
+    """
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if _is_public_ip(host) is not None:
+        return True                               # literal: valid_url already decided
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    if not infos:
+        return False
+    return all(_is_public_ip(info[4][0]) is True for info in infos)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None                               # surface the 3xx so we can check the hop
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def open_checked(url, headers, timeout=30, limit=4):
+    """Open a relay target, re-validating every redirect hop before fetching it."""
+    for _ in range(limit):
+        if not valid_url(url) or not _resolved_public(url):
+            raise ValueError("unsafe source address")
+        req = urllib.request.Request(encode_iri(url), headers=headers)
+        try:
+            return _OPENER.open(req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            location = e.headers.get("Location") if e.headers else None
+            if e.code in (301, 302, 303, 307, 308) and location:
+                e.close()
+                url = urllib.parse.urljoin(url, location)
+                continue
+            raise
+    raise ValueError("too many redirects")
 
 
 def _ascii_host(authority):
@@ -295,12 +369,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
 
-    def _json(self, obj, code=200):
+    def _json(self, obj, code=200, extra=None):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self._cors()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (extra or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -347,11 +423,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "bad url"}, 400)
         url = encode_iri(url)
         try:
-            req = urllib.request.Request(url, headers={
+            upstream = open_checked(url, {
                 "User-Agent": USER_AGENT, "Accept": "*/*",
                 "Accept-Encoding": "identity",
             })
-            upstream = urllib.request.urlopen(req, timeout=30)
         except urllib.error.HTTPError as e:
             self.send_response(e.code)
             self._cors()
@@ -362,28 +437,47 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 502)
 
         ctype = upstream.headers.get("Content-Type", "application/octet-stream")
-        is_hls = ("mpegurl" in ctype) or url.split("?")[0].lower().endswith((".m3u8", ".m3u"))
-        self.send_response(200)
-        self._cors()
-        self.send_header("Content-Type", "application/vnd.apple.mpegurl" if is_hls else ctype)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Upstream-Status", str(upstream.status))
+        status = upstream.status
+        # A playlist URL often redirects (http→https, regional CDN). Relative
+        # segments must resolve against the URL that actually answered.
+        base_url = upstream.geturl() or url
+        is_hls = ("mpegurl" in ctype) or base_url.split("?")[0].lower().endswith((".m3u8", ".m3u"))
 
         if is_hls:
-            raw_text = upstream.read().decode("utf-8", "replace")
+            # Validate the body before committing an HTTP response: sending the 200
+            # headers first and then a 404 JSON on a "Not Found" body produced two
+            # responses on one connection (and a broken player).
+            try:
+                raw_text = upstream.read().decode("utf-8", "replace")
+            finally:
+                upstream.close()
             if not raw_text.lstrip().startswith("#EXTM3U"):
                 return self._json({"error": "source-not-streaming",
                                    "detail": raw_text.strip()[:80]}, 404)
-            body = rewrite_m3u8(raw_text, url)
-            data = body.encode()
+            data = rewrite_m3u8(raw_text, base_url).encode()
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "application/vnd.apple.mpegurl")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Upstream-Status", str(status))
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
             return
 
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Upstream-Status", str(status))
         clen = upstream.headers.get("Content-Length")
         if clen:
             self.send_header("Content-Length", clen)
+        else:
+            # urllib decodes chunked framing and never exposes a length, so without
+            # one (and without closing) an HTTP/1.1 client waits forever for EOF.
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         try:
             while True:
@@ -453,11 +547,10 @@ class Handler(BaseHTTPRequestHandler):
         return flight["result"]
 
     def _upstream(self, url):
-        req = urllib.request.Request(encode_iri(url), headers={
+        upstream = open_checked(url, {
             "User-Agent": USER_AGENT, "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip",
         })
-        upstream = urllib.request.urlopen(req, timeout=30)
         try:
             data = upstream.read()
         finally:
@@ -563,13 +656,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(hit["body"], 200, {"X-Cache": "HIT"})
 
         def one(ind):
-            url = f"https://api.worldbank.org/v2/country/{cc}/indicator/{ind}?format=json&per_page=1&sort=desc"
+            url = f"https://api.worldbank.org/v2/country/{cc}/indicator/{ind}?format=json&per_page=20&sort=desc"
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=15) as r:
                 doc = json.loads(r.read().decode("utf-8"))
             rows = doc[1] if isinstance(doc, list) and len(doc) > 1 and isinstance(doc[1], list) else []
-            row = next((x for x in rows if isinstance(x, dict) and x.get("value") is not None
-                        and str(x.get("value")).replace(".", "", 1).replace("-", "", 1).isdigit()), None)
+            # The newest year is often published as null. Look back through the page
+            # for the most recent real observation instead of dropping the indicator.
+            row = None
+            for x in rows:
+                if not isinstance(x, dict) or x.get("value") is None:
+                    continue
+                try:
+                    float(x["value"])
+                except (TypeError, ValueError):
+                    continue
+                row = x
+                break
             if not row:
                 return None
             return {"id": ind, "name": (row.get("indicator") or {}).get("value"),
@@ -614,12 +717,36 @@ class Handler(BaseHTTPRequestHandler):
         return self._bytes(data, ctype, {"X-Cache": "MISS" if window else "SKIP"})
 
     # ------------------------------------------------------------ static ----
-    def do_static(self, path):
+    # Only the app the Netlify build would publish is served. The repository also
+    # contains tools/_cache (which can hold the server-side FIRMS key), .git and
+    # the test suite, none of which belong on a LAN-visible dev server.
+    PUBLIC_FILES = {"index.html", "manifest.json", "sw.js", "icon.svg", "_redirects"}
+    PUBLIC_DIRS = {"assets", "css", "js", "img", "vendor", "data"}
+
+    def _public_path(self, path):
         if path == "/":
             path = "/index.html"
-        rel = os.path.normpath(path.lstrip("/"))
-        full = os.path.join(ROOT, rel)
-        if not full.startswith(ROOT) or not os.path.isfile(full):
+        rel = os.path.normpath(path.lstrip("/")).replace("\\", "/")
+        if rel in (".", "..") or rel.startswith("../") or os.path.isabs(rel):
+            return None
+        parts = rel.split("/")
+        first = parts[0]
+        if first in self.PUBLIC_FILES and len(parts) == 1:
+            return rel
+        if first in self.PUBLIC_DIRS:
+            if any(p.startswith(".") or p in ("_cache", "__pycache__") for p in parts):
+                return None
+            return rel
+        return None
+
+    def do_static(self, path):
+        rel = self._public_path(path)
+        full = os.path.join(ROOT, rel) if rel else ""
+        try:
+            inside = bool(full) and os.path.commonpath([ROOT, os.path.realpath(full)]) == ROOT
+        except ValueError:                            # different drive on Windows
+            inside = False
+        if not inside or not os.path.isfile(full):
             self.send_response(404)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", "9")

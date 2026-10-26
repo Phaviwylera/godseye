@@ -839,9 +839,13 @@ async function openCam(id, fly) {
   el.mAttr.textContent = c.attr || "public feed";
   el.mPage.href = c.page || c.stream || "#";
   el.mPage.style.display = (c.page || c.stream) ? "" : "none";
-  setModalStatus(Object.assign(c, { _checking: true }));
+  /* Only mark CHECKING when a probe will actually run and clear it. YouTube and
+   * portal entries are not probeable, and used to stay "checking" forever. */
   if (PROBE_TYPES.has(c.stype) && c.stream && !statusFresh(c)) {
+    setModalStatus(Object.assign(c, { _checking: true }));
     await probeCam(c, { force: false });
+  } else {
+    c._checking = false;
   }
   if (activeId !== id) return;
   setModalStatus(c);
@@ -1642,6 +1646,10 @@ async function initMap() {
   });
   map.scrollZoom.setZoomRate(1 / 32);
   map.scrollZoom.setWheelZoomRate(1 / 320);
+  /* app.js is an IIFE, so the module-scoped `map` is invisible to other scripts.
+   * Expose the real instance for saved views and anything else that needs it;
+   * a bare `map` global resolves to the <div id="map"> element instead. */
+  window.GE_MAP = map;
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
@@ -1775,6 +1783,7 @@ async function initMap() {
 async function startCameraListFallback(error) {
   console.warn("3D map unavailable; loading camera list", error);
   map = null;
+  window.GE_MAP = null;
   document.body.classList.add("map-unavailable");
   $("#map-fallback").classList.remove("hidden");
   setLoadStatus("3D map unavailable · camera list is ready");
@@ -1813,6 +1822,7 @@ function tickClock() {
     News.init(map);
     Conflict.init(map);
     Companies.init(map);
+    Countries.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

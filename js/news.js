@@ -62,6 +62,15 @@ const News = (() => {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 
+  /* GDELT supplies article URLs. Escape them and allow only http(s): a
+   * javascript: or data: URL must never become an anchor in the app origin. */
+  const safeLink = (value) => {
+    try {
+      const url = new URL(String(value));
+      return ["http:", "https:"].includes(url.protocol) ? esc(url.href) : "";
+    } catch { return ""; }
+  };
+
   function ageLabel(iso, now) {
     const t = Date.parse(iso);
     if (!Number.isFinite(t)) return "";
@@ -100,9 +109,10 @@ const News = (() => {
       if (!f) return;
       const p = f.properties || {};
       const age = ageLabel(p.date, Date.now());
+      const link = safeLink(p.url);
       const html = `<div class="ev-card"><div class="ev-q">${esc(p.title)}</div>
         <div class="ev-row">severity ${p.sev}/10 · ${esc(p.sevlabel)}${age ? " · " + esc(age) : ""}</div>
-        ${p.url ? `<div class="ev-row"><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">source article ↗</a></div>` : ""}
+        ${link ? `<div class="ev-row"><a href="${link}" target="_blank" rel="noopener noreferrer">source article ↗</a></div>` : ""}
         <div class="ev-row dim">GDELT DOC 2.0 geolocated world news · headline keyword score, not an editorial verdict</div></div>`;
       new maplibregl.Popup({ maxWidth: "340px" })
         .setLngLat(f.geometry.coordinates).setHTML(html).addTo(map);

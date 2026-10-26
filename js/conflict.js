@@ -8,7 +8,7 @@
  */
 const Conflict = (() => {
   let map = null;
-  const state = { on: false, events: [], windowDays: 0, pending: false };
+  const state = { on: false, events: [], windowDays: 0, windowEnd: "", pending: false };
 
   /* ------------------------------------------------------------------ pure -- */
 
@@ -39,6 +39,10 @@ const Conflict = (() => {
   }
 
   /* ------------------------------------------------------------------- DOM -- */
+
+  function rangeLabel(days, end) {
+    return `${days}D${end ? " TO " + end : ""}`;
+  }
 
   function chip() { return document.getElementById("conflict-chip"); }
   function setChip(text, title) {
@@ -86,8 +90,10 @@ const Conflict = (() => {
       setChip("☒ CONFLICT · PENDING BUILD",
         "data/conflict.json has not been built yet — run `python3 tools/build_conflict.py` (the refresh-conflict action does this weekly).");
     } else {
-      setChip(`☒ ${state.events.length} EVENTS · ${state.windowDays}D`,
-        "UCDP/PRIO GED conflict events, last " + state.windowDays + " days. Colour is reported deaths: red ≥25, rose ≥5, orange ≥1, salmon none reported. No frontlines: none exist in an open verifiable source.");
+      setChip(`☒ ${state.events.length} EVENTS · ${rangeLabel(state.windowDays, state.windowEnd)}`,
+        "UCDP/PRIO GED conflict events, " + state.windowDays + " days" +
+        (state.windowEnd ? " to " + state.windowEnd : "") +
+        ". Colour is reported deaths: red ≥25, rose ≥5, orange ≥1, salmon none reported. No frontlines: none exist in an open verifiable source.");
     }
   }
 
@@ -98,6 +104,7 @@ const Conflict = (() => {
       const doc = await r.json();
       state.events = Array.isArray(doc.events) ? doc.events : [];
       state.windowDays = Number(doc.window_days) || 0;
+      state.windowEnd = typeof doc.window_end === "string" ? doc.window_end : "";
       state.pending = state.events.length === 0;
     } catch { state.pending = true; }
   }
@@ -129,7 +136,7 @@ const Conflict = (() => {
     if (typeof Contacts === "undefined") return;
     if (!state.events.length) return;
     const sorted = [...state.events].sort((a, b) => (b[6] || 0) - (a[6] || 0));
-    Contacts.open(`${state.events.length} EVENTS · LAST ${state.windowDays} DAYS`,
+    Contacts.open(`${state.events.length} EVENTS · ${rangeLabel(state.windowDays, state.windowEnd)}`,
       sorted.slice(0, 40).map(ev => ({
         label: `${ev[3]}${ev[4] ? " · " + ev[4] : ""}`,
         detail: `${ev[0]} · ${kindOf(ev)}${ev[6] ? " · " + ev[6] + " reported killed" : ""}`,
@@ -139,5 +146,5 @@ const Conflict = (() => {
 
   function init(instance) { map = instance; }
 
-  return { init, toggle, restore, openList, kindOf, colorFor, card, features, _state: state };
+  return { init, toggle, restore, openList, kindOf, colorFor, card, features, rangeLabel, _state: state };
 })();

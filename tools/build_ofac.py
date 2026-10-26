@@ -19,6 +19,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -33,40 +34,84 @@ FLOORS = {"aircraft": 50, "vessels": 500}
 CAPS = {"aircraft": 20000, "vessels": 200000}
 
 
-def _first_text(elem, tag):
-    for child in elem.iter(tag):
-        text = (child.text or "").strip()
-        if text:
-            return text
+def _local(elem):
+    """Element tag without its XML namespace (the live SDN file declares one)."""
+    return elem.tag.rsplit("}", 1)[-1]
+
+
+def _first_text(elem, *tags):
+    for child in elem.iter():
+        if _local(child) in tags:
+            text = (child.text or "").strip()
+            if text:
+                return text
     return ""
 
 
-def _all_text(elem, tag):
-    return [ (child.text or "").strip() for child in elem.iter(tag) if (child.text or "").strip() ]
+def _all_text(elem, *tags):
+    return [(child.text or "").strip() for child in elem.iter()
+            if _local(child) in tags and (child.text or "").strip()]
+
+
+def _direct_text(elem, tag):
+    for child in elem:
+        if _local(child) == tag and (child.text or "").strip():
+            return (child.text or "").strip()
+    return ""
+
+
+def _ids(entry):
+    """(idType, idNumber) pairs from the live <idList><id> structure."""
+    out = []
+    for node in entry.iter():
+        if _local(node) != "id":
+            continue
+        kind = _first_text(node, "idType").lower()
+        number = _first_text(node, "idNumber")
+        if number:
+            out.append((kind, number))
+    return out
 
 
 def parse_sdn(xml_text):
     """SDN XML -> {'aircraft': [{reg, name, reason}], 'vessels': [{imo, name, reason}]}.
 
-    Lenient on purpose: the Treasury file is machine-generated but not schema
-    versioned forever — an entry is kept when it has an identifying field
-    (registration for aircraft, IMO or name for vessels)."""
+    Handles both the current Treasury document — namespaced, `sdnEntry`/`sdnType`,
+    identifiers in `idList`/`id` — and the older flat `SDNEntry`/`Type`/`SDNReg`
+    shape, so an upstream format change cannot silently empty the index.
+    """
     root = ET.fromstring(xml_text)
     aircraft, vessels = {}, {}
-    for entry in root.iter("SDNEntry"):
-        etype = _first_text(entry, "Type").strip().lower()
-        name = _first_text(entry, "Name") or " ".join(_all_text(entry, "PrimaryName")) or "Unknown"
-        name = " ".join(name.split())
-        reason = "; ".join(dict.fromkeys(_all_text(entry, "SDNReason")))[:220]
-        regs = [_first_text(r, "SDNReg") for r in entry.iter("SDNReg")]
-        regs = [r.strip().upper() for r in regs if r.strip()]
+    for entry in root.iter():
+        if _local(entry) != "sdnEntry" and _local(entry) != "SDNEntry":
+            continue
+        etype = _first_text(entry, "sdnType", "Type").strip().lower()
+        # Current entries carry firstName/lastName as direct children; an akaList
+        # must not be concatenated into the primary name.
+        first = _direct_text(entry, "firstName")
+        last = _direct_text(entry, "lastName")
+        if first or last:
+            name = " ".join(part for part in (first, last) if part)
+        else:
+            name = _first_text(entry, "Name", "PrimaryName")
+        name = " ".join(name.split()) or "Unknown"
+        reason = "; ".join(dict.fromkeys(_all_text(entry, "SDNReason", "remarks")))[:220]
+
+        regs = [r.strip().upper() for r in _all_text(entry, "SDNReg") if r.strip()]
         imo = _first_text(entry, "SDNIMONumber").strip()
+        for kind, number in _ids(entry):
+            if "vessel registration" in kind:
+                match = re.search(r"(\d{6,7})", number)
+                if match and not imo:
+                    imo = match.group(1)
+            elif "registration" in kind and "aircraft" not in kind:
+                regs.append(number.strip().upper())
+
         if etype == "aircraft":
-            for reg in regs or ["?"]:
-                if reg != "?" and reg not in aircraft:
-                    aircraft[reg] = {"reg": reg, "name": name, "reason": reason}
+            for reg in regs:
+                aircraft.setdefault(reg, {"reg": reg, "name": name, "reason": reason})
             if not regs and name and name != "Unknown":
-                # Rarely the entry names the aircraft without a clean registration.
+                # Usually the entry's name is the tail number.
                 aircraft.setdefault(name.upper(), {"reg": name.upper(), "name": name, "reason": reason})
         elif etype == "vessel":
             key = imo or name.upper()

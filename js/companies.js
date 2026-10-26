@@ -30,7 +30,7 @@ const Companies = (() => {
   function features() {
     return state.companies.map(c => ({
       type: "Feature",
-      properties: { c },
+      properties: { c, name: c.name },
       geometry: { type: "Point", coordinates: [c.lon, c.lat] },
     }));
   }

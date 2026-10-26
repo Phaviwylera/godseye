@@ -237,7 +237,8 @@ const Players = (() => {
       clearInterval(st.healTimer);
       st.healTimer = setInterval(async () => {
         try {
-          const url = proxied(cam.stream) + (cam.stream.includes("?") ? "&" : "?") + "_heal=" + Date.now();
+          const base = proxied(cam.stream);
+          const url = base + (base.includes("?") ? "&" : "?") + "_heal=" + Date.now();
           const r = await fetch(url, { cache: "no-store" });
           if (r.ok) {
             clearInterval(st.healTimer);
@@ -259,7 +260,8 @@ const Players = (() => {
           cam._resolvedStream = null;
           if (!source) throw new Error("No current image URL returned by the source");
         }
-        st.img.src = proxied(source) + "&_r=" + (++n);
+        const base = proxied(source);
+        st.img.src = base + (base.includes("?") ? "&" : "?") + "_r=" + (++n);
       } catch (e) {
         if (!st.frames.length) failPanel("The agency did not return a current camera image.");
       }

@@ -41,12 +41,12 @@ def probe(item):
 
 
 def main():
-    cams = json.load(open(os.path.join(ROOT, "data", "cameras.geojson")))["features"]
+    cams = json.load(open(os.path.join(ROOT, "data", "cameras.geojson"), encoding="utf-8"))["features"]
     out_path = os.path.join(ROOT, "data", "liveness.json")
     state = {"generated": None, "s": {}, "t": {}}
     if os.path.exists(out_path):
         try:
-            state = json.load(open(out_path))
+            state = json.load(open(out_path, encoding="utf-8"))
             state.setdefault("s", {})
             state.setdefault("t", {})
         except Exception:
@@ -58,6 +58,9 @@ def main():
         if p.get("stype") not in PROBE_TYPES:
             continue
         todo.append((p["id"], p.get("stream") or ""))
+    # Resume from the stalest checks first, so a run limited with --limit advances
+    # through the registry instead of re-probing the same head of the list forever.
+    todo.sort(key=lambda item: int(state["t"].get(item[0], 0)))
     todo = todo[:LIMIT]
     print(f"probing {len(todo)} direct-media feeds ({WORKERS} workers, timeout {TIMEOUT}s)…")
 
@@ -72,13 +75,13 @@ def main():
             done += 1
             if done % 500 == 0:
                 state["generated"] = datetime.now(timezone.utc).isoformat()
-                with open(out_path, "w") as f:
+                with open(out_path, "w", encoding="utf-8") as f:
                     json.dump(state, f, separators=(",", ":"))
                 rate = done / (time.time() - t0)
                 print(f"  {done}/{len(todo)}  live={sum(1 for v in state['s'].values() if v)}  ({rate:.0f}/s)")
 
     state["generated"] = datetime.now(timezone.utc).isoformat()
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(state, f, separators=(",", ":"))
     live = sum(1 for v in state["s"].values() if v)
     print(f"done. checked={len(state['s'])} live={live} down={len(state['s']) - live}")

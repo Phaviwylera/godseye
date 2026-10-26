@@ -23,6 +23,12 @@ const Intel = (() => {
    * under load instead of spending the limit once per tab. */
   const AIR_WINDOW_SEC = 20;
 
+  /* Camera names/places come from third-party operator feeds: escape them before
+   * they reach innerHTML (the route corridor panel is the one list that builds
+   * markup by hand). */
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+
   // ================================================================ SUN ====
   const rad = Math.PI / 180, dayMs = 864e5, J1970 = 2440588, J2000 = 2451545, e = rad * 23.4397;
   const toDays = (date) => date.valueOf() / dayMs - 0.5 + J1970 - J2000;
@@ -295,11 +301,11 @@ const Intel = (() => {
     listEl.innerHTML =
       `<div class="route-summary">${hits.length} cams · ${Math.round(totalKm)} km corridor</div>` +
       hits.map((h, i) => `
-        <li data-id="${h.cam.id}" class="route-hit">
+        <li data-id="${esc(h.cam.id)}" class="route-hit">
           <span class="route-km">${h.t > 0 ? Math.round(h.t * totalKm) : 0} km</span>
-          <div><div class="cam-name">${h.cam.name}</div>
-          <div class="cam-sub">${[h.cam.place, h.cam.region, h.cam.country].filter(Boolean).join(" · ")}</div></div>
-          <span class="badge ${h.cam.stype}">${h.cam.stype}</span>
+          <div><div class="cam-name">${esc(h.cam.name)}</div>
+          <div class="cam-sub">${[h.cam.place, h.cam.region, h.cam.country].filter(Boolean).map(esc).join(" · ")}</div></div>
+          <span class="badge ${esc(h.cam.stype)}">${esc(h.cam.stype)}</span>
         </li>`).join("");
     listEl.querySelectorAll("li[data-id]").forEach(li =>
       li.onclick = () => window.dispatchEvent(new CustomEvent("ge-open-cam", { detail: li.dataset.id })));

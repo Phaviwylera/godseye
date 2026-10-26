@@ -22,7 +22,7 @@ def main():
         print("missing data/cameras.geojson", file=sys.stderr)
         sys.exit(1)
 
-    src = json.load(open(src_path))
+    src = json.load(open(src_path, encoding="utf-8"))
     # The probe's human-readable id map stays in the repository for resumable
     # checks.  The published app gets a compact bitfield aligned to index_feats
     # instead: one bit per row, 1 = responding and 0 = not responding.
@@ -31,7 +31,7 @@ def main():
     lv_path = os.path.join(ROOT, "data", "liveness.json")
     if os.path.exists(lv_path):
         try:
-            liveness_doc = json.load(open(lv_path))
+            liveness_doc = json.load(open(lv_path, encoding="utf-8"))
             lv = liveness_doc.get("s") or {}
             liveness_generated = str(liveness_doc.get("generated") or "")
         except Exception:
@@ -39,9 +39,9 @@ def main():
 
     out_dir = os.path.join(ROOT, "data", "regions")
     os.makedirs(out_dir, exist_ok=True)
-    for fn in os.listdir(out_dir):
-        if fn.endswith(".json"):
-            os.remove(os.path.join(out_dir, fn))
+    # Do not delete the published packs up front: a rebuild that fails halfway
+    # would leave the app with 404s for every camera. New packs are written to
+    # temp files and swapped in, and stale ones are removed only after that.
 
     from collections import defaultdict
     by_cc = defaultdict(list)
@@ -103,11 +103,22 @@ def main():
         "liveness_generated": liveness_generated,
         "packs": {},
     }
+    pending = []
     for key, rows in sorted(final_packs.items()):
+        if "/" in key or "\\" in key or key in (".", ".."):
+            raise SystemExit(f"unsafe region pack name: {key!r}")
         path = os.path.join(out_dir, f"{key}.json")
-        with open(path, "w") as f:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"pack": key, "cams": rows}, f, separators=(",", ":"))
-        manifest["packs"][key] = {"count": len(rows), "bytes": os.path.getsize(path)}
+        pending.append((tmp, path))
+        manifest["packs"][key] = {"count": len(rows), "bytes": os.path.getsize(tmp)}
+
+    # Swap every pack in atomically. Stale packs are removed only after the new
+    # index and manifest are in place.
+    for tmp, path in pending:
+        os.replace(tmp, path)
+    keep = {os.path.basename(path) for _tmp, path in pending} | {"manifest.json"}
 
     # Little-endian within each byte so JavaScript can decode bit i with
     # bytes[i >> 3] >> (i & 7).  Missing liveness is only possible for non-media
@@ -119,11 +130,16 @@ def main():
     with open(os.path.join(ROOT, "data", "liveness.bin"), "wb") as f:
         f.write(bits)
 
-    with open(os.path.join(ROOT, "data", "cameras.index.json"), "w") as f:
+    with open(os.path.join(ROOT, "data", "cameras.index.json"), "w", encoding="utf-8") as f:
         json.dump({"v": 2, "count": len(index_feats), "lv": liveness_generated,
                    "cams": index_feats}, f, separators=(",", ":"))
-    with open(os.path.join(out_dir, "manifest.json"), "w") as f:
+    with open(os.path.join(out_dir, "manifest.json.tmp"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, separators=(",", ":"))
+    os.replace(os.path.join(out_dir, "manifest.json.tmp"), os.path.join(out_dir, "manifest.json"))
+
+    for fn in os.listdir(out_dir):
+        if fn.endswith(".json") and fn not in keep:
+            os.remove(os.path.join(out_dir, fn))
 
     idx_sz = os.path.getsize(os.path.join(ROOT, "data", "cameras.index.json"))
     print(f"wrote cameras.index.json ({idx_sz/1e6:.2f} MB, {len(index_feats)} cams)")

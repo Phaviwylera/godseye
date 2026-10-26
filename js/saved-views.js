@@ -54,5 +54,5 @@ const SavedViews = (() => {
   return {valid,read,init};
 })();
 if (typeof document !== 'undefined') {
-  try { SavedViews.init(() => typeof map === 'undefined' ? null : map, localStorage); } catch { /* unavailable storage must not stop the globe */ }
+  try { SavedViews.init(() => window.GE_MAP || null, localStorage); } catch { /* unavailable storage must not stop the globe */ }
 }

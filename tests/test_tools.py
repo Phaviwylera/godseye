@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """God's Eye — tooling unit tests (stdlib unittest, no deps)."""
-import base64, concurrent.futures, http.client, json, os, re, sys, threading, time, unittest, urllib.parse, urllib.request, importlib.util
+import base64, concurrent.futures, http.client, io, json, os, re, sys, threading, time, unittest, urllib.parse, urllib.request, importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +20,36 @@ class TestServer(unittest.TestCase):
         self.assertFalse(self.srv.valid_url("http://localhost:8000/x"))
         self.assertFalse(self.srv.valid_url("file:///etc/passwd"))
         self.assertTrue(self.srv.valid_url("https://example.com/a.m3u8"))
+
+    def test_valid_url_blocks_private_and_special_addresses(self):
+        for url in ("http://10.0.0.1/x", "http://192.168.1.1/x",
+                    "http://169.254.169.254/latest/meta-data",
+                    "http://172.16.1.2/x", "http://100.64.0.1/x",
+                    "http://[::1]/x", "http://[::ffff:127.0.0.1]/x",
+                    "http://[::ffff:7f00:1]/x", "http://2130706433/x",
+                    "http://[fe80::1%25eth0]/x",
+                    "http://user:pass@example.com/x"):
+            self.assertFalse(self.srv.valid_url(url), url)
+        self.assertTrue(self.srv.valid_url("https://8.8.8.8/x"))
+
+    def test_json_response_accepts_extra_headers(self):
+        """do_worldbank passes X-Cache as a third argument; a two-argument _json
+        raised TypeError on every country card in the local server."""
+        srv = self.srv
+        seen = {"headers": {}}
+
+        class Stub(srv.Handler):
+            def send_response(self, code): seen["code"] = code
+            def _cors(self): pass
+            def send_header(self, name, value): seen["headers"][name] = value
+            def end_headers(self): pass
+
+        handler = Stub.__new__(Stub)
+        handler.wfile = io.BytesIO()
+        handler._json({"ok": True}, 200, {"X-Cache": "HIT"})
+        self.assertEqual(seen["code"], 200)
+        self.assertEqual(seen["headers"]["X-Cache"], "HIT")
+        self.assertEqual(json.loads(handler.wfile.getvalue()), {"ok": True})
 
     def test_m3u8_rewrite(self):
         out = self.srv.rewrite_m3u8("#EXTM3U\nchunklist_1.m3u8\n",
@@ -332,9 +362,9 @@ class TestContract(unittest.TestCase):
     """UI element contract + manifest + workflow sanity (catches clobber bugs)."""
 
     def test_all_js_element_ids_exist(self):
-        app = open(os.path.join(ROOT, "js", "app.js")).read()
-        intel = open(os.path.join(ROOT, "js", "intel.js")).read()
-        html = open(os.path.join(ROOT, "index.html")).read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
+        intel = open(os.path.join(ROOT, "js", "intel.js"), encoding="utf-8").read()
+        html = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
         ids = set(re.findall(r'\$\("#([\w-]+)"\)', app + intel)) | \
              set(re.findall(r'getElementById\("([\w-]+)"\)', app + intel))
         missing = [i for i in ids if f'id="{i}"' not in html]
@@ -351,7 +381,7 @@ class TestContract(unittest.TestCase):
         self.assertIn("js/transit.js", core)
 
     def test_liveness_is_a_compact_bitfield_aligned_to_the_camera_index(self):
-        index = json.load(open(os.path.join(ROOT, "data", "cameras.index.json")))
+        index = json.load(open(os.path.join(ROOT, "data", "cameras.index.json"), encoding="utf-8"))
         packed = open(os.path.join(ROOT, "data", "liveness.bin"), "rb").read()
         self.assertEqual(len(packed), (len(index["cams"]) + 7) // 8)
         self.assertLess(len(packed), 4000, "24k liveness flags should be a few KB, not an id map")
@@ -362,7 +392,7 @@ class TestContract(unittest.TestCase):
         self.assertNotIn('fetch("data/liveness.json"', app)
 
     def test_manifest_valid(self):
-        m = json.load(open(os.path.join(ROOT, "manifest.json")))
+        m = json.load(open(os.path.join(ROOT, "manifest.json"), encoding="utf-8"))
         self.assertEqual(m["display"], "standalone")
         self.assertTrue(m["icons"])
 
@@ -371,7 +401,7 @@ class TestContract(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(ROOT, ".github", "workflows", wf)), wf)
 
     def test_player_resilience_features(self):
-        pl = open(os.path.join(ROOT, "js", "players.js")).read()
+        pl = open(os.path.join(ROOT, "js", "players.js"), encoding="utf-8").read()
         self.assertIn("extractYt", pl)
         self.assertIn("YT_ERRORS", pl)
         self.assertIn("153", pl)              # youtube embed restriction handled
@@ -380,7 +410,7 @@ class TestContract(unittest.TestCase):
         self.assertIn("async function probe", pl)  # accurate feed status probe
 
     def test_progressive_regional_loading(self):
-        app = open(os.path.join(ROOT, "js", "app.js")).read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
         self.assertIn("cameras.index.json", app)
         self.assertIn("loadPack", app)
         self.assertIn("loadViewportPacks", app)
@@ -391,7 +421,7 @@ class TestContract(unittest.TestCase):
 
     def test_customizable_video_wall(self):
         idx = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
-        app = open(os.path.join(ROOT, "js", "app.js")).read()
+        app = open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8").read()
         self.assertIn("wall-cols", idx)
         self.assertIn("wall-rows", idx)
         self.assertIn("wall-pref", idx)
@@ -470,7 +500,7 @@ class TestContract(unittest.TestCase):
         self.assertIn("cockpit view", readme)
 
     def test_player_types_supported(self):
-        pl = open(os.path.join(ROOT, "js", "players.js")).read()
+        pl = open(os.path.join(ROOT, "js", "players.js"), encoding="utf-8").read()
         for t in ("m3u8", "mp4", "youtube", "mjpeg", "dynamic", "embed"):
             self.assertIn(f'"{t}"', pl, t)
 
@@ -546,6 +576,50 @@ class TestBuildOfac(unittest.TestCase):
         by_name = [v for v in doc["vessels"] if not v["imo"]]
         self.assertEqual(by_name[0]["name"], "Name Only Vessel")
 
+    CURRENT_SDN_XML = """<?xml version="1.0" encoding="UTF-8"?>
+    <sdnList xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML">
+      <sdnEntry>
+        <uid>15432</uid>
+        <lastName>EP-GOL</lastName>
+        <sdnType>Aircraft</sdnType>
+        <remarks>Linked to a designated airline</remarks>
+      </sdnEntry>
+      <sdnEntry>
+        <uid>99</uid>
+        <lastName>9H-ABC</lastName>
+        <sdnType>Aircraft</sdnType>
+        <idList>
+          <id><uid>1</uid><idType>Registration Number</idType><idNumber>9H-ABC</idNumber></id>
+        </idList>
+      </sdnEntry>
+      <sdnEntry>
+        <uid>4238</uid>
+        <firstName/>
+        <lastName>EBANO</lastName>
+        <sdnType>Vessel</sdnType>
+        <akaList><aka><uid>2</uid><firstName/><lastName>ANA</lastName></aka></akaList>
+        <idList>
+          <id><uid>3</uid><idType>Vessel Registration Identification</idType><idNumber>IMO 7406784</idNumber></id>
+        </idList>
+      </sdnEntry>
+      <sdnEntry>
+        <uid>4</uid>
+        <firstName>Some</firstName><lastName>Person</lastName>
+        <sdnType>Individual</sdnType>
+      </sdnEntry>
+    </sdnList>"""
+
+    def test_parse_sdn_reads_the_current_namespaced_treasury_schema(self):
+        doc = self.ofac.parse_sdn(self.CURRENT_SDN_XML)
+        self.assertEqual(sorted(a["reg"] for a in doc["aircraft"]), ["9H-ABC", "EP-GOL"])
+        by_imo = [v for v in doc["vessels"] if v["imo"] == "7406784"]
+        self.assertEqual(len(by_imo), 1)
+        # The akaList must not be glued onto the primary name.
+        self.assertEqual(by_imo[0]["name"], "EBANO")
+        for key in ("aircraft", "vessels"):
+            for row in doc[key]:
+                self.assertNotIn("Some", row["name"])
+
     def test_parse_sdn_ignores_other_entry_types(self):
         doc = self.ofac.parse_sdn(self.SDN_XML)
         for key in ("aircraft", "vessels"):
@@ -572,6 +646,67 @@ class TestBuildConflict(unittest.TestCase):
         header = ("Year,Month,Day,EventID,CountryCode,CountryName,StateName,"
                   "Location (Free Text),EventCode,EventCode2015,Conflict,Killings,Lat,Long,Resolution")
         return header + "\n" + "\n".join(rows) + "\n"
+
+    def _csv_current(self, rows):
+        header = ("id,relid,year,type_of_violence,country,region,adm_1,"
+                  "where_description,latitude,longitude,date_prec,date_start,date_end,best")
+        return header + "\n" + "\n".join(rows) + "\n"
+
+    def test_parse_events_current_release_schema(self):
+        """Current GED releases use lowercase columns and date_start, with no
+        Month/Day columns; the legacy-only parser silently returned nothing."""
+        from datetime import date
+        text = self._csv_current([
+            '1,SUD-2025-1,2025,2,Sudan,Africa,North Darfur,"Town, district",15.25,23.56,1,'
+            '2025-12-31 00:00:00.000,2025-12-31 00:00:00.000,7',
+            '2,SUD-2025-2,2025,1,Sudan,Africa,North Darfur,Bad coords,95.0,23.56,1,'
+            '2025-12-30 00:00:00.000,2025-12-30 00:00:00.000,1',
+        ])
+        events = self.conf.parse_events(text, 180, end=date(2026, 1, 1))
+        self.assertEqual(len(events), 1, events)
+        self.assertEqual(events[0][0], "2025-12-31")
+        self.assertEqual(events[0][3], "Sudan")
+        self.assertEqual(events[0][4], "North Darfur")
+        self.assertEqual(events[0][5], "2")
+        self.assertEqual(events[0][6], 7)
+        self.assertIn("Town", events[0][7])
+
+    def test_looks_like_ged_csv_accepts_both_schemas(self):
+        self.assertTrue(self.conf.looks_like_ged_csv(self._csv([])))
+        self.assertTrue(self.conf.looks_like_ged_csv(self._csv_current([])))
+        self.assertFalse(self.conf.looks_like_ged_csv("a,b,c\n1,2,3\n"))
+
+    def test_main_anchors_window_when_release_lags_today(self):
+        """UCDP releases trail the calendar; the tool must not ship an empty
+        layer (or fail the floor) just because today has no matching rows."""
+        import io, zipfile, tempfile
+        from datetime import date, timedelta
+        latest = date.today() - timedelta(days=400)
+        with tempfile.TemporaryDirectory() as td:
+            zip_path = os.path.join(td, "ged.zip")
+            rows = []
+            for i in range(120):
+                d = latest - timedelta(days=i % 30)
+                rows.append(f"{i},X-2025-{i},2025,1,Testland,Africa,Region,Place {i},"
+                            f"{20 + (i % 40)},{10 + (i % 20)},1,"
+                            f"{d.isoformat()} 00:00:00.000,{d.isoformat()} 00:00:00.000,{i % 7}")
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                z.writestr("GEDEvent_v99_1.csv", self._csv_current(rows))
+                z.writestr("pad.bin", b"0" * 110_000)
+            with open(zip_path, "wb") as f:
+                f.write(buf.getvalue())
+            out_path = os.path.join(td, "conflict.json")
+            old_argv = sys.argv
+            sys.argv = ["build_conflict", "--zip", zip_path, "--out", out_path, "--days", "180"]
+            try:
+                rc = self.conf.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 0)
+            doc = json.load(open(out_path, encoding="utf-8"))
+            self.assertEqual(doc["count"], 120)
+            self.assertEqual(doc["window_end"], latest.isoformat())
 
     def test_parse_events_keeps_recent_geolocated_rows_only(self):
         from datetime import date, timedelta
@@ -628,7 +763,7 @@ class TestBuildConflict(unittest.TestCase):
             finally:
                 sys.argv = old_argv
             self.assertEqual(rc, 0)
-            doc = json.load(open(out_path))
+            doc = json.load(open(out_path, encoding="utf-8"))
             self.assertEqual(doc["count"], 120)
             self.assertEqual(len(doc["events"]), 120)
             self.assertEqual(doc["window_days"], 180)
@@ -684,8 +819,8 @@ class TestBuildCompanies(unittest.TestCase):
             seed_path = os.path.join(td, "seed.json")
             cache_path = os.path.join(td, "cache.json")
             out_path = os.path.join(td, "companies.json")
-            json.dump(seed, open(seed_path, "w"))
-            json.dump({"City A, Country": [-1.5, 41.0], "City B, Country": [2.5, -3.5]}, open(cache_path, "w"))
+            json.dump(seed, open(seed_path, "w", encoding="utf-8"))
+            json.dump({"City A, Country": [-1.5, 41.0], "City B, Country": [2.5, -3.5]}, open(cache_path, "w", encoding="utf-8"))
             old_argv = sys.argv
             sys.argv = ["build_companies", "--offline", "--seed", seed_path,
                         "--cache", cache_path, "--out", out_path, "--floor", "1"]
@@ -694,7 +829,7 @@ class TestBuildCompanies(unittest.TestCase):
             finally:
                 sys.argv = old_argv
             self.assertEqual(rc, 0)
-            doc = json.load(open(out_path))
+            doc = json.load(open(out_path, encoding="utf-8"))
             self.assertEqual(doc["count"], 2)
             self.assertEqual(doc["dropped"], 1)
             names = {c["name"]: (c["lon"], c["lat"]) for c in doc["companies"]}
@@ -738,7 +873,7 @@ class TestBuildCountries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             src_path = os.path.join(td, "world.geo.json")
             out_path = os.path.join(td, "countries.json")
-            json.dump(self._fixture(), open(src_path, "w"))
+            json.dump(self._fixture(), open(src_path, "w", encoding="utf-8"))
             old_argv = sys.argv
             sys.argv = ["build_countries", "--url", "file://" + src_path, "--out", out_path]
             try:
@@ -746,7 +881,7 @@ class TestBuildCountries(unittest.TestCase):
             finally:
                 sys.argv = old_argv
             self.assertEqual(rc, 0)
-            doc = json.load(open(out_path))
+            doc = json.load(open(out_path, encoding="utf-8"))
             self.assertEqual(doc["count"], 210)
             self.assertTrue(all(c["name"].startswith("Country") for c in doc["countries"]))
 
@@ -756,7 +891,7 @@ class TestBuildCountries(unittest.TestCase):
             src_path = os.path.join(td, "world.geo.json")
             small = self._fixture()
             small["features"] = small["features"][:50]
-            json.dump(small, open(src_path, "w"))
+            json.dump(small, open(src_path, "w", encoding="utf-8"))
             old_argv = sys.argv
             sys.argv = ["build_countries", "--url", "file://" + src_path,
                         "--out", os.path.join(td, "countries.json")]

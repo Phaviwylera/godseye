@@ -1,14 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handler, publicIP, resetOpenSkyAuthForTest, upstreamHeadersForTest } from '../netlify/functions/api.mjs';
+import { handler, publicIP, worldBankFigure, resetOpenSkyAuthForTest, upstreamHeadersForTest } from '../netlify/functions/api.mjs';
 
 test('relay rejects private and special network ranges', () => {
   for (const ip of ['127.0.0.1', '10.0.0.1', '172.16.1.2', '192.168.1.1',
-    '169.254.169.254', '100.64.1.1', '::1', 'fc00::1', '::ffff:127.0.0.1']) {
+    '169.254.169.254', '100.64.1.1', '::1', 'fc00::1', '::ffff:127.0.0.1',
+    '::ffff:7f00:1', '::ffff:a00:1', '0:0:0:0:0:ffff:7f00:1',
+    'fe80::1', 'ff02::1', '2001:db8::1']) {
     assert.equal(publicIP(ip), false, ip);
   }
   assert.equal(publicIP('8.8.8.8'), true);
   assert.equal(publicIP('2606:4700:4700::1111'), true);
+});
+
+test('a null World Bank observation is no data, never a zero figure', () => {
+  assert.equal(worldBankFigure({ value: null, date: '2024' }, 'SP.POP.TOTL'), null);
+  assert.equal(worldBankFigure({ value: undefined }, 'SP.POP.TOTL'), null);
+  assert.equal(worldBankFigure({ value: '' }, 'SP.POP.TOTL'), null);
+  const row = worldBankFigure({
+    value: 1430000000, date: '2024',
+    indicator: { value: 'Population' }, country: { value: 'Testland' },
+    countryiso3code: 'TSL',
+  }, 'SP.POP.TOTL');
+  assert.equal(row.value, 1430000000);
+  assert.equal(row.date, '2024');
+  assert.equal(row.iso3, 'TSL');
+  const zero = worldBankFigure({ value: 0, date: '2024' }, 'X');
+  assert.equal(zero.value, 0, 'a real reported zero is still a figure');
 });
 
 test('relay rejects direct private targets before fetching', async () => {

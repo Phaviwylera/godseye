@@ -40,6 +40,11 @@ test('features() emits points at the event coordinates', () => {
   s.events = [];
 });
 
+test('rangeLabel shows the anchor date when the release lags', () => {
+  assert.equal(Conflict.rangeLabel(180, ''), '180D');
+  assert.equal(Conflict.rangeLabel(180, '2025-12-31'), '180D TO 2025-12-31');
+});
+
 test('the CONFLICT control, chip and scripts exist in the UI', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /id="btn-conflict"/);

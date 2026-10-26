@@ -50,19 +50,42 @@ function valid(u) {
   } catch { return false; }
 }
 
+function ipv4Public(ip) {
+  const [a, b] = ip.split(".").map(Number);
+  return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) ||
+    (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)));
+}
+
+/* `[::ffff:7f00:1]` is just 127.0.0.1 with a different spelling, and Node's URL
+ * parser keeps that spelling. Without unwrapping it the relay treats a mapped
+ * loopback/link-local address as public and can be pointed at internal services. */
+function ipv4FromMapped(ip) {
+  if (!ip.includes(":")) return null;
+  const [head, tail] = ip.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail !== undefined && tail !== "" ? tail.split(":") : [];
+  const groups = tail === undefined
+    ? ip.split(":")
+    : [...h, ...Array(8 - h.length - t.length).fill("0"), ...t];
+  if (groups.length !== 8) return null;
+  const nums = groups.map((g) => parseInt(g || "0", 16));
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  if (nums.slice(0, 5).some((n) => n !== 0)) return null;
+  if (nums[5] !== 0 && nums[5] !== 0xffff) return null;
+  const v = nums[6] * 0x10000 + nums[7];
+  return `${(v >>> 24) & 255}.${(v >>> 16) & 255}.${(v >>> 8) & 255}.${v & 255}`;
+}
+
 export function publicIP(address) {
   const ip = address.replace(/^\[|\]$/g, "").toLowerCase();
-  if (isIP(ip) === 4) {
-    const [a, b] = ip.split(".").map(Number);
-    return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
-      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) ||
-      (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)));
-  }
+  if (isIP(ip) === 4) return ipv4Public(ip);
   if (isIP(ip) === 6) {
-    if (ip.includes(".")) return false; // reject mapped IPv4 forms
+    const mapped = ipv4FromMapped(ip);
+    if (mapped) return ipv4Public(mapped);
     return !(ip === "::" || ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") ||
-      /^fe[89ab]/.test(ip) || ip.startsWith("2001:db8:"));
+      /^fe[89ab]/.test(ip) || ip.startsWith("ff") || ip.startsWith("2001:db8:"));
   }
   return false;
 }
@@ -250,6 +273,23 @@ const WORLD_BANK_INDICATORS = [
 ];
 const worldBankCache = new Map(); // cc -> { at, body }
 
+/* A World Bank row can carry `value: null` for a year with no observation.
+ * Number(null) is 0, so a bare Number.isFinite() check silently published a
+ * missing figure as a real 0 (and the country card is meant to say "no data"). */
+export function worldBankFigure(row, id) {
+  if (!row || row.value === null || row.value === undefined || row.value === "") return null;
+  const value = Number(row.value);
+  if (!Number.isFinite(value)) return null;
+  return {
+    id,
+    name: (row.indicator && row.indicator.value) || id,
+    value,
+    date: row.date == null ? "" : String(row.date),
+    country: row.country && row.country.value,
+    iso3: row.countryiso3code || null,
+  };
+}
+
 async function worldbankRoute(cc) {
   if (!/^[A-Z]{2}$/.test(cc)) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "bad country code" }) };
@@ -262,20 +302,15 @@ async function worldbankRoute(cc) {
   const base = `https://api.worldbank.org/v2/country/${cc}/indicator/`;
   const results = await Promise.all(WORLD_BANK_INDICATORS.map(async (id) => {
     try {
-      const up = await fetchUpstream(base + id + "?format=json&per_page=1&sort=desc");
+      const up = await fetchUpstream(base + id + "?format=json&per_page=20&sort=desc");
       if (up.failure) return null;
       const doc = JSON.parse(up.buf.toString("utf8"));
       const rows = Array.isArray(doc) && Array.isArray(doc[1]) ? doc[1] : [];
-      const row = rows.find(r => Number.isFinite(Number(r.value)));
-      if (!row) return null;
-      return {
-        id,
-        name: row.indicator && row.indicator.value,
-        value: Number(row.value),
-        date: String(row.date),
-        country: row.country && row.country.value,
-        iso3: row.countryiso3code || null,
-      };
+      for (const row of rows) {
+        const figure = worldBankFigure(row, id);
+        if (figure) return figure;
+      }
+      return null;
     } catch { return null; }
   }));
   const ok = results.filter(Boolean);
@@ -286,7 +321,7 @@ async function worldbankRoute(cc) {
   const body = JSON.stringify({
     country: ok[0].country || cc,
     iso2: cc,
-    iso3: ok.find(r => r.iso3).iso3 || null,
+    iso3: (ok.find(r => r.iso3) || {}).iso3 || null,
     indicators: ok,
   });
   worldBankCache.set(cc, { at: Date.now(), body });

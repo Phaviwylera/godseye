@@ -699,7 +699,13 @@ const Transit = (() => {
       feed._lastOk = now;
     }
     if (!out.length) {
-      throw new Error(failure || (attempted ? 'nothing reported right now' : 'no live report'));
+      /* A GTFS-RT reader records bytes/entities/staleness in `decode`, so an answered
+       * sweep that dropped every row can explain itself in the chip instead of being
+       * reported as unavailable. Adapters without that report (e.g. Seoul) keep the
+       * honest "nothing reported right now". */
+      if (!decode.has(feed.id)) {
+        throw new Error(failure || (attempted ? 'nothing reported right now' : 'no live report'));
+      }
     }
     return out;
   }

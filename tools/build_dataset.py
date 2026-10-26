@@ -388,23 +388,45 @@ def dedup(feats):
 
 def main():
     jobs = [src_otc_master, src_otc_v1, src_511ny, src_qc, src_sg, src_fi, src_ltc_all, src_les, src_argus]
+    failures = []
     for job in jobs:
         try:
             job()
         except Exception as e:
+            failures.append(job.__name__)
             print(f"[WARN] {job.__name__} failed: {e}")
+    if len(failures) == len(jobs):
+        raise SystemExit("every camera source failed; refusing to replace the dataset")
 
     print(f"raw features: {len(features)}")
     feats = dedup(features)
     print(f"after dedup:  {len(feats)}")
 
+    path = os.path.join(ROOT, "data", "cameras.geojson")
+    # A partial sweep must never replace the published registry. Compare against
+    # the file already on disk (absolute floor for the first build) and write to
+    # a temp file so a crash cannot leave truncated JSON behind.
+    previous = 0
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                previous = len(json.load(f).get("features") or [])
+        except Exception:
+            previous = 0
+    floor = max(500, previous // 2) if previous else 1000
+    if len(feats) < floor:
+        raise SystemExit(
+            f"only {len(feats)} cameras after dedup (floor {floor}, previous {previous}); "
+            "refusing to overwrite the dataset")
+
     out = {"type": "FeatureCollection",
            "name": "godseye-cameras",
            "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
            "features": feats}
-    path = os.path.join(ROOT, "data", "cameras.geojson")
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, path)
     mb = os.path.getsize(path) / 1e6
     print(f"wrote {path} ({mb:.1f} MB)")
 
@@ -417,7 +439,7 @@ def main():
         s[p["stype"]] = s.get(p["stype"], 0) + 1
         s["regions"].add(k)
     out_stats = {k: {**v, "regions": sorted(v["regions"])} for k, v in stats.items()}
-    with open(os.path.join(ROOT, "data", "stats.json"), "w") as f:
+    with open(os.path.join(ROOT, "data", "stats.json"), "w", encoding="utf-8") as f:
         json.dump(out_stats, f, indent=2)
     print("stats:", json.dumps({k: v["cams"] for k, v in out_stats.items()}))
 
@@ -426,7 +448,7 @@ def main():
         import subprocess
         subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "build_regions.py")])
     except Exception as e:
-        print(f"[WARN] build_regions failed: {e}")
+        raise SystemExit(f"build_regions failed after the dataset was written: {e}")
 
 
 if __name__ == "__main__":
