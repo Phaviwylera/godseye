@@ -38,6 +38,11 @@ let wallPref = localStorage.getItem("ge_wall_pref") || "auto";
 const favs = new Set(JSON.parse(localStorage.getItem("ge_favs") || "[]"));
 let favsOnly = localStorage.getItem("ge_favs_only") === "1";
 let fxOn = localStorage.getItem("ge_fx") !== "0";
+/* Registry view state: how many rows are revealed, and how they are ordered.
+ * Both are browser-local; only the filters go into a shared link. */
+let listShown = 300;
+let sortMode = Registry.validSort(localStorage.getItem("ge_sort"));
+let filterSyncTimer = null;
 let modalHandle = null;
 
 /* progressive regional load */
@@ -95,7 +100,7 @@ function toggleMotion() {
 const el = {
   boot: $("#boot"), bootLog: $("#boot-log"), bootEnter: $("#boot-enter"), acquire: $("#acquire"), acquireLabel: $("#acquire-label"), stCams: $("#st-cams"), stVideo: $("#st-video"),
   stZoom: $("#st-zoom"), stCursor: $("#st-cursor"), stClock: $("#st-clock"),
-  q: $("#q"), geoResults: $("#geo-results"), fType: $("#f-type"), fCountry: $("#f-country"), fLive: $("#f-live"),
+  q: $("#q"), geoResults: $("#geo-results"), fType: $("#f-type"), fCountry: $("#f-country"), fLive: $("#f-live"), fSort: $("#f-sort"),
   stLive: $("#st-live"), loadStatus: $("#load-status"),
   list: $("#cam-list"), listCount: $("#list-count"), panel: $("#panel"), panelToggle: $("#panel-toggle"),
   modal: $("#modal"), player: $("#player"), mTitle: $("#m-title"), mCoords: $("#m-coords"),
@@ -394,20 +399,111 @@ function statusFresh(c) {
   return c._probedAt && (Date.now() - c._probedAt) < STATUS_TTL_MS;
 }
 
+function currentFilters() {
+  return {
+    q: el.q.value.trim(),
+    type: el.fType.value,
+    country: el.fCountry.value,
+    live: el.fLive.value,
+    sort: sortMode,
+  };
+}
+
 function filtered() {
-  const q = el.q.value.trim().toLowerCase();
-  const t = el.fType.value, co = el.fCountry.value;
-  const liveF = el.fLive.value;
-  return cams.filter(c => {
-    if (t !== "all" && c.stype !== t && !(t === "image" && c.stype === "dynamic")) return false;
-    if (co !== "all" && c.country !== co) return false;
-    if (favsOnly && !favs.has(c.id)) return false;
-    if (liveF === "live" && statusOf(c) !== "live") return false;
-    if (liveF === "down" && statusOf(c) !== "down") return false;
-    if (liveF === "checking" && statusOf(c) !== "checking") return false;
-    if (q && !(c.name + " " + (c.place || "") + " " + (c.region || "")).toLowerCase().includes(q)) return false;
-    return true;
-  });
+  const f = currentFilters();
+  const ctx = { statusOf, favs, favsOnly };
+  return Registry.sortCams(
+    cams.filter((c) => Registry.matches(c, f, ctx)),
+    f.sort,
+    statusOf,
+  );
+}
+
+function resetListPage() {
+  listShown = Registry.PAGE;
+}
+
+function hasActiveFilters() {
+  return Registry.hasFilters(currentFilters()) || favsOnly;
+}
+
+/* Keep the address bar in step with the registry view, without adding history
+ * entries. Scene parameters are preserved; an open camera is dropped because a
+ * filtered list and a pinned camera are two different destinations. */
+function syncFiltersToURL(immediate) {
+  const write = () => {
+    try {
+      const url = new URL(location.href);
+      const kept = new URLSearchParams();
+      for (const key of ["scene", "lng", "lat", "zoom", "bearing", "pitch", "style", "sensor"]) {
+        if (url.searchParams.has(key)) kept.set(key, url.searchParams.get(key));
+      }
+      const filters = Registry.query(currentFilters());
+      const merged = [kept.toString(), filters].filter(Boolean).join("&");
+      url.search = merged;
+      history.replaceState(null, "", url.toString());
+    } catch {
+      /* file:// and locked-down origins may refuse replaceState; filtering still works. */
+    }
+  };
+  clearTimeout(filterSyncTimer);
+  if (immediate) write();
+  else filterSyncTimer = setTimeout(write, 320);
+}
+
+function setFavsOnly(on) {
+  favsOnly = !!on;
+  localStorage.setItem("ge_favs_only", favsOnly ? "1" : "0");
+  const button = $("#btn-fav");
+  if (button) {
+    button.classList.toggle("active", favsOnly);
+    button.textContent = favsOnly ? "★ FAVS ON" : "★ FAVS";
+  }
+  resetListPage();
+  renderList();
+  refreshSource();
+}
+
+/* One reset path shared by the empty state, the palette and the filter row. */
+function clearFilters() {
+  el.q.value = "";
+  el.fType.value = "all";
+  el.fCountry.value = "all";
+  el.fLive.value = "all";
+  el.geoResults.innerHTML = "";
+  favsOnly = false;
+  localStorage.setItem("ge_favs_only", "0");
+  const favButton = $("#btn-fav");
+  if (favButton) {
+    favButton.classList.remove("active");
+    favButton.textContent = "★ FAVS";
+  }
+  resetListPage();
+  renderList();
+  refreshSource();
+  syncFiltersToURL(true);
+  el.syncMsg.textContent = "filters cleared";
+  setTimeout(() => { el.syncMsg.textContent = ""; }, 1800);
+}
+
+/* Restore a shared registry view once the country options exist. A stored sort
+ * preference survives a reload; only an explicit `sort=` in the link overrides
+ * it, so opening the app never resets how the operator likes the list ordered. */
+function applyFiltersFromURL() {
+  const f = Registry.parse(location.search);
+  el.q.value = f.q;
+  el.fType.value = f.type;
+  el.fLive.value = f.live;
+  const countries = el.fCountry.options ? [...el.fCountry.options].map((o) => o.value) : [];
+  el.fCountry.value = countries.includes(f.country) ? f.country : "all";
+  let explicitSort = false;
+  try { explicitSort = new URLSearchParams(location.search).has("sort"); } catch { explicitSort = false; }
+  if (explicitSort) {
+    sortMode = f.sort;
+    localStorage.setItem("ge_sort", sortMode);
+  }
+  if (el.fSort) el.fSort.value = sortMode;
+  resetListPage();
 }
 
 function animateNum(node, to) {
@@ -448,6 +544,8 @@ function shareScene() {
     sensor: currentSensorMode,
   });
   url.search = params.toString();
+  const filters = Registry.query(currentFilters());
+  if (filters) url.search += "&" + filters;
   const link = url.toString();
   (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
     .then(() => {
@@ -522,17 +620,32 @@ function dotClass(c) {
 function renderList() {
   const f = filtered();
   el.listCount.textContent = fmtNum(f.length) + (favsOnly ? " ★" : "");
-  const show = f.slice(0, 300);
+  if (!f.length) {
+    const message = cams.length
+      ? (hasActiveFilters() ? "No feed matches these filters." : "No feeds indexed yet.")
+      : "Loading registry…";
+    const action = cams.length && hasActiveFilters()
+      ? '<button id="list-clear" type="button">CLEAR FILTERS</button>' : "";
+    el.list.innerHTML = `<li class="list-empty"><span>${escapeHTML(message)}</span>${action}</li>`;
+    return;
+  }
+  const show = Registry.page(f, listShown);
+  const hidden = f.length - show.length;
   el.list.innerHTML = show.map(c => `
-    <li data-id="${escapeHTML(c.id)}" class="${c.id === activeId ? "active" : ""}">
+    <li data-id="${escapeHTML(c.id)}" role="button" tabindex="0"
+        aria-label="${escapeHTML(c.name + " · " + statusOf(c))}"
+        class="${c.id === activeId ? "active" : ""}">
       <span class="dot ${escapeHTML(dotClass(c))}" title="${escapeHTML(statusOf(c) + ' · ' + checkedLabel(c))}"></span>
       <div>
         <div class="cam-name">${favs.has(c.id) ? "★ " : ""}${escapeHTML(c.name)}</div>
         <div class="cam-sub">${escapeHTML([c.place, c.region, c.country].filter(Boolean).join(" · "))}${c.detail ? "" : " · …"}</div>
       </div>
       <span class="badge ${escapeHTML(c.stype)}">${escapeHTML(TYPE_LABEL[c.stype] || c.stype)}</span>
-    </li>`).join("") + (f.length > 300
-      ? `<li style="cursor:default;color:#51707c;font-size:10px">… +${fmtNum(f.length - 300)} more — zoom in or refine search</li>` : "");
+    </li>`).join("") + (hidden > 0
+      ? `<li class="list-more"><button id="list-more" type="button" ` +
+        `aria-label="Load ${fmtNum(Math.min(Registry.PAGE, hidden))} more cameras, ${fmtNum(show.length)} of ${fmtNum(f.length)} shown">` +
+        `LOAD ${fmtNum(Math.min(Registry.PAGE, hidden))} MORE` +
+        `<span>${fmtNum(show.length)} / ${fmtNum(f.length)}</span></button></li>` : "");
 }
 
 function escapeHTML(value) {
@@ -799,6 +912,7 @@ async function loadBundled() {
   const countries = [...new Set(cams.map(c => c.country).filter(Boolean))].sort();
   el.fCountry.innerHTML = '<option value="all">world</option>' +
     countries.map(c => `<option value="${c}">${c}</option>`).join("");
+  applyFiltersFromURL();
   updateStats();
   renderList();
   refreshSource();
@@ -1398,20 +1512,35 @@ function wireUI() {
       shareScene,
       toggleDensity,
       toggleMotion,
+      clearFilters,
       densityState: () => (densityOn() ? "COMPACT · ON" : "COMFORTABLE"),
       motionState: () => (motionReduced() ? "REDUCED · ON" : "SYSTEM"),
     });
   }
   let debounce;
   el.q.addEventListener("input", () => {
+    resetListPage();
     renderList(); refreshSource();
+    syncFiltersToURL();
     clearTimeout(debounce);
     debounce = setTimeout(() => geoSearch(el.q.value.trim()), 450);
   });
-  el.fType.addEventListener("change", () => { renderList(); refreshSource(); });
-  el.fLive.addEventListener("change", () => { renderList(); refreshSource(); });
+  el.fType.addEventListener("change", () => {
+    resetListPage(); renderList(); refreshSource(); syncFiltersToURL();
+  });
+  el.fLive.addEventListener("change", () => {
+    resetListPage(); renderList(); refreshSource(); syncFiltersToURL();
+  });
+  if (el.fSort) {
+    el.fSort.value = sortMode;
+    el.fSort.addEventListener("change", () => {
+      sortMode = Registry.validSort(el.fSort.value);
+      localStorage.setItem("ge_sort", sortMode);
+      resetListPage(); renderList(); syncFiltersToURL();
+    });
+  }
   el.fCountry.addEventListener("change", async () => {
-    renderList(); refreshSource();
+    resetListPage(); renderList(); refreshSource(); syncFiltersToURL();
     const co = el.fCountry.value;
     if (co && co !== "all") {
       // warm packs for selected country (index stubs carry pk)
@@ -1442,8 +1571,37 @@ function wireUI() {
     }
   });
   el.list.addEventListener("click", (e) => {
+    if (e.target.closest("#list-more")) {
+      listShown += Registry.PAGE;
+      renderList();
+      const button = el.list.querySelector("#list-more");
+      if (button) button.focus();
+      return;
+    }
+    if (e.target.closest("#list-clear")) { clearFilters(); return; }
     const li = e.target.closest("li[data-id]");
     if (li) openCam(li.dataset.id, true);
+  });
+  /* Rows are real focus targets, so the registry can be browsed without a
+   * pointer: arrows move focus, Enter or Space opens the focused feed. */
+  el.list.addEventListener("keydown", (e) => {
+    const row = e.target.closest && e.target.closest("li[data-id]");
+    if (!row) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      openCam(row.dataset.id, true);
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rows = [...el.list.querySelectorAll("li[data-id]")];
+    const at = rows.indexOf(row);
+    const next = e.key === "Home" ? rows[0]
+      : e.key === "End" ? rows[rows.length - 1]
+      : rows[at + (e.key === "ArrowDown" ? 1 : -1)];
+    if (next) next.focus();
   });
 
   el.mStar.onclick = () => activeId && toggleFav(activeId);
@@ -1495,12 +1653,7 @@ function wireUI() {
     e.target.classList.toggle("active", fxOn);
     if (fxOn) fxBlip();
   };
-  $("#btn-fav").onclick = (e) => {
-    favsOnly = !favsOnly; localStorage.setItem("ge_favs_only", favsOnly ? "1" : "0");
-    e.target.classList.toggle("active", favsOnly);
-    e.target.textContent = favsOnly ? "★ FAVS ON" : "★ FAVS";
-    renderList(); refreshSource();
-  };
+  $("#btn-fav").onclick = () => setFavsOnly(!favsOnly);
 
   document.querySelectorAll("#styles button").forEach(b => b.onclick = async () => {
     document.querySelectorAll("#styles button").forEach(x => x.classList.remove("active"));

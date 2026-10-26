@@ -18,6 +18,10 @@ const Palette = (() => {
   let root = null, input = null, results = null, counter = null;
   let rows = [], index = 0, openedAt = 0, lastFocus = null;
   let helpRoot = null, helpClose = null;
+  let recent = [];
+
+  const RECENT_KEY = "ge_palette_recent";
+  const RECENT_MAX = 6;
 
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
@@ -131,6 +135,7 @@ const Palette = (() => {
         id: "static:clear", kind: "filter", label: "Clear camera filters",
         keywords: "reset search filter country type status", hint: "REGISTRY", priority: 1,
         run: () => {
+          if (hooks && hooks.clearFilters) return hooks.clearFilters();
           const set = (sel, value) => {
             const node = document.querySelector(sel);
             if (!node) return;
@@ -239,6 +244,26 @@ const Palette = (() => {
     setTimeout(() => { if (node.textContent === text) node.textContent = ""; }, 3000);
   }
 
+  /* Recently run commands, ids only — six short strings in this browser,
+   * never synced or sent. Camera and coordinate rows are excluded because they
+   * are not stable command identities across a reload. */
+  function loadRecent() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+      recent = Array.isArray(stored)
+        ? stored.filter((id) => typeof id === "string" &&
+            (id.startsWith("btn:") || id.startsWith("static:"))).slice(0, RECENT_MAX)
+        : [];
+    } catch { recent = []; }
+  }
+
+  function remember(row) {
+    if (!row || !row.id) return;
+    if (!row.id.startsWith("btn:") && !row.id.startsWith("static:")) return;
+    recent = [row.id, ...recent.filter((id) => id !== row.id)].slice(0, RECENT_MAX);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent)); } catch { /* private mode */ }
+  }
+
   function select(next) {
     if (!rows.length) return;
     index = Math.max(0, Math.min(rows.length - 1, next));
@@ -285,6 +310,13 @@ const Palette = (() => {
     const base = buttonRows().concat(staticRows());
     let found = coordinateRows(query).concat(rank(base, query, LIMIT));
     found = found.concat(rank(savedRows(), query, 6));
+    if (!clean(query)) {
+      const byId = new Map(base.map((row) => [row.id, row]));
+      const pins = recent.map((id) => byId.get(id)).filter(Boolean)
+        .map((row) => Object.assign({}, row, { hint: "RECENT" }));
+      const pinned = new Set(pins.map((row) => row.id));
+      found = pins.concat(found.filter((row) => !pinned.has(row.id)));
+    }
     const cams = cameraRows(query);
     const seen = new Set();
     rows = found.concat(cams).filter((row) => {
@@ -298,6 +330,7 @@ const Palette = (() => {
   function run(row) {
     if (!row) return;
     close();
+    remember(row);
     try { row.run(); } catch (error) { console.warn("palette command failed", error); }
   }
 
@@ -355,6 +388,7 @@ const Palette = (() => {
 
   function init(options) {
     hooks = options || {};
+    loadRecent();
     root = document.getElementById("palette");
     input = document.getElementById("palette-input");
     results = document.getElementById("palette-results");
@@ -399,5 +433,6 @@ const Palette = (() => {
   }
 
   return { score, coordTarget, rank, init, open, close, toggle, isOpen,
-    openHelp, closeHelp, refresh, _rows: () => rows, _openedAt: () => openedAt };
+    openHelp, closeHelp, refresh, _rows: () => rows, _openedAt: () => openedAt,
+    _recent: () => recent };
 })();

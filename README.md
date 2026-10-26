@@ -458,7 +458,9 @@ half-world.
  🚩 **OFAC cross-check** | Treasury SDN list flags on ship (IMO/name) and aircraft (registration) popups, always labelled by matched field, name matches carry a verify-IMO caution |
  ☄ **ISS passes** | next visible station passes over the view centre, SGP4 from the CelesTrak snapshot, epoch-stated, stale-warned |
  🔎 **Universal search** | the search box matches vessels, aircraft and open markets on the map before falling back to place geocoding |
- ⌘ **Command palette** | `Ctrl/⌘ K` or `/` searches every map control, active layer, saved position, indexed feed and `lat, lon` target |
+ ⌘ **Command palette** | `Ctrl/⌘ K` or `/` searches every map control, active layer, saved position, indexed feed and `lat, lon` target; recently run commands are pinned locally |
+ 🗂 **Registry view** | sort by registry order, status, name or country, reveal 300 more rows at a time, and clear an empty filter in one press |
+ 🔗 **Shareable filters** | search, type, country and status live in the URL, so a narrowed registry can be linked or reloaded; sort is remembered separately on this browser |
  ◎ **NEAR ME** | browser geolocation on demand only, applied to the map and never stored or sent |
  ‹ › **Feed paging** | previous/next feed buttons and `←`/`→` while the player is open, following the current filtered list |
  🔌 **Infrastructure snapshots** | `tools/build_infra.py` / `build_conflict.py` / `build_companies.py` / `build_countries.py` / `build_ofac.py` / `build_country_centroids.py` build every static dataset behind these layers; the `refresh-*` actions keep them current |
@@ -479,6 +481,11 @@ controls back over the map:
   the map. The coordinate is never stored, put in a URL, or sent anywhere.
 * **Compact / reduced motion** — palette commands persist a denser registry and
   a no-animation mode on this browser only.
+* **Registry view** — four filters (type, country, status, sort), 300 rows at a
+  time with an explicit **LOAD 300 MORE**, and a clear-filters action when
+  nothing matches. Search also covers the country name. Arrow keys move through
+  the rows and Enter opens the focused feed. Filter state is written to the URL
+  so a narrowed view can be linked; the chosen sort is remembered locally.
 
 ## 🗺️ Camera sources (all publicly published by agencies)
 

@@ -1518,3 +1518,46 @@ body[data-motion="reduce"] *::after {
   #m-prev, #m-next { width: 38px; height: 38px; }
   #btn-palette { display: none; }
 }
+
+/* ======================================================================
+   REGISTRY: FILTER GRID, PAGING, EMPTY STATE AND FOCUS
+   Four filters read better as a 2x2 block than four squeezed selects, and a
+   30k-row registry needs an honest "load more" instead of a dead cutoff.
+   ====================================================================== */
+.filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+.filters select { width: 100%; min-width: 0; }
+
+#cam-list li:focus-visible {
+  outline: none;
+  background: linear-gradient(90deg, rgba(92, 218, 244, .13), transparent);
+  box-shadow: inset 2px 0 0 rgba(139, 233, 250, .85), inset 0 0 0 1px rgba(139, 233, 250, .22);
+}
+
+#cam-list li.list-more { display: block; padding: 0; border-bottom: 0; cursor: default; }
+.list-more button {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 6px 0 10px; padding: 10px 12px;
+  background: rgba(139, 233, 250, .04); border: 1px dashed rgba(132, 226, 255, .22);
+  color: #8fdce9; font: 8px/1.4 var(--mono); letter-spacing: .18em; cursor: pointer;
+}
+.list-more button:hover { background: rgba(139, 233, 250, .09); color: #eafaff; }
+.list-more button span { color: #55717c; letter-spacing: .1em; }
+
+#cam-list li.list-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 34px 16px; border-bottom: 0; cursor: default; text-align: center;
+  color: #55717c; font-size: 10px; letter-spacing: .06em; line-height: 1.7;
+}
+.list-empty button {
+  padding: 7px 12px; background: transparent; border: 1px solid rgba(132, 226, 255, .24);
+  color: #8fdce9; font: 8px var(--mono); letter-spacing: .2em; cursor: pointer;
+}
+.list-empty button:hover { border-color: rgba(139, 233, 250, .55); color: #eafaff; }
+
+:focus-visible { outline: 1px solid rgba(139, 233, 250, .62); outline-offset: 2px; }
+.palette-row:focus-visible, #cam-list li:focus-visible { outline-offset: -2px; }
+
+@media (max-width: 760px) {
+  .filters { grid-template-columns: 1fr 1fr; }
+  #cam-list li { padding-top: 12px; padding-bottom: 12px; }
+}

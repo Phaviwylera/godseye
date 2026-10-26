@@ -122,9 +122,15 @@
         <option value="down">currently down</option>
         <option value="checking">checking now</option>
       </select>
+      <select id="f-sort" aria-label="Sort registry">
+        <option value="registry">registry order</option>
+        <option value="status">status first</option>
+        <option value="name">name a–z</option>
+        <option value="country">country a–z</option>
+      </select>
     </div>
   </div>
-  <div class="panel-count"><span id="list-count">0</span> cameras indexed <span id="load-status" class="load-status"></span><i></i></div>
+  <div class="panel-count"><span id="list-count" aria-live="polite">0</span> cameras indexed <span id="load-status" class="load-status"></span><i></i></div>
   <ul id="cam-list"></ul>
   <button id="panel-toggle" title="Collapse panel" aria-label="Collapse camera panel">◀</button>
 </aside>
@@ -483,6 +489,7 @@
       <div class="sc-row"><span class="sc-keys"><kbd>M</kbd></span><span>Map tools panel</span></div>
       <div class="sc-row"><span class="sc-keys"><kbd>G</kbd></span><span>Global view / return</span></div>
       <div class="sc-row"><span class="sc-keys"><kbd>←</kbd><kbd>→</kbd></span><span>Previous / next feed (player open)</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>↑</kbd><kbd>↓</kbd><kbd>↵</kbd></span><span>Move through the registry and open the focused feed</span></div>
       <div class="sc-row"><span class="sc-keys"><kbd>0</kbd><kbd>…</kbd><kbd>5</kbd></span><span>Sensor look: natural, CRT, NVG, FLIR, noir, snow</span></div>
       <div class="sc-row"><span class="sc-keys"><kbd>Esc</kbd></span><span>Close palette, player, wall or panel</span></div>
     </div>
@@ -495,7 +502,7 @@
 
 <div id="disclaimer">
   <span class="legal-dot"></span> OPENLY PUBLISHED PUBLIC FEEDS ONLY · RESPECT SOURCE TERMS
-  <b id="sync-msg"></b>
+  <b id="sync-msg" role="status" aria-live="polite"></b>
 </div>
 
 <!-- control room: video wall -->
@@ -525,6 +532,7 @@
 <script src="vendor/satellite.min.js"></script>
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/registry.js"></script>
 <script src="js/palette.js"></script>
 <script src="js/satellites.js"></script>
 <script src="js/iss.js"></script>
