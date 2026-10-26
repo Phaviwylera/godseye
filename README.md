@@ -388,6 +388,16 @@ national centre from `data/country-centroids.json` (built by
 **not** confirmation of an outage and that a centroid is not an event location.
 Refreshes every 5 minutes.
 
+**✦ AURORA / SPACE WEATHER** (`js/spacewx.js`) — the NOAA Space Weather
+Prediction Center's public [OVATION](https://services.swpc.noaa.gov/json/ovation_aurora_latest.json)
+aurora probability grid, sampled at every 2° node the publisher already reports
+(~5k cells), plus the rolling [planetary K index](https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json).
+The chip states the Kp value and the G-scale band (G1 starts at Kp 5); the panel
+lists the publisher's highest-probability grid cells with their observation and
+forecast times. Values are never interpolated or smoothed into new positions, and
+the layer says "unavailable" rather than drawing a remembered oval when SWPC is
+unreachable. Refreshes every 15 minutes.
+
 **▣ COMPANIES** (`js/companies.js`) — headquarters of a curated large-cap sample
 (`data/companies-seed.json`: 66 exchange-listed companies with tickers) geocoded via
 OSM Nominatim by `tools/build_companies.py` into `data/companies.json` (monthly via
@@ -453,6 +463,7 @@ half-world.
  ☒ **CONFLICT layer** | last 180 days of UCDP/PRIO GED conflict events, coloured by reported deaths; no frontlines — none exist in an open verifiable source |
  ⚠ **HAZARDS layer** | global GDACS disaster alerts (earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis) with the publisher's alert level and report link |
  ⌁ **OUTAGES layer** | country-level IODA internet outage alerts (last 24 h), placed at approximate national centres, labelled as a signal not an outage confirmation |
+ ✦ **AURORA layer** | NOAA SWPC OVATION aurora probability on the publisher's own 2° grid + planetary K index and G-scale band; no interpolated ovals |
  ▣ **COMPANIES layer** | HQs of a curated 66-company large-cap sample (Nominatim geocoded); quote link-out, no fetched prices, no invented coordinates |
  ⊞ **COUNTRY cards** | clickable admin-0 boundaries + ten World Bank indicators per country (latest year per figure, no interpolation), through a 1 h-cached keyless relay |
  🚩 **OFAC cross-check** | Treasury SDN list flags on ship (IMO/name) and aircraft (registration) popups, always labelled by matched field, name matches carry a verify-IMO caution |
@@ -461,6 +472,7 @@ half-world.
  ⌘ **Command palette** | `Ctrl/⌘ K` or `/` searches every map control, active layer, saved position, indexed feed and `lat, lon` target; recently run commands are pinned locally |
  🗂 **Registry view** | sort by registry order, status, name or country, reveal 300 more rows at a time, and clear an empty filter in one press |
  🔗 **Shareable filters** | search, type, country and status live in the URL, so a narrowed registry can be linked or reloaded; sort is remembered separately on this browser |
+ 🧩 **Shareable layers** | `?layers=quakes,news,aurora` reopens the same live layers; the link accepts the public dashboard vocabulary too (`maritime`, `earthquakes`, `live_news`, `day_night`, `cables`) |
  ◎ **NEAR ME** | browser geolocation on demand only, applied to the map and never stored or sent |
  ‹ › **Feed paging** | previous/next feed buttons and `←`/`→` while the player is open, following the current filtered list |
  🔌 **Infrastructure snapshots** | `tools/build_infra.py` / `build_conflict.py` / `build_companies.py` / `build_countries.py` / `build_ofac.py` / `build_country_centroids.py` build every static dataset behind these layers; the `refresh-*` actions keep them current |
@@ -486,6 +498,11 @@ controls back over the map:
   nothing matches. Search also covers the country name. Arrow keys move through
   the rows and Enter opens the focused feed. Filter state is written to the URL
   so a narrowed view can be linked; the chosen sort is remembered locally.
+* **Shareable live layers** — the address bar also carries `?layers=quakes,news,aurora`.
+  Opening a link switches those layers on through their normal buttons, in the
+  normal loading order, and unknown or modal-only names are ignored. Aliases from
+  the public dashboard link (`maritime`, `earthquakes`, `live_news`, `day_night`,
+  `cables`) map to the layers this project actually ships.
 
 ## 🗺️ Camera sources (all publicly published by agencies)
 

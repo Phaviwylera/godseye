@@ -43,6 +43,9 @@ let fxOn = localStorage.getItem("ge_fx") !== "0";
 let listShown = 300;
 let sortMode = Registry.validSort(localStorage.getItem("ge_sort"));
 let filterSyncTimer = null;
+/* While a linked view is being switched on, button changes are not user intent
+ * and must not rewrite the link before every layer has been restored. */
+let restoringLayers = false;
 let modalHandle = null;
 
 /* progressive regional load */
@@ -409,6 +412,17 @@ function currentFilters() {
   };
 }
 
+/* The live layers named by a link. The list, not the `data-layer` marker, is the
+ * contract: NIGHT is a map overlay rather than a counted feed, but it is still a
+ * layer a view can contain. The ISS-pass card is a modal and is deliberately not
+ * part of a shared view. */
+function activeLayerSlugs() {
+  return Layers.LIST.filter((layer) => {
+    const button = document.getElementById(layer.id);
+    return button && (button.classList.contains("active") || button.getAttribute("aria-pressed") === "true");
+  }).map((layer) => layer.slug);
+}
+
 function filtered() {
   const f = currentFilters();
   const ctx = { statusOf, favs, favsOnly };
@@ -438,8 +452,10 @@ function syncFiltersToURL(immediate) {
       for (const key of ["scene", "lng", "lat", "zoom", "bearing", "pitch", "style", "sensor"]) {
         if (url.searchParams.has(key)) kept.set(key, url.searchParams.get(key));
       }
+      const layers = Layers.query(activeLayerSlugs());
       const filters = Registry.query(currentFilters());
-      const merged = [kept.toString(), filters].filter(Boolean).join("&");
+      const merged = [kept.toString(), layers ? "layers=" + layers : "", filters]
+        .filter(Boolean).join("&");
       url.search = merged;
       history.replaceState(null, "", url.toString());
     } catch {
@@ -449,6 +465,57 @@ function syncFiltersToURL(immediate) {
   clearTimeout(filterSyncTimer);
   if (immediate) write();
   else filterSyncTimer = setTimeout(write, 320);
+}
+
+/* Restore a linked layer set after the map and every module are ready. Clicking
+ * the real button reuses each layer's own loading, error and chip behaviour
+ * instead of a second, silently divergent code path. */
+function restoreLayersFromURL() {
+  const slugs = Layers.parse(location.search);
+  if (!slugs.length) return;
+  const apply = () => {
+    restoringLayers = true;
+    for (const slug of slugs) {
+      const layer = Layers.resolve(slug);
+      const button = layer && document.getElementById(layer.id);
+      if (!button) continue;
+      const on = button.classList.contains("active") || button.getAttribute("aria-pressed") === "true";
+      if (!on) button.click();
+    }
+    /* Layer toggles finish at different speeds (AIS, satellites and the SWPC
+     * forecast all fetch before they settle). Hold the guard past the slowest
+     * first sweep, then write the normalised set once. */
+    setTimeout(() => { restoringLayers = false; syncFiltersToURL(true); }, 2600);
+  };
+  /* The style becomes "loaded" a moment after `style.load`, and adding a source
+   * too early throws in MapLibre. Poll the real readiness flag instead of
+   * guessing from an event that can fire first. */
+  const start = (tries = 0) => {
+    if (!map) return;
+    if (!map.isStyleLoaded()) {
+      if (tries <= 120) setTimeout(() => start(tries + 1), 250);
+      return;
+    }
+    apply();
+  };
+  start();
+}
+
+/* Reflect every layer toggle in the address bar. The observer sees module-driven
+ * changes too, including layers restored after a basemap restyle. */
+function wireLayerURLSync() {
+  const buttons = Layers.LIST
+    .map((layer) => document.getElementById(layer.id))
+    .filter(Boolean);
+  let timer = null;
+  const observer = new MutationObserver(() => {
+    if (restoringLayers) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => syncFiltersToURL(), 350);
+  });
+  for (const button of buttons) {
+    observer.observe(button, { attributes: true, attributeFilter: ["class", "aria-pressed"] });
+  }
 }
 
 function setFavsOnly(on) {
@@ -544,6 +611,8 @@ function shareScene() {
     sensor: currentSensorMode,
   });
   url.search = params.toString();
+  const layers = Layers.query(activeLayerSlugs());
+  if (layers) url.search += "&layers=" + layers;
   const filters = Registry.query(currentFilters());
   if (filters) url.search += "&" + filters;
   const link = url.toString();
@@ -1668,6 +1737,7 @@ function wireUI() {
       addCamLayers(); refreshSource();
       Intel.restoreAirLayer();
       Intel.restoreQuakeLayer();
+      SpaceWx.restore();
       Satellites.restore();
       Vessels.restore();
       Transit.restore();
@@ -1735,6 +1805,17 @@ function wireUI() {
     const on = await Intel.toggleRadar();
     e.target.classList.toggle("active", !!on);
   };
+  $("#btn-aurora").onclick = async (e) => {
+    try {
+      const on = await SpaceWx.toggle();
+      e.target.classList.toggle("active", !!on);
+      fxBlip();
+    } catch (error) {
+      e.target.classList.remove("active");
+      console.warn("space weather layer unavailable", error);
+    }
+  };
+  $("#aurora-chip").onclick = () => SpaceWx.openList();
   $("#btn-route").onclick = () => { $("#route").classList.toggle("hidden"); fxBlip(); };
   $("#route-close").onclick = () => $("#route").classList.add("hidden");
   $("#route-go").onclick = async () => {
@@ -1840,6 +1921,7 @@ function wireUI() {
   $("#btn-fx").classList.toggle("active", fxOn);
   $("#btn-fav").classList.toggle("active", favsOnly);
   $("#btn-fav").textContent = favsOnly ? "★ FAVS ON" : "★ FAVS";
+  wireLayerURLSync();
 }
 
 function ensureTerrain() {
@@ -2063,6 +2145,7 @@ function tickClock() {
   try {
     await initMap();
     Intel.init(map);
+    SpaceWx.init(map);
     Satellites.init(map);
     Iss.init(map);
     Vessels.init(map);
@@ -2081,6 +2164,7 @@ function tickClock() {
     await startCameraListFallback(error);
   }
   if (!map) return;
+  restoreLayersFromURL();
   setTimeout(async () => {
     try {
       el.syncMsg.textContent = "⟳ background sync…";

@@ -1,7 +1,7 @@
 /* God's Eye service worker — offline shell; network-first so feeds stay fresh. */
-const CACHE = 'godseye-shell-v28';
+const CACHE = 'godseye-shell-v29';
 const CORE = ['./', './index.html', './css/style.css', './js/app.js', './js/map-tools.js', './js/saved-views.js', './js/players.js',
-              './js/intel.js', './js/sources.js', './js/satellites.js', './js/contacts.js', './js/ofac.js', './js/iss.js', './js/vessels.js', './js/transit.js', './js/airports.js', './js/events.js', './js/hazards.js', './js/outages.js', './js/markets.js', './js/infra.js', './js/news.js', './js/conflict.js', './js/companies.js', './js/countries.js', './js/registry.js', './js/palette.js', './vendor/maplibre-gl.js', './vendor/maplibre-gl.css', './vendor/satellite.min.js',
+              './js/intel.js', './js/spacewx.js', './js/layers.js', './js/sources.js', './js/satellites.js', './js/contacts.js', './js/ofac.js', './js/iss.js', './js/vessels.js', './js/transit.js', './js/airports.js', './js/events.js', './js/hazards.js', './js/outages.js', './js/markets.js', './js/infra.js', './js/news.js', './js/conflict.js', './js/companies.js', './js/countries.js', './js/registry.js', './js/palette.js', './vendor/maplibre-gl.js', './vendor/maplibre-gl.css', './vendor/satellite.min.js',
               './vendor/hls.min.js', './manifest.json', './icon.svg', './assets/gods-eye-emblem.svg', './img/godseye-icon.png'];
 
 self.addEventListener('install', (e) => {

@@ -232,6 +232,7 @@
       <h4 id="tg-space"><span>WEATHER &amp; SPACE</span><i>radar · stations · passes</i></h4>
       <div class="btn-group">
         <button id="btn-radar" data-layer>⌁ RADAR</button>
+        <button id="btn-aurora" data-layer title="NOAA SWPC OVATION aurora probability forecast and planetary K index">✦ AURORA</button>
         <button id="btn-iss" data-layer>◇ ISS</button>
         <button id="btn-satellites" data-layer title="Predicted positions of stations and GPS satellites">◇ SATELLITES</button>
         <button id="btn-iss-passes" data-layer title="Next visible ISS passes over the current view center (SGP4 from the CelesTrak snapshot)">☄ ISS PASSES</button>
@@ -279,6 +280,7 @@
         <span id="news-chip" class="hidden" aria-live="polite">NEWS</span>
         <span id="conflict-chip" class="hidden" aria-live="polite">CONFLICT</span>
         <span id="companies-chip" class="hidden" aria-live="polite">COMPANIES</span>
+        <span id="aurora-chip" class="hidden" aria-live="polite">AURORA</span>
         <span id="radar-ctl" class="hidden">
           <button id="radar-play">⏸</button>
           <input id="radar-slider" type="range" min="0" max="0" value="0" />
@@ -437,6 +439,7 @@
     <button data-do="#btn-companies">▣ COMPANIES</button>
     <button data-do="#btn-countries">⊞ COUNTRIES</button>
     <button data-do="#btn-radar">⌁ RADAR</button>
+    <button data-do="#btn-aurora">✦ AURORA</button>
     <button data-do="#btn-route">⌇ ROUTE</button>
     <button data-do="#btn-terrain">3D</button>
     <button data-do="#btn-buildings">BLDGS</button>
@@ -532,6 +535,7 @@
 <script src="vendor/satellite.min.js"></script>
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/layers.js"></script>
 <script src="js/registry.js"></script>
 <script src="js/palette.js"></script>
 <script src="js/satellites.js"></script>
@@ -542,6 +546,7 @@
 <script src="js/transit.js"></script>
 <script src="js/airports.js"></script>
 <script src="js/intel.js"></script>
+<script src="js/spacewx.js"></script>
 <script src="js/events.js"></script>
 <script src="js/hazards.js"></script>
 <script src="js/outages.js"></script>
