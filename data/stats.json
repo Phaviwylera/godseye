@@ -241,9 +241,9 @@
     ]
   },
   "fi": {
-    "cams": 809,
+    "cams": 808,
     "m3u8": 0,
-    "image": 809,
+    "image": 808,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -251,9 +251,9 @@
     ]
   },
   "ltc": {
-    "cams": 1890,
+    "cams": 2016,
     "m3u8": 0,
-    "image": 1890,
+    "image": 2016,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -270,6 +270,7 @@
       "US/IL",
       "US/IN",
       "US/KS",
+      "US/MA",
       "US/MN",
       "US/MO",
       "US/MS",
