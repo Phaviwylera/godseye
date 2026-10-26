@@ -81,6 +81,7 @@
       <div class="hud-subtitle">GLOBAL OBSERVATION NETWORK</div>
     </div>
     <div class="hud-actions">
+      <button id="btn-palette" class="hud-btn" title="Command palette (Ctrl/⌘ K)">⌘ SEARCH</button>
       <button id="btn-tour" class="hud-btn" title="Autopilot world tour">TOUR</button>
       <button id="btn-live" class="hud-btn" title="Jump to the freshest verified feeds">● LIVE</button>
       <button id="btn-install" class="hud-btn" title="Install as app" style="display:none">INSTALL</button>
@@ -236,6 +237,7 @@
       <div class="btn-group">
         <button id="btn-sync">⟳ SYNC</button>
         <button id="btn-share-scene" title="Copy link to this map view">↗ SHARE VIEW</button>
+        <button id="btn-near-me" type="button" title="Centre the map on your current location (asked once, this browser only)">◎ NEAR ME</button>
         <button id="btn-home">◎ WORLD</button>
         <button id="btn-context-view" type="button" aria-pressed="false" title="Save this view and open global context (G)">◎ GLOBAL VIEW</button>
       </div>
@@ -317,6 +319,8 @@
     <div class="modal-head">
       <div class="rec"><span class="rec-dot"></span><span id="m-status">LIVE</span></div>
       <div class="modal-title" id="m-title">—</div>
+      <button id="m-prev" title="Previous feed (←)" aria-label="Previous feed">‹</button>
+      <button id="m-next" title="Next feed (→)" aria-label="Next feed">›</button>
       <button id="m-star" title="Favorite">☆</button>
       <button id="m-link" title="Copy camera link">↗</button>
       <button id="m-cap" title="Capture frame">⊙</button>
@@ -432,13 +436,60 @@
     <button data-do="#btn-buildings">BLDGS</button>
     <button data-do="#btn-sync">⟳ SYNC</button>
     <button data-do="#btn-share-scene">↗ SHARE VIEW</button>
+    <button data-do="#btn-near-me">◎ NEAR ME</button>
     <button data-do="#btn-home">◎ WORLD</button>
     <button data-do="#btn-sensor-mode">◌ SENSOR</button>
     <button data-do="#btn-context-view">◎ GLOBAL VIEW</button>
+    <button data-do="#btn-palette">⌘ SEARCH</button>
+    <button data-open="shortcuts">⌨ SHORTCUTS</button>
     <button data-do="#styles button[data-style=dark]">DARK</button>
     <button data-do="#styles button[data-style=streets]">STREETS</button>
     <button data-do="#styles button[data-style=satellite]">SAT</button>
     <button data-do="#panel-toggle">INDEX</button>
+  </div>
+</div>
+
+<div id="palette" class="hidden" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="palette-box">
+    <div class="palette-search">
+      <span class="palette-glyph" aria-hidden="true">⌘</span>
+      <input id="palette-input" type="text" role="combobox" aria-expanded="true"
+             aria-controls="palette-results" aria-autocomplete="list"
+             placeholder="Search layers, tools, saved positions, feeds or lat, lon…"
+             autocomplete="off" spellcheck="false" />
+      <kbd>ESC</kbd>
+    </div>
+    <div id="palette-results" role="listbox" aria-label="Commands"></div>
+    <div class="palette-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> run</span>
+      <span><kbd>?</kbd> shortcuts</span>
+      <b id="palette-count"></b>
+    </div>
+  </div>
+</div>
+
+<div id="shortcuts" class="hidden" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+  <div class="shortcuts-box">
+    <header>
+      <span class="modal-kicker">HELP // KEYBOARD</span>
+      <strong id="shortcuts-title">SHORTCUTS</strong>
+      <button id="shortcuts-close" type="button" aria-label="Close keyboard shortcuts">✕</button>
+    </header>
+    <div class="shortcuts-grid">
+      <div class="sc-row"><span class="sc-keys"><kbd>Ctrl</kbd><kbd>⌘</kbd><kbd>K</kbd></span><span>Command palette</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>/</kbd></span><span>Command palette</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>?</kbd></span><span>This sheet</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>M</kbd></span><span>Map tools panel</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>G</kbd></span><span>Global view / return</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>←</kbd><kbd>→</kbd></span><span>Previous / next feed (player open)</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>0</kbd><kbd>…</kbd><kbd>5</kbd></span><span>Sensor look: natural, CRT, NVG, FLIR, noir, snow</span></div>
+      <div class="sc-row"><span class="sc-keys"><kbd>Esc</kbd></span><span>Close palette, player, wall or panel</span></div>
+    </div>
+    <footer>
+      <span>Location is used only when you press NEAR ME; it is never stored or sent.</span>
+      <span>Public feeds only · real operator data · source cited</span>
+    </footer>
   </div>
 </div>
 
@@ -474,6 +525,7 @@
 <script src="vendor/satellite.min.js"></script>
 <script src="vendor/hls.min.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/palette.js"></script>
 <script src="js/satellites.js"></script>
 <script src="js/iss.js"></script>
 <script src="js/contacts.js"></script>

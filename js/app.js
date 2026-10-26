@@ -65,6 +65,33 @@ function applySensorMode(mode) {
 const $ = (s) => document.querySelector(s);
 applySensorMode(currentSensorMode);
 
+/* Compact density and reduced motion are voluntary overrides of the OS
+ * preference; both are browser-local and never leave the page. */
+const densityOn = () => document.body.dataset.density === "compact";
+const motionReduced = () => document.body.dataset.motion === "reduce";
+if (localStorage.getItem("ge_density") === "compact") document.body.dataset.density = "compact";
+if (localStorage.getItem("ge_motion") === "reduce") document.body.dataset.motion = "reduce";
+
+function toggleDensity() {
+  const on = !densityOn();
+  if (on) document.body.dataset.density = "compact";
+  else delete document.body.dataset.density;
+  localStorage.setItem("ge_density", on ? "compact" : "comfortable");
+  el.syncMsg.textContent = on ? "▤ compact layout on" : "▤ compact layout off";
+  setTimeout(() => { el.syncMsg.textContent = ""; }, 2200);
+  return on;
+}
+
+function toggleMotion() {
+  const on = !motionReduced();
+  if (on) document.body.dataset.motion = "reduce";
+  else delete document.body.dataset.motion;
+  localStorage.setItem("ge_motion", on ? "reduce" : "system");
+  el.syncMsg.textContent = on ? "◌ reduced motion on" : "◌ reduced motion off";
+  setTimeout(() => { el.syncMsg.textContent = ""; }, 2200);
+  return on;
+}
+
 const el = {
   boot: $("#boot"), bootLog: $("#boot-log"), bootEnter: $("#boot-enter"), acquire: $("#acquire"), acquireLabel: $("#acquire-label"), stCams: $("#st-cams"), stVideo: $("#st-video"),
   stZoom: $("#st-zoom"), stCursor: $("#st-cursor"), stClock: $("#st-clock"),
@@ -75,6 +102,7 @@ const el = {
   mRegion: $("#m-region"), mSrc: $("#m-src"), mClock: $("#m-clock"), mStatus: $("#m-status"), mChecked: $("#m-checked"),
   mAttr: $("#m-attr"), mPage: $("#m-page"), mClose: $("#m-close"),
   mStar: $("#m-star"), mLink: $("#m-link"), mCap: $("#m-cap"),
+  mPrev: $("#m-prev"), mNext: $("#m-next"),
   scrub: $("#m-scrub"), scrubWrap: $("#scrub-wrap"), scrubLive: $("#m-scrub-live"),
   wall: $("#wall"), wallGrid: $("#wall-grid"), wallCount: $("#wall-count"),
   wallCols: $("#wall-cols"), wallRows: $("#wall-rows"), wallApply: $("#wall-apply"), wallPref: $("#wall-pref"),
@@ -457,6 +485,32 @@ function toggleContextView() {
   return true;
 }
 
+/* Browser geolocation, used only when the operator asks for it. The position is
+ * applied to the map and never written to storage, a URL or a network call. */
+function nearMe() {
+  if (!navigator.geolocation) {
+    el.syncMsg.textContent = "◎ this browser has no geolocation";
+    setTimeout(() => { el.syncMsg.textContent = ""; }, 3200);
+    return;
+  }
+  el.syncMsg.textContent = "◎ locating…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = Number(pos.coords.latitude), lon = Number(pos.coords.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !map) return;
+      map.flyTo({ center: [lon, lat], zoom: 11, pitch: 0, bearing: 0, duration: 1600, essential: true });
+      el.syncMsg.textContent = "◎ centred on your location — nothing stored";
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 3200);
+    },
+    (error) => {
+      const reason = error && error.code === 1 ? "permission denied" : "location unavailable";
+      el.syncMsg.textContent = "◎ " + reason;
+      setTimeout(() => { el.syncMsg.textContent = ""; }, 3600);
+    },
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+  );
+}
+
 function dotClass(c) {
   const st = statusOf(c);
   if (st === "live") return "m3u8";
@@ -806,6 +860,8 @@ async function openCam(id, fly) {
   c._playing = false;
   activeId = id;
   const seen = bumpVisit(id);
+  if (el.mPrev) el.mPrev.disabled = filtered().length < 2;
+  if (el.mNext) el.mNext.disabled = filtered().length < 2;
   const vc = document.getElementById("m-visits");
   if (vc) vc.textContent = "watched ×" + seen;
   renderList();
@@ -883,6 +939,19 @@ function closeModal() {
   if (activeId && byId.has(activeId)) byId.get(activeId)._playing = false;
   activeId = null;
   renderList();
+}
+
+/* Walk the currently filtered registry without closing the player. The list is
+ * already ordered the way the user sees it, so "next" means next on screen. */
+function stepCam(delta) {
+  const list = filtered();
+  if (list.length < 2) return false;
+  const at = list.findIndex((c) => c.id === activeId);
+  if (at < 0) return false;
+  const next = list[(at + delta + list.length) % list.length];
+  if (!next || next.id === activeId) return false;
+  openCam(next.id, true);
+  return true;
 }
 
 // ------------------------------------------------------------ video wall --
@@ -1321,6 +1390,18 @@ function wireMapTools() {
 // --------------------------------------------------------------- controls --
 function wireUI() {
   wireMapTools();
+  if (typeof Palette !== "undefined") {
+    Palette.init({
+      getMap: () => map,
+      getCameras: () => cams,
+      openCamera: (id, fly) => openCam(id, fly),
+      shareScene,
+      toggleDensity,
+      toggleMotion,
+      densityState: () => (densityOn() ? "COMPACT · ON" : "COMFORTABLE"),
+      motionState: () => (motionReduced() ? "REDUCED · ON" : "SYSTEM"),
+    });
+  }
   let debounce;
   el.q.addEventListener("input", () => {
     renderList(); refreshSource();
@@ -1355,6 +1436,10 @@ function wireUI() {
     const shortcut = { "0": "natural", "1": "crt", "2": "nvg", "3": "flir", "4": "noir", "5": "snow" }[e.key];
     if (shortcut) applySensorMode(shortcut);
     if (e.key.toLowerCase() === "g") $("#btn-context-view").click();
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !el.modal.classList.contains("hidden")) {
+      e.preventDefault();
+      stepCam(e.key === "ArrowRight" ? 1 : -1);
+    }
   });
   el.list.addEventListener("click", (e) => {
     const li = e.target.closest("li[data-id]");
@@ -1362,6 +1447,8 @@ function wireUI() {
   });
 
   el.mStar.onclick = () => activeId && toggleFav(activeId);
+  if (el.mPrev) el.mPrev.onclick = () => stepCam(-1);
+  if (el.mNext) el.mNext.onclick = () => stepCam(1);
   el.mLink.onclick = () => {
     if (!activeId) return;
     const url = `${location.origin}${location.pathname}?cam=${encodeURIComponent(activeId)}`;
@@ -1468,6 +1555,7 @@ function wireUI() {
     ensureBuildings();
   };
   $("#btn-home").onclick = () => map.flyTo({ center: [10, 20], zoom: 1.55, pitch: 0, bearing: 0, duration: 2500, essential: true });
+  $("#btn-near-me").onclick = nearMe;
   $("#btn-context-view").onclick = toggleContextView;
   $("#btn-sensor-mode").onclick = () => {
     const next = (SENSOR_MODES.indexOf(currentSensorMode) + 1) % SENSOR_MODES.length;
@@ -1725,6 +1813,12 @@ async function initMap() {
     if (b) {
       const t = document.querySelector(b.dataset.do);
       if (t) t.click();
+      $("#fab-sheet").classList.add("hidden");
+      return;
+    }
+    const opener = e2.target.closest("button[data-open]");
+    if (opener && opener.dataset.open === "shortcuts" && typeof Palette !== "undefined") {
+      Palette.openHelp();
       $("#fab-sheet").classList.add("hidden");
     }
   });

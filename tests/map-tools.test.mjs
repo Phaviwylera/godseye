@@ -33,7 +33,7 @@ const TOOL_IDS = [
   // WEATHER & SPACE
   "btn-radar", "btn-iss", "btn-satellites", "btn-iss-passes",
   // MAP
-  "btn-sync", "btn-share-scene", "btn-home", "btn-context-view",
+  "btn-sync", "btn-share-scene", "btn-near-me", "btn-home", "btn-context-view",
 ];
 
 test('every control lives inside the Map tools panel', () => {

@@ -458,7 +458,27 @@ half-world.
  🚩 **OFAC cross-check** | Treasury SDN list flags on ship (IMO/name) and aircraft (registration) popups, always labelled by matched field, name matches carry a verify-IMO caution |
  ☄ **ISS passes** | next visible station passes over the view centre, SGP4 from the CelesTrak snapshot, epoch-stated, stale-warned |
  🔎 **Universal search** | the search box matches vessels, aircraft and open markets on the map before falling back to place geocoding |
+ ⌘ **Command palette** | `Ctrl/⌘ K` or `/` searches every map control, active layer, saved position, indexed feed and `lat, lon` target |
+ ◎ **NEAR ME** | browser geolocation on demand only, applied to the map and never stored or sent |
+ ‹ › **Feed paging** | previous/next feed buttons and `←`/`→` while the player is open, following the current filtered list |
  🔌 **Infrastructure snapshots** | `tools/build_infra.py` / `build_conflict.py` / `build_companies.py` / `build_countries.py` / `build_ofac.py` / `build_country_centroids.py` build every static dataset behind these layers; the `refresh-*` actions keep them current |
+
+## ⌨️ Getting around
+
+The globe is dense by design, so three surfaces keep it navigable without moving
+controls back over the map:
+
+* **Command palette** — `Ctrl/⌘ K` (or `/`) searches every map-tool control,
+  active layer state, saved position and indexed feed, plus `lat, lon` targets.
+  Commands invoke the same buttons as the panel, so the palette cannot drift
+  from the real handlers.
+* **Keyboard sheet** — `?` lists the shortcuts. `M` toggles map tools, `G`
+  switches global view, `0`–`5` pick a sensor look, and `←`/`→` page through the
+  current feed list while the player is open. `Esc` closes the topmost surface.
+* **NEAR ME** — asks the browser for a location only when pressed, then centres
+  the map. The coordinate is never stored, put in a URL, or sent anywhere.
+* **Compact / reduced motion** — palette commands persist a denser registry and
+  a no-animation mode on this browser only.
 
 ## 🗺️ Camera sources (all publicly published by agencies)
 
