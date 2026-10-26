@@ -1433,6 +1433,8 @@ function wireUI() {
       Transit.restore();
       Airports.restore();
       Events.restore();
+      Hazards.restore();
+      Outages.restore();
       Markets.restore();
       Infra.restore();
       News.restore();
@@ -1540,6 +1542,8 @@ function wireUI() {
     }
   };
   $("#events-chip").onclick = () => Events.openList();
+  $("#hazards-chip").onclick = () => Hazards.openList();
+  $("#outages-chip").onclick = () => Outages.openList();
   $("#btn-markets").onclick = async (e) => {
     try {
       e.target.classList.toggle("active", await Markets.toggle());
@@ -1574,7 +1578,8 @@ function wireUI() {
       console.warn("news layer unavailable", error);
     }
   };
-  for (const [btn, layer, label] of [["#btn-conflict", Conflict, "conflict"], ["#btn-companies", Companies, "companies"]]) {
+  for (const [btn, layer, label] of [["#btn-conflict", Conflict, "conflict"], ["#btn-companies", Companies, "companies"],
+    ["#btn-hazards", Hazards, "hazards"], ["#btn-outages", Outages, "outages"]]) {
     $(btn).onclick = async (e) => {
       try {
         e.target.classList.toggle("active", await layer.toggle());
@@ -1817,6 +1822,8 @@ function tickClock() {
     Transit.init(map);
     Airports.init(map);
     Events.init(map);
+    Hazards.init(map);
+    Outages.init(map);
     Markets.init(map);
     Infra.init(map);
     News.init(map);

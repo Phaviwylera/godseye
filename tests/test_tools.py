@@ -902,6 +902,76 @@ class TestBuildCountries(unittest.TestCase):
             self.assertEqual(rc, 5)
 
 
+class TestBuildCountryCentroids(unittest.TestCase):
+    """mledoze/countries -> data/country-centroids.json (offline fixture)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cen = load_module("build_country_centroids",
+                              os.path.join(ROOT, "tools", "build_country_centroids.py"))
+
+    @staticmethod
+    def _fixture(n=210):
+        rows = []
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        for i in range(n):
+            code = letters[i // 26] + letters[i % 26]
+            rows.append({"cca2": code, "name": {"common": f"Country {i}"},
+                         "latlng": [((i % 160) - 80) + 0.5, ((i % 340) - 170) + 0.5]})
+        rows += [
+            {"cca2": "USA", "name": {"common": "Too long"}, "latlng": [1, 1]},
+            {"cca2": "Q1", "name": {"common": "Digit"}, "latlng": [1, 1]},
+            {"cca2": "ZZ", "name": {"common": "Null coords"}, "latlng": None},
+            {"cca2": "ZY", "name": {"common": "Out of range"}, "latlng": [95, 0]},
+            {"cca2": "ZX", "name": {"common": "Placeholder"}, "latlng": [0, 0]},
+        ]
+        return rows
+
+    def test_parse_keeps_only_real_iso_countries_with_valid_centres(self):
+        out = self.cen.parse_centroids(self._fixture())
+        self.assertEqual(len(out), 210)
+        self.assertEqual(out["AA"]["name"], "Country 0")
+        self.assertTrue(-90 <= out["AA"]["lat"] <= 90)
+        for bad in ("USA", "Q1", "ZZ", "ZY", "ZX"):
+            self.assertNotIn(bad, out)
+
+    def test_parse_rejects_non_list(self):
+        with self.assertRaises(ValueError):
+            self.cen.parse_centroids({"not": "a list"})
+
+    def test_main_offline_via_file_url(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            src_path = os.path.join(td, "countries.json")
+            out_path = os.path.join(td, "centroids.json")
+            json.dump(self._fixture(), open(src_path, "w", encoding="utf-8"))
+            old_argv = sys.argv
+            sys.argv = ["build_country_centroids", "--url", "file://" + src_path, "--out", out_path]
+            try:
+                rc = self.cen.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 0)
+            doc = json.load(open(out_path, encoding="utf-8"))
+            self.assertEqual(doc["count"], 210)
+            self.assertIn("ODbL", doc["source"])
+            self.assertEqual(doc["centroids"]["AA"]["name"], "Country 0")
+
+    def test_main_refuses_below_floor(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            src_path = os.path.join(td, "countries.json")
+            json.dump(self._fixture(50), open(src_path, "w", encoding="utf-8"))
+            old_argv = sys.argv
+            sys.argv = ["build_country_centroids", "--url", "file://" + src_path,
+                        "--out", os.path.join(td, "centroids.json")]
+            try:
+                rc = self.cen.main()
+            finally:
+                sys.argv = old_argv
+            self.assertEqual(rc, 5)
+
+
 class TestBuildInfra(unittest.TestCase):
     """Static infrastructure datasets (OSM volcanoes/plants/harbours, open cable map)."""
 

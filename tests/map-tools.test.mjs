@@ -29,6 +29,7 @@ const TOOL_IDS = [
   "btn-air", "btn-vessels", "btn-transit", "btn-airports", "btn-quakes",
   // WORLD LAYERS
   "btn-events", "btn-news", "btn-conflict", "btn-markets", "btn-infra", "btn-companies", "btn-countries",
+  "btn-hazards", "btn-outages",
   // WEATHER & SPACE
   "btn-radar", "btn-iss", "btn-satellites", "btn-iss-passes",
   // MAP
@@ -54,7 +55,7 @@ test('the panel is grouped by purpose, one section per job', () => {
   for (const id of ["btn-air", "btn-vessels", "btn-transit", "btn-airports", "btn-quakes"]) {
     assert.ok(inGroup("live").includes(`id="${id}"`), `${id} belongs to LIVE LAYERS`);
   }
-  for (const id of ["btn-events", "btn-markets", "btn-infra", "btn-news", "btn-conflict", "btn-companies", "btn-countries"]) {
+  for (const id of ["btn-events", "btn-markets", "btn-infra", "btn-news", "btn-conflict", "btn-companies", "btn-countries", "btn-hazards", "btn-outages"]) {
     assert.ok(inGroup("world").includes(`id="${id}"`), `${id} belongs to WORLD LAYERS`);
   }
   for (const id of ["btn-radar", "btn-iss", "btn-satellites", "btn-iss-passes"]) {
@@ -95,7 +96,7 @@ test('the collapsed chip counts live layers, not view settings', () => {
   const panels = panelHtml;
   for (const id of ["btn-air", "btn-vessels", "btn-transit", "btn-airports", "btn-quakes",
     "btn-events", "btn-news", "btn-conflict", "btn-markets", "btn-infra", "btn-companies",
-    "btn-countries", "btn-radar", "btn-iss", "btn-satellites", "btn-iss-passes"]) {
+    "btn-countries", "btn-hazards", "btn-outages", "btn-radar", "btn-iss", "btn-satellites", "btn-iss-passes"]) {
     assert.match(panels, new RegExp(`<button id="${id}" data-layer`), `${id} must be marked data-layer`);
   }
   for (const id of ["btn-terrain", "btn-fx", "btn-night", "btn-buildings", "btn-sensor-mode", "btn-sync"]) {

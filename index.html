@@ -210,6 +210,10 @@
         <button id="btn-conflict" data-layer title="UCDP/PRIO GED conflict events, last 180 days, geolocated">☒ CONFLICT</button>
       </div>
       <div class="btn-group">
+        <button id="btn-hazards" data-layer title="Global disaster alerts from GDACS (earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis)">⚠ HAZARDS</button>
+        <button id="btn-outages" data-layer title="Country-level internet outage alerts from IODA (Georgia Tech), last 24 hours">⌁ OUTAGES</button>
+      </div>
+      <div class="btn-group">
         <button id="btn-markets" data-layer title="Live Polymarket prediction markets by 24 h volume, pinned where place-bound">⊙ MARKETS</button>
         <button id="btn-infra" data-layer title="Named power plants and harbours (OSM) + open submarine-cable routes">⬡ INFRA</button>
         <button id="btn-companies" data-layer title="HQs of a curated large-cap sample (Nominatim geocoded), quote link-out">▣ COMPANIES</button>
@@ -260,6 +264,8 @@
         <span id="sat-chip" class="hidden" aria-live="polite">SATELLITES</span>
         <span id="quake-chip" class="hidden" aria-live="polite">QUAKES</span>
         <span id="events-chip" class="hidden" aria-live="polite">EVENTS</span>
+        <span id="hazards-chip" class="hidden" aria-live="polite">HAZARDS</span>
+        <span id="outages-chip" class="hidden" aria-live="polite">OUTAGES</span>
         <span id="markets-chip" class="hidden" aria-live="polite">MARKETS</span>
         <span id="infra-chip" class="hidden" aria-live="polite">INFRA</span>
         <span id="news-chip" class="hidden" aria-live="polite">NEWS</span>
@@ -412,6 +418,8 @@
     <button data-do="#btn-airports">◇ AIRPORTS</button>
     <button data-do="#btn-quakes">◇ QUAKES</button>
     <button data-do="#btn-events">⌁ EVENTS</button>
+    <button data-do="#btn-hazards">⚠ HAZARDS</button>
+    <button data-do="#btn-outages">⌁ OUTAGES</button>
     <button data-do="#btn-markets">⊙ MARKETS</button>
     <button data-do="#btn-infra">⬡ INFRA</button>
     <button data-do="#btn-news">◈ NEWS</button>
@@ -475,6 +483,8 @@
 <script src="js/airports.js"></script>
 <script src="js/intel.js"></script>
 <script src="js/events.js"></script>
+<script src="js/hazards.js"></script>
+<script src="js/outages.js"></script>
 <script src="js/markets.js"></script>
 <script src="js/infra.js"></script>
 <script src="js/news.js"></script>
