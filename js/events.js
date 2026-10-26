@@ -219,6 +219,7 @@ const Events = (() => {
       <div class="ev-q">${esc(s.event)}</div>
       <div class="ev-row"><b>${esc(s.severity)}</b> · issued ${esc((s.issued || "").slice(0, 16).replace("T", " "))}</div>
       <div class="ev-row dim">${esc(s.headline)}</div>
+      ${typeof Context !== "undefined" ? Context.buttonHTML(s.lat, s.lon, s.event) : ""}
       <div class="ev-row dim">Source: NOAA/NWS active alerts (US coverage)</div>
     </div>`;
   }
@@ -239,6 +240,7 @@ const Events = (() => {
       <div class="ev-q">Fire hotspot</div>
       <div class="ev-row">brightness temp ${f.bright.toFixed(1)} K${conf ? " · confidence " + conf : ""}${f.frp != null ? " · FRP " + f.frp.toFixed(1) + " MW" : ""}</div>
       <div class="ev-row">${[when, f.daynight === "D" ? "daytime" : f.daynight === "N" ? "night-time" : "", sensor].filter(Boolean).join(" · ")}</div>
+      ${typeof Context !== "undefined" ? Context.buttonHTML(f.lat, f.lon, "Fire hotspot") : ""}
       <div class="ev-row dim">NASA FIRMS satellite detection (VIIRS NOAA-21 NRT, last day). A thermal signal — not always a wildfire.</div>
     </div>`;
   }

@@ -110,6 +110,7 @@ const Hazards = (() => {
       ${dates ? `<div class="ev-row">${esc(dates)}${h.current ? "" : " · ended"}</div>` : ""}
       ${h.description ? `<div class="ev-row dim">${esc(h.description)}</div>` : ""}
       ${link}
+      ${typeof Context !== "undefined" ? Context.buttonHTML(h.lat, h.lon, h.name) : ""}
       <div class="ev-row dim">Source: GDACS (European Commission JRC / UN OCHA). Alert level is the publisher's.</div>
     </div>`;
   }

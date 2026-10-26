@@ -398,6 +398,17 @@ forecast times. Values are never interpolated or smoothed into new positions, an
 the layer says "unavailable" rather than drawing a remembered oval when SWPC is
 unreachable. Refreshes every 15 minutes.
 
+**⌖ AREA CONTEXT** (`js/context.js`) — right-click any point, press **SCAN AREA**
+in MAP, or use **AREA CONTEXT** on a hazard, storm, fire, conflict, news or
+earthquake card. The panel is a read-only join over what is already loaded:
+the bundled public-camera catalogue plus whichever live layers are on (GDACS,
+USGS, NWS, NASA FIRMS, UCDP, GDELT, ADS-B, AIS), within 25, 100 or 250 km.
+It fetches nothing, interpolates nothing and does not reverse-geocode; each
+row carries the geodesic distance to the publisher's own point, and a layer
+that is off is named as off rather than drawn as an empty region. **COPY
+BRIEF** writes the same facts as a plain-text situation summary for a report.
+The caveat is explicit: a camera near a fire is not a camera aimed at it.
+
 **▣ COMPANIES** (`js/companies.js`) — headquarters of a curated large-cap sample
 (`data/companies-seed.json`: 66 exchange-listed companies with tickers) geocoded via
 OSM Nominatim by `tools/build_companies.py` into `data/companies.json` (monthly via
@@ -464,6 +475,7 @@ half-world.
  ⚠ **HAZARDS layer** | global GDACS disaster alerts (earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis) with the publisher's alert level and report link |
  ⌁ **OUTAGES layer** | country-level IODA internet outage alerts (last 24 h), placed at approximate national centres, labelled as a signal not an outage confirmation |
  ✦ **AURORA layer** | NOAA SWPC OVATION aurora probability on the publisher's own 2° grid + planetary K index and G-scale band; no interpolated ovals |
+| ⌖ **AREA CONTEXT** | right-click the map (or **SCAN AREA**) for public cameras, active hazards, USGS quakes, storms, fires, conflict events, geolocated news, live aircraft and ships around that point, at 25/100/250 km; reads only layers already on screen, states distance and degrades to "layer is off" instead of an empty world; **COPY BRIEF** exports the same facts as plain text |
  ▣ **COMPANIES layer** | HQs of a curated 66-company large-cap sample (Nominatim geocoded); quote link-out, no fetched prices, no invented coordinates |
  ⊞ **COUNTRY cards** | clickable admin-0 boundaries + ten World Bank indicators per country (latest year per figure, no interpolation), through a 1 h-cached keyless relay |
  🚩 **OFAC cross-check** | Treasury SDN list flags on ship (IMO/name) and aircraft (registration) popups, always labelled by matched field, name matches carry a verify-IMO caution |

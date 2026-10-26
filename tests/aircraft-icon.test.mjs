@@ -39,7 +39,9 @@ test('aircraft uses a visible custom sprite even when a base style has a plane i
   assert.ok(strokes.includes('#e6fff8'));
   assert.equal(layers.get('air-dots').layout['icon-image'], 'ge-aircraft-teal-v3');
   // Fleet planes must stay compact at globe zoom so they don't cover the map.
+  // "zoom" may only feed a top-level interpolate/step, so the tracked case is
+  // an output stop - wrapping the interpolation in "case" fails validation.
   assert.equal(JSON.stringify(layers.get('air-dots').layout['icon-size']),
-    '["case",["get","tracked"],1.15,["interpolate",["linear"],["zoom"],3,0.55,8,0.7,12,0.95]]');
+    '["interpolate",["linear"],["zoom"],3,["case",["get","tracked"],1.15,0.55],8,["case",["get","tracked"],1.15,0.7],12,["case",["get","tracked"],1.15,0.95]]');
   assert.equal(Intel.toggleAir(), false);
 });

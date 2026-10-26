@@ -244,6 +244,7 @@
       <div class="btn-group">
         <button id="btn-sync">⟳ SYNC</button>
         <button id="btn-share-scene" title="Copy link to this map view">↗ SHARE VIEW</button>
+        <button id="btn-context-scan" type="button" title="Cameras, live aircraft, ships and active events around the map centre">SCAN AREA</button>
         <button id="btn-near-me" type="button" title="Centre the map on your current location (asked once, this browser only)">◎ NEAR ME</button>
         <button id="btn-home">◎ WORLD</button>
         <button id="btn-context-view" type="button" aria-pressed="false" title="Save this view and open global context (G)">◎ GLOBAL VIEW</button>
@@ -371,6 +372,28 @@
   </div>
 </div>
 
+<!-- point context: public data around any point -->
+<div id="context-modal" class="hidden">
+  <div class="iss-box ctx-box">
+    <div class="modal-head">
+      <span class="modal-kicker">POINT // CONTEXT</span>
+      <div class="modal-title" id="context-title">AREA CONTEXT</div>
+      <button id="context-close" type="button" title="Close">✕</button>
+    </div>
+    <div class="modal-meta"><span id="context-meta">—</span></div>
+    <div class="ctx-radius" role="group" aria-label="Search radius">
+      <button type="button" data-ctx-radius="25">25 KM</button>
+      <button type="button" data-ctx-radius="100" class="active">100 KM</button>
+      <button type="button" data-ctx-radius="250">250 KM</button>
+      <button type="button" id="context-copy" title="Copy this brief as plain text">COPY BRIEF</button>
+    </div>
+    <div id="context-body" class="iss-body ctx-body"></div>
+    <div class="modal-foot">
+      <span>Publisher positions · geodesic distance · layers that are off are named, not faked</span>
+    </div>
+  </div>
+</div>
+
 <!-- ISS passes -->
 <div id="iss-modal" class="hidden">
   <div class="iss-box">
@@ -445,6 +468,7 @@
     <button data-do="#btn-buildings">BLDGS</button>
     <button data-do="#btn-sync">⟳ SYNC</button>
     <button data-do="#btn-share-scene">↗ SHARE VIEW</button>
+    <button data-do="#btn-context-scan">SCAN AREA</button>
     <button data-do="#btn-near-me">◎ NEAR ME</button>
     <button data-do="#btn-home">◎ WORLD</button>
     <button data-do="#btn-sensor-mode">◌ SENSOR</button>
@@ -556,6 +580,7 @@
 <script src="js/conflict.js"></script>
 <script src="js/companies.js"></script>
 <script src="js/countries.js"></script>
+<script src="js/context.js"></script>
 <script src="js/players.js"></script>
 <script src="js/app.js"></script>
 <script src="js/map-tools.js"></script>

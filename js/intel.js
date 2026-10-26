@@ -15,7 +15,7 @@ const Intel = (() => {
     airLast: 0,
     airScope: "nearby",
     airPopup: null,
-    quakes: false, quakesTimer: null, quakesLoading: false,
+    quakes: false, quakesTimer: null, quakesLoading: false, quakeFeatures: [],
   };
 
   /* How long one aircraft answer is shared site-wide by the relay. The provider rate-limits by
@@ -589,8 +589,13 @@ const Intel = (() => {
           "icon-image": "ge-aircraft-teal-v3",
           // Keep planes compact so they never blanket the map: small on the
           // globe, growing gradually as the user zooms in.
-          "icon-size": ["case", ["get", "tracked"], 1.15,
-            ["interpolate", ["linear"], ["zoom"], 3, 0.55, 8, 0.7, 12, 0.95]],
+          // MapLibre only permits "zoom" as the input of a top-level
+          // interpolate/step, so the tracked-case lives in each stop rather
+          // than wrapping the interpolation (which fails layer validation).
+          "icon-size": ["interpolate", ["linear"], ["zoom"],
+            3, ["case", ["get", "tracked"], 1.15, 0.55],
+            8, ["case", ["get", "tracked"], 1.15, 0.7],
+            12, ["case", ["get", "tracked"], 1.15, 0.95]],
           "icon-rotate": ["get", "track"], "icon-rotation-alignment": "map",
           "icon-allow-overlap": true, "icon-padding": 1,
         },
@@ -1049,6 +1054,7 @@ const Intel = (() => {
       const source = map.getSource("quakes");
       if (!source) throw new Error("Earthquake map layer is unavailable");
       source.setData(data);
+      state.quakeFeatures = data.features;
       if (chip) {
         chip.textContent = `◇ ${data.features.length} QUAKES · ${new Date().toISOString().slice(11, 16)}Z`;
         chip.title = "USGS earthquakes of magnitude 2.5 or greater in the past 24 hours; refreshes every 5 minutes.";
@@ -1116,6 +1122,11 @@ const Intel = (() => {
           link.textContent = "USGS event details ↗";
           content.appendChild(link);
         }
+        const contextSlot = document.createElement("div");
+        contextSlot.innerHTML = typeof Context !== "undefined"
+          ? Context.buttonHTML(coordinates[1], coordinates[0], properties.place || "Earthquake")
+          : "";
+        if (contextSlot.firstChild) content.appendChild(contextSlot.firstChild);
         new maplibregl.Popup({ closeButton: true, maxWidth: "300px" })
           .setLngLat(coordinates)
           .setDOMContent(content)

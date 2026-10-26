@@ -35,6 +35,7 @@ const Conflict = (() => {
     return `<div class="ev-card"><div class="ev-q">${esc(country || "Unknown country")}${region ? " · " + esc(region) : ""}</div>
       <div class="ev-row">${esc(d)} · ${esc(kindOf(ev))}${kills ? " · " + kills + " reported killed" : " · no reported deaths"}</div>
       ${place ? `<div class="ev-row">${esc(place)}</div>` : ""}
+      ${typeof Context !== "undefined" ? Context.buttonHTML(ev[2], ev[1], country || "Conflict event") : ""}
       <div class="ev-row dim">UCDP/PRIO GED · classification by the dataset, not by godseye</div></div>`;
   }
 

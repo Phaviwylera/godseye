@@ -1985,7 +1985,7 @@ async function initMap() {
     terrainApplied = null;
     try { map.setProjection({ type: "globe" }); } catch (e) {}
     try {
-      map.setSky && map.setSky({ skyColor: "#010508", horizonColor: "#071722", fogColor: "#06131c" });
+      map.setSky && map.setSky({ "sky-color": "#010508", "horizon-color": "#071722", "fog-color": "#06131c" });
     } catch (e) {}
     ensureTerrain();
     ensureBuildings();
@@ -2160,6 +2160,7 @@ function tickClock() {
     Conflict.init(map);
     Companies.init(map);
     Countries.init(map);
+Context.init(map);
   } catch (error) {
     await startCameraListFallback(error);
   }

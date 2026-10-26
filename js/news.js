@@ -111,6 +111,7 @@ const News = (() => {
       const age = ageLabel(p.date, Date.now());
       const link = safeLink(p.url);
       const html = `<div class="ev-card"><div class="ev-q">${esc(p.title)}</div>
+        ${typeof Context !== "undefined" ? Context.buttonHTML(f.geometry.coordinates[1], f.geometry.coordinates[0], p.title) : ""}
         <div class="ev-row">severity ${p.sev}/10 · ${esc(p.sevlabel)}${age ? " · " + esc(age) : ""}</div>
         ${link ? `<div class="ev-row"><a href="${link}" target="_blank" rel="noopener noreferrer">source article ↗</a></div>` : ""}
         <div class="ev-row dim">GDELT DOC 2.0 geolocated world news · headline keyword score, not an editorial verdict</div></div>`;
