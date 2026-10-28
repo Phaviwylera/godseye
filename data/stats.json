@@ -66,9 +66,9 @@
     ]
   },
   "argus": {
-    "cams": 4071,
+    "cams": 4072,
     "m3u8": 1929,
-    "image": 2142,
+    "image": 2143,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -241,9 +241,9 @@
     ]
   },
   "fi": {
-    "cams": 808,
+    "cams": 809,
     "m3u8": 0,
-    "image": 808,
+    "image": 809,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -251,9 +251,9 @@
     ]
   },
   "ltc": {
-    "cams": 1948,
+    "cams": 2181,
     "m3u8": 0,
-    "image": 1948,
+    "image": 2181,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -264,6 +264,7 @@
       "US/CA",
       "US/CO",
       "US/FL",
+      "US/GA",
       "US/HI",
       "US/IA",
       "US/ID",
