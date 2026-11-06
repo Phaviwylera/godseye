@@ -81,9 +81,9 @@
     ]
   },
   "argus": {
-    "cams": 4458,
+    "cams": 4461,
     "m3u8": 2314,
-    "image": 2144,
+    "image": 2147,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -249,19 +249,19 @@
     ]
   },
   "sg": {
-    "cams": 7,
+    "cams": 6,
     "m3u8": 0,
     "image": 0,
     "embed": 0,
-    "dynamic": 7,
+    "dynamic": 6,
     "regions": [
       "SG/Singapore"
     ]
   },
   "fi": {
-    "cams": 809,
+    "cams": 807,
     "m3u8": 0,
-    "image": 809,
+    "image": 807,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -269,9 +269,9 @@
     ]
   },
   "ltc": {
-    "cams": 2245,
+    "cams": 2018,
     "m3u8": 0,
-    "image": 2245,
+    "image": 2018,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -290,7 +290,6 @@
       "US/IN",
       "US/KS",
       "US/MA",
-      "US/MN",
       "US/MO",
       "US/MS",
       "US/MT",
