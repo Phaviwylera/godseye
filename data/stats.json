@@ -269,9 +269,9 @@
     ]
   },
   "ltc": {
-    "cams": 2213,
+    "cams": 1999,
     "m3u8": 0,
-    "image": 2213,
+    "image": 1999,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -299,7 +299,6 @@
       "US/NJ",
       "US/NM",
       "US/NV",
-      "US/NY",
       "US/OR",
       "US/PA",
       "US/SC",
