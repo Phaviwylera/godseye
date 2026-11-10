@@ -259,56 +259,13 @@
     ]
   },
   "fi": {
-    "cams": 808,
+    "cams": 807,
     "m3u8": 0,
-    "image": 808,
+    "image": 807,
     "embed": 0,
     "dynamic": 0,
     "regions": [
       "FI/None"
-    ]
-  },
-  "ltc": {
-    "cams": 1999,
-    "m3u8": 0,
-    "image": 1999,
-    "embed": 0,
-    "dynamic": 0,
-    "regions": [
-      "US/AK",
-      "US/AL",
-      "US/AR",
-      "US/AZ",
-      "US/CA",
-      "US/CO",
-      "US/FL",
-      "US/GA",
-      "US/HI",
-      "US/IA",
-      "US/ID",
-      "US/IL",
-      "US/IN",
-      "US/KS",
-      "US/MA",
-      "US/MN",
-      "US/MO",
-      "US/MS",
-      "US/MT",
-      "US/NC",
-      "US/NE",
-      "US/NJ",
-      "US/NM",
-      "US/NV",
-      "US/OR",
-      "US/PA",
-      "US/SC",
-      "US/SD",
-      "US/TX",
-      "US/UT",
-      "US/VT",
-      "US/WA",
-      "US/WI",
-      "US/WY"
     ]
   }
 }
