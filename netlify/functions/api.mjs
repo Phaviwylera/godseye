@@ -24,7 +24,12 @@ function rateOK(ip) {
   if (arr.length >= 300) return false; // 300 relayed requests / minute / IP (HLS playback needs it)
   arr.push(now);
   HITS.set(ip, arr);
-  if (HITS.size > 5000) HITS.clear();
+  if (HITS.size > 5000) {
+    for (const [key, hits] of HITS) {
+      if (!hits.length || now - hits[hits.length - 1] >= 60000) HITS.delete(key);
+    }
+    while (HITS.size > 5000) HITS.delete(HITS.keys().next().value);
+  }
   return true;
 }
 function siteOK(headers) {
@@ -593,18 +598,24 @@ export async function handler(event) {
   if (path.includes('/worldbank')) {
     return worldbankRoute(String(params.cc || "").toUpperCase());
   }
+  if (path.includes('/transit/delhi-dtc')) {
+    /* Credentials stay server-side; the browser receives only the protobuf payload. */
+    const key = String(process.env.DELHI_OTD_KEY || '').trim();
+    if (!key) return { statusCode: 501, headers: { ...CORS, 'Cache-Control': 'no-store' },
+      body: JSON.stringify({ error: 'transit-key-pending', feed: 'delhi-dtc' }) };
+    const target = `https://otd.delhi.gov.in/api/realtime/VehiclePositions.pb?key=${encodeURIComponent(key)}`;
+    let upstream;
+    try { upstream = await fetchUpstream(target); }
+    catch { return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: 'transit-upstream-unavailable' }) }; }
+    if (upstream.failure) return { statusCode: upstream.failure.statusCode,
+      headers: { ...CORS, 'Cache-Control': 'no-store' }, body: upstream.failure.body };
+    return { statusCode: 200, headers: { ...CORS, 'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+      body: upstream.buf.toString('base64') };
+  }
   if (path.includes('/transit/keys')) {
-    /* Operator keys this deployment holds in its own environment, keyed by the feed id in
-     * data/transit.json that names them (`keyEnv`). Only configured ids are published, so the
-     * browser can use a key without the site having to ship it in a public file. */
-    const names = { 'delhi-dtc': 'DELHI_OTD_KEY' };
-    const keys = {};
-    for (const [feedId, envName] of Object.entries(names)) {
-      const value = String(process.env[envName] || '').trim();
-      if (value) keys[feedId] = value;
-    }
-    return { statusCode: 200, headers: { ...CORS, 'Content-Type': 'application/json',
-      'Cache-Control': 'no-store' }, body: JSON.stringify({ keys }) };
+    return { statusCode: 404, headers: { ...CORS, 'Cache-Control': 'no-store' },
+      body: JSON.stringify({ error: 'not-found' }) };
   }
   if (path.includes('/transit/seoul')) {
     if (!seoulBatchRateOK(ip)) {
