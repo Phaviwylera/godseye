@@ -80,3 +80,32 @@ test('OpenSky OAuth credentials stay in the Function and are attached only to Op
     resetOpenSkyAuthForTest();
   }
 });
+
+
+test('private transit route requires server-side configuration and does not return credentials', async () => {
+  const oldKey = process.env.DELHI_OTD_KEY;
+  try {
+    delete process.env.DELHI_OTD_KEY;
+    const response = await handler({ httpMethod: 'GET', headers: {}, path: '/api/transit/delhi-dtc',
+      queryStringParameters: {} });
+    assert.equal(response.statusCode, 501);
+    assert.doesNotMatch(response.body, /key=/i);
+  } finally {
+    if (oldKey === undefined) delete process.env.DELHI_OTD_KEY;
+    else process.env.DELHI_OTD_KEY = oldKey;
+  }
+});
+
+test('legacy transit key endpoint is disabled', async () => {
+  const oldKey = process.env.DELHI_OTD_KEY;
+  try {
+    process.env.DELHI_OTD_KEY = 'test-secret-never-return-this';
+    const response = await handler({ httpMethod: 'GET', headers: {}, path: '/api/transit/keys',
+      queryStringParameters: {} });
+    assert.equal(response.statusCode, 404);
+    assert.doesNotMatch(response.body, /test-secret-never-return-this/);
+  } finally {
+    if (oldKey === undefined) delete process.env.DELHI_OTD_KEY;
+    else process.env.DELHI_OTD_KEY = oldKey;
+  }
+});
