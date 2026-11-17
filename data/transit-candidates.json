@@ -3,7 +3,7 @@
   "source": "https://storage.googleapis.com/storage/v1/b/mdb-csv/o/sources.csv?alt=media",
   "sourceLicense": "Mobility Database catalogs (CC BY 4.0 for the catalog metadata)",
   "selected": 27,
-  "from": 3623,
+  "from": 3629,
   "columns": [
     "mdb_source_id",
     "data_type",
@@ -55,7 +55,7 @@
   },
   "unresolved": [],
   "counts": {
-    "rows": 3623,
+    "rows": 3629,
     "gtfsrt": 1080,
     "vehiclePositions": 403,
     "keyless": 250,
