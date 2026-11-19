@@ -1449,9 +1449,10 @@ const Transit = (() => {
   const decode = new Map();
 
   async function refreshGtfsrt(feed) {
-    await loadEnvKeys();
-    const targets = asArray(feed.endpoints && feed.endpoints.length ? feed.endpoints : [feed.base])
-      .map((target) => keyedEndpoint(feed, target));
+    /* Keyed feeds use fixed server-side routes; the browser never receives the key. */
+    const targets = feed.keyEnv
+      ? [`/api/transit/${encodeURIComponent(feed.id)}`]
+      : asArray(feed.endpoints && feed.endpoints.length ? feed.endpoints : [feed.base]);
     return budgetedSweep(feed, targets,
       (endpoint, now) => getBinary(endpoint, feed.cors).then((bytes) => {
         const report = {};
@@ -1501,29 +1502,6 @@ const Transit = (() => {
     return `HTTP ${response.status}${reason ? ` · ${reason}` : ''}`;
   }
 
-  /* Some operators hand out a free key that must not sit in a public file forever. The relay
-   * publishes the ones it holds server-side (Netlify env / local environment); a feed that
-   * names `keyEnv` uses that value when the relay has one and the registry URL otherwise.
-   * No relay at all — a static host with no functions — is not an error, it just leaves the
-   * registry's own URL in place. */
-  let envKeys = null;
-  async function loadEnvKeys() {
-    if (envKeys) return envKeys;
-    envKeys = {};
-    try {
-      const relay = await fetch('/api/transit/keys', { cache: 'no-store' });
-      if (relay.ok) envKeys = ((await relay.json()) || {}).keys || {};
-    } catch (e) { envKeys = {}; }
-    return envKeys;
-  }
-
-  function keyedEndpoint(feed, endpoint, keys) {
-    const table = keys || envKeys;
-    const key = table && table[feed.id];
-    if (!key || !feed.keyEnv) return String(endpoint);
-    return String(endpoint).replace(/([?&]key=)[^&]*/, `$1${encodeURIComponent(key)}`);
-  }
-
   async function getJson(url, direct, windowSec) {
     if (direct) {
       try {
@@ -1555,7 +1533,9 @@ const Transit = (() => {
   }
 
   async function getBinary(url, direct) {
-    const relay = await fetch(relayUrl(url, 0, true), { cache: 'no-store' });
+    const privateTransitRoute = /^\/api\/transit\/[a-z0-9-]+$/i.test(String(url));
+    const target = privateTransitRoute ? String(url) : relayUrl(url, 0, true);
+    const relay = await fetch(target, { cache: 'no-store' });
     if (!relay.ok) throw new Error(await relayWhy(relay));
     return bytesFromRelay(await relay.arrayBuffer());
   }
@@ -2324,6 +2304,6 @@ const Transit = (() => {
     parseOpendataChStationboard, parseIrailLiveboard, parseOpendataChConnection, parseIrailConnection,
     parseIrailStations, parseGtfsStatic, stationPoint, keepPerStation,
     pbFields, pbVarint, parseGtfsrtFeed,
-    quietWhy, clockHint, keyedEndpoint, bytesFromRelay, isRetired, retiredWhy, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
+    quietWhy, clockHint, bytesFromRelay, isRetired, retiredWhy, diagnostics: (id) => (id ? decode.get(id) : Object.fromEntries(decode)),
   };
 })();

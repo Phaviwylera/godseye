@@ -616,6 +616,18 @@ for a whole public feed).
 
 `stype`: `m3u8` (HLS video) · `image` (jpg snapshot endpoint) · `dynamic` (rotating URL) · `embed` (agency player page)
 
+## 🔐 Server-side credentials
+
+Operator credentials must never be committed to the public registry or returned to browser
+JavaScript. Keyed feeds are fetched through fixed server-side routes that read environment
+variables and keep credentials on the server.
+
+For Delhi's Open Transit Data feed, configure `DELHI_OTD_KEY` in the Netlify Functions
+environment (and in the local environment when running `server.py`). The public
+`data/transit.json` registry contains only the keyless upstream base URL. If a key was ever
+committed or published in a URL, treat it as compromised and rotate it with the operator;
+removing it from the current file does not erase Git history, caches, forks or logs.
+
 ## ⚖️ Ethics & legality — read this
 
 This project maps **only cameras that agencies deliberately publish to the
