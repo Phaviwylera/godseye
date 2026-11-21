@@ -259,9 +259,9 @@
     ]
   },
   "fi": {
-    "cams": 802,
+    "cams": 804,
     "m3u8": 0,
-    "image": 802,
+    "image": 804,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -269,9 +269,9 @@
     ]
   },
   "ltc": {
-    "cams": 2213,
+    "cams": 1976,
     "m3u8": 0,
-    "image": 2213,
+    "image": 1976,
     "embed": 0,
     "dynamic": 0,
     "regions": [
