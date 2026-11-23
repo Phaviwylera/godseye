@@ -269,9 +269,9 @@
     ]
   },
   "ltc": {
-    "cams": 2036,
+    "cams": 2130,
     "m3u8": 0,
-    "image": 2036,
+    "image": 2130,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -289,6 +289,7 @@
       "US/IL",
       "US/IN",
       "US/KS",
+      "US/MA",
       "US/MN",
       "US/MO",
       "US/MS",
