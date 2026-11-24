@@ -3,7 +3,7 @@
   "source": "https://storage.googleapis.com/storage/v1/b/mdb-csv/o/sources.csv?alt=media",
   "sourceLicense": "Mobility Database catalogs (CC BY 4.0 for the catalog metadata)",
   "selected": 27,
-  "from": 3629,
+  "from": 3667,
   "columns": [
     "mdb_source_id",
     "data_type",
@@ -55,16 +55,16 @@
   },
   "unresolved": [],
   "counts": {
-    "rows": 3629,
-    "gtfsrt": 1080,
-    "vehiclePositions": 403,
-    "keyless": 250,
-    "https": 198,
-    "novel": 176,
+    "rows": 3667,
+    "gtfsrt": 1087,
+    "vehiclePositions": 406,
+    "keyless": 252,
+    "https": 200,
+    "novel": 178,
     "unstable": 0,
-    "onePerHost": 96,
+    "onePerHost": 98,
     "byCountry": {
-      "XX": 94,
+      "XX": 96,
       "UNKNOWN": 2
     }
   },
@@ -436,15 +436,15 @@
     {
       "source": "Mobility Database catalogs CSV",
       "official": true,
-      "mdbId": "1910",
+      "mdbId": "3662",
       "country": "XX",
-      "city": "Santa Cruz Metro (SCMTD)",
+      "city": "STC Societ\u00e0 Trasporti Cerignola",
       "subdivision": "",
       "municipality": "",
-      "operator": "Santa Cruz Metro (SCMTD)",
-      "network": "Santa Cruz Metro (SCMTD) vehicle positions",
-      "base": "https://rt.scmetro.org/gtfsrt/vehicles",
-      "license": "https://scmtd.com/en/riders-guide/google-transit/gtfs-dev-data",
+      "operator": "STC Societ\u00e0 Trasporti Cerignola",
+      "network": "STC Societ\u00e0 Trasporti Cerignola vehicle positions",
+      "base": "https://zibus.superdriver.it/GTFSRT.WebApi/api/gtfs/VehiclePosition/binary",
+      "license": "https://creativecommons.org/licenses/by/4.0/",
       "catalogUrl": ""
     }
   ]
