@@ -81,9 +81,9 @@
     ]
   },
   "argus": {
-    "cams": 4460,
+    "cams": 4459,
     "m3u8": 2314,
-    "image": 2146,
+    "image": 2145,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -269,9 +269,9 @@
     ]
   },
   "ltc": {
-    "cams": 2049,
+    "cams": 2198,
     "m3u8": 0,
-    "image": 2049,
+    "image": 2198,
     "embed": 0,
     "dynamic": 0,
     "regions": [
@@ -289,6 +289,7 @@
       "US/IL",
       "US/IN",
       "US/KS",
+      "US/MA",
       "US/MN",
       "US/MO",
       "US/MS",
