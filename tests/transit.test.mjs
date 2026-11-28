@@ -410,3 +410,13 @@ test('a line with nothing running reports nothing, and a failing key says so', (
   assert.throws(() => Transit.parseSeoulPositions({ status: 500, code: 'ERROR-337' }, f, table, now, new Map()), /request limit|feed returned/);
   assert.throws(() => Transit.parseSeoulPositions({ errorMessage: { code: 'INFO-300' } }, f, table, now, new Map()), /request limit/);
 });
+
+
+test('Delhi keyed transit feed has no credential embedded in its public registry URL', () => {
+  const delhi = feed('delhi-dtc');
+  assert.ok(delhi);
+  assert.equal(delhi.keyEnv, 'DELHI_OTD_KEY');
+  assert.equal(new URL(delhi.base).searchParams.has('key'), false);
+  assert.match(delhi.base, /^https:\/\/otd\.delhi\.gov\.in\//);
+  assert.doesNotMatch(JSON.stringify(delhi), /[?&]key=[^&"]+/i);
+});

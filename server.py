@@ -217,20 +217,6 @@ SEOUL_WINDOW_SEC = 1500
 # the feed id in data/transit.json that names them (`keyEnv`). Only the ids present here are
 # published, so a key that has not been configured is not advertised as configured, and the
 # browser never has to ship one in a public file.
-TRANSIT_KEYS = {
-    "delhi-dtc": "DELHI_OTD_KEY",
-}
-
-
-def transit_keys():
-    keys = {}
-    for feed_id, env_name in TRANSIT_KEYS.items():
-        value = (os.environ.get(env_name) or "").strip()
-        if value:
-            keys[feed_id] = value
-    return keys
-
-
 def window_sec(value):
     try:
         n = int(float(value))
@@ -319,6 +305,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---- abuse protection: same-site check + per-IP rate limit ----
     _hits = {}
     _seoul_hits = {}
+    _hits_lock = threading.Lock()
 
     def _client_ok(self):
         host = (self.headers.get("Host") or "").split(":")[0]
@@ -334,13 +321,18 @@ class Handler(BaseHTTPRequestHandler):
             return False
         ip = self.client_address[0]
         now = time.time()
-        arr = [t for t in Handler._hits.get(ip, []) if now - t < 60]
-        if len(arr) >= 300:
-            return False
-        arr.append(now)
-        Handler._hits[ip] = arr
-        if len(Handler._hits) > 5000:
-            Handler._hits.clear()
+        with Handler._hits_lock:
+            arr = [t for t in Handler._hits.get(ip, []) if now - t < 60]
+            if len(arr) >= 300:
+                return False
+            arr.append(now)
+            Handler._hits[ip] = arr
+            if len(Handler._hits) > 5000:
+                for key, hits in list(Handler._hits.items()):
+                    if not hits or now - hits[-1] >= 60:
+                        Handler._hits.pop(key, None)
+                while len(Handler._hits) > 5000:
+                    Handler._hits.pop(next(iter(Handler._hits)), None)
         return True
 
     def _seoul_batch_ok(self):
@@ -396,8 +388,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "cross-site use not allowed / rate limit"}, 403)
         if path == "/api/proxy":
             return self.do_proxy(parse_qs(parsed.query).get("url", [""])[0])
+        if path == "/api/transit/delhi-dtc":
+            return self.do_transit_feed("delhi-dtc")
         if path == "/api/transit/keys":
-            return self._json({"keys": transit_keys()})
+            return self._json({"error": "not-found"}, 404)
         if path == "/api/transit/seoul":
             if not self._seoul_batch_ok():
                 return self._json({"error": "rate limit — slow down"}, 429)
@@ -569,6 +563,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
+
+    def do_transit_feed(self, feed_id):
+        """Fetch a configured operator feed without ever returning its credential."""
+        feeds = {
+            "delhi-dtc": ("DELHI_OTD_KEY",
+                "https://otd.delhi.gov.in/api/realtime/VehiclePositions.pb?key={}"),
+        }
+        config = feeds.get(feed_id)
+        if not config:
+            return self._json({"error": "unknown-transit-feed"}, 404)
+        env_name, template = config
+        key = (os.environ.get(env_name) or "").strip()
+        if not key:
+            return self._json({"error": "transit-key-pending", "feed": feed_id}, 501)
+        url = template.format(quote(key, safe=""))
+        try:
+            with open_checked(url, {"User-Agent": USER_AGENT,
+                                    "Accept": "application/x-protobuf"}, timeout=8) as upstream:
+                data = upstream.read(16 * 1024 * 1024 + 1)
+                ctype = upstream.headers.get("Content-Type", "application/octet-stream")
+            if len(data) > 16 * 1024 * 1024:
+                return self._json({"error": "source-too-large"}, 502)
+            return self._bytes(data, ctype, {"Cache-Control": "no-store",
+                                             "X-Content-Type-Options": "nosniff"})
+        except Exception:
+            return self._json({"error": "transit-upstream-unavailable"}, 502)
 
     def do_fires(self):
         """NASA FIRMS fire hotspots (world, last day) as CSV.
